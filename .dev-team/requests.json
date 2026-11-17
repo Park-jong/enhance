@@ -391,5 +391,26 @@
         "note": "우선순위 P2"
       }
     ]
+  },
+  {
+    "id": "REQ-014",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "테스트 페이지 소소한 개선 (확정 강화권 소모, 설정 플래그 주석)",
+    "detail": "test.html(강화 100%) QA 승인 시 남은 권장 사항. 1) chances()의 forceSuccess 분기가 확정 강화권 분기보다 앞에 있어도 확정 강화권이 켜져 있으면 테스트 모드에서 소모됨 → 강제 성공일 때는 소모하지 않도록. 2) SG.config(forceSuccess 등)는 테스트 페이지 전용이라는 주석 또는 문서 한 줄 추가(실제 페이지에서 설정 금지). 3) 100% 토글 상태 비저장, 다른 탭의 localStorage.clear()가 테스트 탭도 잠그는 동작은 현행 유지 가능.",
+    "priority": "P3",
+    "priorityReason": "테스트 전용 페이지의 편의·명확성 개선으로 실제 게임에 영향 없음",
+    "milestone": "M2 장기 플레이",
+    "status": "open",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
   }
 ]
