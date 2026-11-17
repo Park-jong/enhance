@@ -5,9 +5,16 @@
 (function (root, factory) {
   'use strict';
   const SG = root.SG = root.SG || {};
-  SG.C = factory();
+  // 실행 설정: 기본값 위에, 이 파일보다 먼저 로드된 페이지 전용 설정(SG.config — 예: js/test-mode.js)을 덮는다.
+  // saveKey·legacySaveKey는 여기서 한 번 상수로 굳고, forceSuccess는 실행 중에도 바꿀 수 있다(규칙이 호출 시점에 읽음).
+  SG.config = Object.assign({
+    saveKey: 'sword-enhance-v2',
+    legacySaveKey: 'sword-enhance-v1',   // null이면 v1 저장을 읽지 않는다(마이그레이션 없음)
+    forceSuccess: false,                  // true면 강화 성공 100% · 파괴 0% (테스트 페이지 전용)
+  }, SG.config);
+  SG.C = factory(SG.config);
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.C;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (config) {
   'use strict';
 
   // ---------------------------------------------------------------- M0
@@ -65,8 +72,8 @@
   const SELL_CONFIRM_MS = 2500;
 
   // ---------------------------------------------------------------- 1. 보관함 / 저장
-  const SAVE_KEY = 'sword-enhance-v2';
-  const SAVE_KEY_V1 = 'sword-enhance-v1';
+  const SAVE_KEY = config.saveKey;
+  const SAVE_KEY_V1 = config.legacySaveKey;
   const SLOT_START = 3;
   const SLOT_MAX = 8;
   const SLOT_EXPAND_COST = [3000, 10000, 30000, 80000, 200000];

@@ -225,7 +225,8 @@
       if (isObj(d)) return { state: normalize(d, now), source: 'v2' };
       return corruptV2Result(storage, raw2, now);
     }
-    const raw1 = read(storage, C.SAVE_KEY_V1);
+    // legacy 키가 없으면(null — 테스트 페이지) v1을 아예 읽지 않는다
+    const raw1 = C.SAVE_KEY_V1 ? read(storage, C.SAVE_KEY_V1) : null;
     if (raw1 !== null && raw1 !== undefined) {
       const d = parse(raw1);
       if (!isObj(d)) {

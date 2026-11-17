@@ -6,9 +6,9 @@
   'use strict';
   const SG = root.SG = root.SG || {};
   if (!SG.C && typeof require === 'function') require('./constants.js');
-  SG.rules = factory(SG.C);
+  SG.rules = factory(SG.C, SG.config);
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.rules;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (C) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, config) {
   'use strict';
 
   const MIN_MS = 60 * 1000;
@@ -32,11 +32,17 @@
   const rarity = l => C.RARITY.find(r => l >= r.min);
   const isUnlocked = (S, key) => S.best >= C.UNLOCK[key];
 
-  /** 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure } — m1-pity-cap §3 */
+  /**
+   * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure } — m1-pity-cap §3
+   * config.forceSuccess(테스트 페이지 설정)가 켜져 있으면 모든 단계·옵션에서 성공 100%. 강화 굴림은 모두 이 값을 따른다
+   */
   function chances(sword, opts) {
     const l = sword.lv;
     const o = opts || {};
     if (l >= C.MAX) return { succ: 0, dest: 0, fail: 0, base: 0, parts: null, raw: 0, bonus: 0, cap: 0, capped: false };
+    if (config.forceSuccess) {
+      return { succ: 100, dest: 0, fail: 0, base: C.RATE[l], parts: null, raw: 0, bonus: 0, cap: 0, capped: false, forced: true };
+    }
     if (o.sure && l < C.SURE_MAX_TARGET) {
       return { succ: 100, dest: 0, fail: 0, base: C.RATE[l], parts: null, raw: 0, bonus: 0, cap: 0, capped: false, sure: true };
     }
