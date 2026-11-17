@@ -64,7 +64,7 @@ function chances(sword, opts):            // opts: {bless, anvil, sure}
 
 ## 결정 사항 (사용자 확정, 2026-11-17)
 1. (해결, m1-balance) 합계 상한을 band별 배열 `BONUS_CAP = [20, 20, 14, 14]`로 확정. 절대 천장 90% 유지.
-2. 보호로 막은 파괴는 "실패"로 취급해 `pity`+1(수용 기준 8과 일치).
+2. 보호로 막은 파괴는 `pity`+1로 센다(수용 기준 8과 일치). 단 통계는 분리: `stats.protectSaved`+1이며 `stats.fail`에는 더하지 않는다(디렉터 확정, 코드 일치).
 
 ## 수용 기준 (Acceptance criteria)
 1. Given +15 검(`pity=0`), 보너스 없음 / Then 성공 20%, 파괴 `DESTROY[15]=25`, 실패 55.
@@ -72,9 +72,9 @@ function chances(sword, opts):            // opts: {bless, anvil, sure}
 3. Given `pity=10`, 축복 ON, `anvil_3` ON인 +15 / Then raw = 10+4+10 = 24, bonus=14(상한 `BONUS_CAP[3]`), 성공 34%, UI에 `상한` 뱃지.
 4. Given base 95%인 +0, 축복 ON / Then 성공 = `min(95+10, max(95, 90))` → 95%(천장이 base보다 낮아지지 않음).
 5. Given base 60%인 +7, 축복+철 모루+`pity` 최대(6) / Then raw 18 → 성공 78%(상한 20 미만, 천장 90 미만) → 78%.
-6. Given base 85%인 +2, 보너스 raw 20 / Then `min(105, max(85,90)) = 90%`.
+6. (공식 검증용 — 모루가 +5 미만에서 막혀 있어 실제 플레이에서는 발생하지 않음) Given base 85%인 +2, 보너스 raw 20 / Then `min(105, max(85,90)) = 90%`.
 7. Given 파괴율이 큰 +19(`DESTROY=33`, base 7) / When succ와 33의 합이 100을 넘지 않으면 / Then 파괴 33% 유지. 임의 입력에서 항상 `succ+dest+fail=100`이고 `dest ≥ 0`.
-8. Given 실패(유지/하락) / Then 해당 검 `pity`+1. 성공 / Then `pity=0`. 보호로 막은 파괴 / Then `pity`+1.
+8. Given 실패(유지/하락) / Then 해당 검 `pity`+1. 성공 / Then `pity=0`. 보호로 막은 파괴 / Then `pity`+1, `stats.protectSaved`+1이며 `stats.fail`은 증가하지 않는다(통계 분리).
 9. Given 하락(+12→+11) / Then `pity`는 유지되고 +11 밴드로 보너스 재계산.
 10. Given 검 A(`pity=4`) 파괴 / Then A와 함께 `pity` 소멸, 다른 검 `pity` 불변.
 11. Given `sure` 사용 시도 / Then 성공 100%, 상한/천장/보정과 무관, 성공 후 `pity=0`.

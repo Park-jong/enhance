@@ -33,6 +33,7 @@
 ## 3. 실패 보정 / 확률 상한
 | 이름 | 의미 | 확정값 | 문서 |
 | --- | --- | --- | --- |
+| `PITY_BAND_WIDTH` | 실패 보정·상한 band 폭: `band = min(3, ⌊l / PITY_BAND_WIDTH⌋)` | 5 | pc |
 | `PITY_STEP[band]` | 실패 1회당 보정 %p (band 0..3: +0~4, +5~9, +10~14, +15~19) | [1, 1, 2, 2] | pc |
 | `PITY_MAX[band]` | 보정 최대 %p | [5, 6, 8, 10] | pc |
 | `BONUS_CAP[band]` | 보너스 합계 상한 %p (bless+anvil+pity), band별 | **[20, 20, 14, 14]** (규칙: 단일값 → 배열) | pc |
@@ -49,7 +50,8 @@
 | `ANVIL_SHOP_PRICE` | 1등급 상점가 | **3000** (변경) | ao |
 | `ANVIL_OWN_MAX` | 모루 보유 한도 | 6 | ao |
 | `ORE_PER_HUNT` | 사냥당 광석(기대값) | **{iron: 2, silver: 1, mithril: 0.5}** (규칙: 소수부는 확률 지급, 오프라인은 기대값 내림) | ao |
-| `ORE_UNLOCK_LV` | 광석 해금 `best` | {silver: 7, mithril: 12} | ao |
+| `ANVIL_TOGGLE_MIN_LV` | 모루 토글·효과 최소 단계(활성 검이 이 미만이면 토글 비활성, 효과·내구도 소모 없음). 상점 철 모루 구매는 `best ≥ FORGE_UNLOCK_BEST` | 5 | ao/ov |
+| `ORE_UNLOCK_LV` | 광석 해금 `best` | {iron: 0, silver: 7, mithril: 12} | ao |
 | `ORE_MAX` | 광석 보유 상한 | 9999 | ao |
 
 ## 5. 의뢰
@@ -57,14 +59,19 @@
 | --- | --- | --- | --- |
 | `QUEST_UNLOCK_BEST` | 해금 `best` | 3 | q |
 | `QUEST_SLOTS` | 동시 의뢰 수 | 3 | q |
-| `QUEST_LV_EASY_DIV` | 쉬움 요구 단계 = `max(2, ⌊best/DIV⌋)` | 2 | q |
-| `QUEST_LV_NORMAL_OFFSET` | 보통 = `max(3, best-OFFSET)` | 3 | q |
-| `QUEST_LV_HARD_OFFSET` | 어려움 = `max(4, best-OFFSET)` | 1 | q |
+| `QUEST_LV_EASY_DIV` | 쉬움 요구 단계 = `max(QUEST_LV_MIN.easy, ⌊best/DIV⌋)` | 2 | q |
+| `QUEST_LV_NORMAL_OFFSET` | 보통 = `max(QUEST_LV_MIN.normal, best-OFFSET)` | 3 | q |
+| `QUEST_LV_HARD_OFFSET` | 어려움 = `max(QUEST_LV_MIN.hard, best-OFFSET)` | 1 | q |
+| `QUEST_LV_MIN[tier]` | 난이도별 요구 단계 하한 | {easy: 2, normal: 3, hard: 4} | q |
+| `QUEST_SHARD_MIN_LV` | 쉬움 파편 보상 = `shardGain(max(QUEST_SHARD_MIN_LV, lv))` | 5 | q |
+| `QUEST_FALLBACK_SHARD_ITEM` | 파편 가치가 없는 품목의 대체 기준 품목 | {booster: 'protect', seal: 'protect'} | q |
 | `QUEST_GOLD_MULT[tier]` | 골드 보상 = `sell(lv)×mult` | {easy: 1.3, normal: 1.5, hard: 1.8} | q |
 | `QUEST_ITEM_CHANCE[tier]` | 아이템 보상 확률 | {easy: 0.5, normal: 0.8, hard: 1.0} | q |
 | `QUEST_ITEM_POOL[tier]` | 보상 풀 | q §3 표 (변경 없음) | q |
 | `QUEST_COOLDOWN_SEC` | 납품 후 재생성 대기 | 300 | q |
-| `QUEST_REROLL_COST` | 새로고침 골드 | `max(200, 3 × cost(best))` | q |
+| `QUEST_REROLL_MIN` | 새로고침 비용 하한 | 200 | q |
+| `QUEST_REROLL_COST_MULT` | 새로고침 비용 배수 | 3 | q |
+| `QUEST_REROLL_COST` | 새로고침 골드 | `max(QUEST_REROLL_MIN, QUEST_REROLL_COST_MULT × cost(best))` | q |
 
 ## 6. 방치 / 연출 스킵
 > 수입 기준 검: 수동 사냥 `huntReward(topLv)`, 자동·오프라인 `autoReward(topLv)`. `topLv = max(swords[].lv)`(활성 여부와 무관, 헬퍼 `topLv()`). 신규 상수 없음, 아래 값 변경 없음(사용자 확정).
@@ -75,7 +82,8 @@
 | `AUTO_UNLOCK_BEST` | 자동 사냥 해금 `best` | 5 | idle |
 | `AUTO_CD_MS` | 자동 사냥 기본 간격 | 5000 | idle |
 | ~~`AUTO_REWARD_RATE`~~ | (폐지) | `AUTO_COST_RATIO`로 대체 | idle |
-| `AUTO_COST_RATIO` | 자동·오프라인 1회 보상 `autoReward(l) = max(10, round(AUTO_COST_RATIO × cost(l)))` | **0.1** (규칙: 신규 식) | idle/bal |
+| `AUTO_COST_RATIO` | 자동·오프라인 1회 보상 `autoReward(l) = max(AUTO_MIN, round(AUTO_COST_RATIO × cost(l)))` | **0.1** (규칙: 신규 식) | idle/bal |
+| `AUTO_MIN` | 자동·오프라인 1회 보상 하한(G) | 10 | idle |
 | `AUTO_CATCHUP_MAX` | 포그라운드 catch-up 최대 횟수 | 20 | idle |
 | `HUNT_CD` | 수동 사냥 쿨다운 | 2500 (M0) | idle |
 | `OFFLINE_CAP_H` | 오프라인 기본 상한 시간 | 8 | idle |
@@ -99,7 +107,9 @@
 | `PRICE.protect` | 파괴 보호권 | 4000 (M0) | cons |
 | `PRICE.keepdown` | 하락 방지 주문서 | **3000** (변경) | cons |
 | `PRICE.sure` | 확정 강화권 | **1500** (변경) | cons |
-| `PRICE.booster` → `boosterPrice(best)` | 골드 부스터(상점 구매 시 즉시 적용) | **`max(3000, round(BOOSTER_PRICE_HUNT_MULT × huntReward(best) / 100) × 100)`** (규칙) | cons |
+| `PRICE.booster` → `boosterPrice(best)` | 골드 부스터(상점 구매 시 즉시 적용) | **`max(BOOSTER_PRICE_MIN, round(BOOSTER_PRICE_HUNT_MULT × huntReward(best) / BOOSTER_PRICE_ROUND) × BOOSTER_PRICE_ROUND)`** (규칙, 100G 단위 반올림) | cons |
+| `BOOSTER_PRICE_MIN` | 부스터 최저가 | 3000 | cons/bal |
+| `BOOSTER_PRICE_ROUND` | 부스터 가격 반올림 단위(G) | 100 | cons/bal |
 | `BOOSTER_PRICE_HUNT_MULT` | 부스터 가격 배수 | **40** (신규) | cons/bal |
 | `PRICE.seal` | 감정 인장 | 2000 | cons |
 | `DROP_FROM` | 하락이 시작되는 단계(= `keepdown` 유효 시작) | 10 (M0) | cons |
@@ -116,6 +126,9 @@
 | `FORGE_UNLOCK_BEST` | 대장간 탭 해금 | 5 | ov |
 | `QUEST_UNLOCK_BEST` / `AUTO_UNLOCK_BEST` | 위 표 참조 | 3 / 5 | ov |
 | `BOOSTER_SEAL_UNLOCK_BEST` | `booster`·`seal` 상점 노출 | 5 | ov |
+
+## 구조 테이블 / M0 계수 포인터
+구조 테이블(`ORES`, `QUEST_TIERS`, `UPGRADES`, `CONSUMABLES`, `TRAY_TOGGLES`, `UNLOCK`, `ITEMS`, `SHOP_ITEMS`)과 M0 가격식 계수(`COST_BASE`, `COST_GROWTH`, `COST_MIN`, `SELL_BASE`, `SELL_GROWTH`, `HUNT_SELL_RATIO`, `HUNT_MIN`, `GOLD_ROUND` 등)는 `js/constants.js`가 기준(source of truth)이다. 이 문서에 복사하지 않는다.
 
 ## 확인 필요(밸런스 담당 전달) — 처리 결과
 - (해결) 고단계 방치 수입: 자동·오프라인 전용 식 `autoReward(l)` 도입(bal §3).

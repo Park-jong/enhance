@@ -28,7 +28,7 @@ canProtect = use.protect AND DESTROY[l] > 0 AND sword.prot > 0 AND inv.protect >
   else: 파괴 (파편 지급, 칸 비움)
 단계가 바뀌는 모든 경우(성공 l→l+1, 하락 l→l-1): sword.prot = PROTECT_USES
 ```
-- 보호로 막은 시도는 "실패 0건 처리"가 아니라 **실패 보정(pity) +1로 센다**(m1-pity-cap 참조). 단계는 그대로이므로 `prot`는 초기화되지 않는다.
+- 보호로 막은 시도는 **실패 보정(pity) +1로 센다**(m1-pity-cap 참조). 단 통계는 `stats.protectSaved`에만 기록하고 `stats.fail`(실패 횟수)에는 더하지 않는다. 단계는 그대로이므로 `prot`는 초기화되지 않는다.
 
 ## 4. 표시 / 경고
 - 소모품 트레이의 보호 행: `🛡️ 파괴 보호권 (보유 N장) · 이번 단계 보호 남은 횟수 ●●` — 남은 횟수만큼 채운 점, 사용한 만큼 빈 점(`●○`, `○○`).
@@ -66,7 +66,7 @@ shardGain(l) = SHARD_BASE_PER_LV * l * (1 + floor(l / SHARD_BAND))
 2. 보호권 필요 장수 `protectNeed(l)`의 다중 장수 규칙을 유지한다(1장/회로로 단순화하지 않음).
 
 ## 수용 기준 (Acceptance criteria)
-1. Given +12 검(`prot=2`), 보호 ON, `protect`=10장, 파괴가 판정될 때 / When 강화하면 / Then 검은 +12로 유지, `inv.protect`가 `protectNeed(12)=3` 감소, `prot=1`, `stats.protectSaved`+1, 파편 지급 없음.
+1. Given +12 검(`prot=2`), 보호 ON, `protect`=10장, 파괴가 판정될 때 / When 강화하면 / Then 검은 +12로 유지, `inv.protect`가 `protectNeed(12)=3` 감소, `prot=1`, `pity`+1, `stats.protectSaved`+1(`stats.fail`·`stats.destroy`는 불변), 파편 지급 없음.
 2. Given 위 상황에서 두 번째 파괴 판정도 발생 / Then `prot=0`. 세 번째 파괴 판정 시 보호 ON이고 보호권이 충분해도 **파괴**되며 보호권은 소모되지 않는다.
 3. Given `prot=0`인 +12 검일 때 / When 강화 화면을 보면 / Then 보호 토글이 비활성·해제 상태이고 `⚠ 보호 불가` 뱃지와 소진 안내 문구가 보인다.
 4. Given `prot=0`인 +12 검이 +13으로 성공하면 / Then `prot=2`. 또한 +12 → +11 하락 시에도 `prot=2`.

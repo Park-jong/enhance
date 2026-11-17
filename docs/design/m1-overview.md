@@ -44,6 +44,7 @@
 | 은광석 / 미스릴 광석 | `best ≥ 7` / `best ≥ 12` |
 | `keepdown`, `sure` 상점 노출 | 처음부터 노출(해금 없음). 트레이에서 현재 단계에 무효이면 회색 |
 | `booster`, `seal` 상점 | `best ≥ 5` |
+| 상점 철 모루(`anvil_1`) | `best ≥ 5`(`FORGE_UNLOCK_BEST`). 그 전에는 잠금. 모루 토글은 활성 검 +5 이상(`ANVIL_TOGGLE_MIN_LV`) |
 | 칸 확장 | 골드만(조건 없음) |
 (잠긴 탭/섹션은 숨기지 않고 🔒 + 해금 조건 문구로 표시: 목표를 보이게 한다. 상수: `QUEST_UNLOCK_BEST`=3, `AUTO_UNLOCK_BEST`=5, `FORGE_UNLOCK_BEST`=5.)
 

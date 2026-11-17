@@ -21,7 +21,7 @@
 | `protect` | 파괴 보호권 | 파괴 시 대신 소모, 단계당 2회 | 4,000 | 25 | 보통/어려움 | - | 해당 없음 | 99 |
 | `keepdown` | 하락 방지 주문서 | 이번 강화가 실패여도 단계 하락 없음. **`DROP_FROM`(10) ≤ l < `KEEPDOWN_MAX_LV`(15), 즉 +10~+14에서만 유효** | 3,000 | 20 | 쉬움/보통 | - | 해당 없음 | 99 |
 | `sure` | 확정 강화권 | 이번 강화 성공 100%, 파괴 0%. 현재 단계 `l < SURE_MAX_TARGET`(10), 즉 +9까지 | 1,500 | 10 | 보통/어려움 | - | **우회**(상한 무관) | 99 |
-| `booster` | 골드 부스터 | `BOOSTER_DURATION_MIN`(10분) 동안 사냥·자동·오프라인 골드 ×`BOOSTER_MULT`(1.5). **상점 구매 시 즉시 적용**(인벤토리에 들어가지 않음), 가격 `boosterPrice(best)`. 의뢰 보상 부스터만 `inv.booster`에 들어가 방치 탭에서 사용 | `max(3000, round(40 × huntReward(best) / 100) × 100)` | 불가 | 어려움 | - | 해당 없음 | 99 |
+| `booster` | 골드 부스터 | `BOOSTER_DURATION_MIN`(10분) 동안 사냥·자동·오프라인 골드 ×`BOOSTER_MULT`(1.5). **상점 구매 시 즉시 적용**(인벤토리에 들어가지 않음), 가격 `boosterPrice(best)`. 의뢰 보상 부스터만 `inv.booster`에 들어가 방치 탭에서 사용 | `max(BOOSTER_PRICE_MIN(3000), round(40 × huntReward(best) / 100) × 100)` (100G 단위 반올림, `BOOSTER_PRICE_ROUND`) | 불가 | 어려움 | - | 해당 없음 | 99 |
 | `seal` | 감정 인장 | 다음 판매 또는 납품 골드 ×`SEAL_MULT`(1.3) | 2,000 | 불가 | 어려움 | - | 해당 없음 | 99 |
 | 모루 | (m1-anvil-ore 참조) | | | | | | **포함** | |
 - `PRICE` 객체는 기존 `{bless:1500, protect:4000}`에 신규 키를 추가.
@@ -84,7 +84,7 @@
 5. Given `bless` ON, 성공 또는 실패 무관 / Then `inv.bless`가 시도마다 1 감소한다.
 6. Given `protect`와 `keepdown`을 동시에 ON / Then 파괴 시 `protect`만, 비파괴 실패 시 `keepdown`만 소모된다.
 7. Given 보유 0인 아이템의 `use.*`가 true로 저장된 상태에서 로드 / Then 토글이 false로 정리된다.
-8. Given `booster` 사용(인벤토리) 또는 상점 구매 / Then `boostUntil = now + 10분`, 수동 사냥 골드 ×1.5(소수점 내림), 종료 시각 후 배율 해제. 재사용 시 연장되며 잔여 60분을 넘지 않는다. 상점 구매는 `inv.booster`를 늘리지 않고, 가격은 `boosterPrice(best)`(예: `best=10` → 16,900G, `best≤7` → 3,000G).
+8. Given `booster` 사용(인벤토리) 또는 상점 구매 / Then `boostUntil = now + 10분`, 수동 사냥 골드 ×1.5(소수점 내림), 종료 시각 후 배율 해제. 재사용 시 연장되며 잔여 60분을 넘지 않는다. 상점 구매는 `inv.booster`를 늘리지 않고, 가격은 `boosterPrice(best)`(100G 단위 반올림, 최저 `BOOSTER_PRICE_MIN`=3,000G; 예: `best=10` → 16,900G, `best≤7` → 3,000G).
 9. Given `seal` 토글 ON으로 판매 / Then 판매 골드가 `floor(sell × 1.3)`, `inv.seal`-1. 판매를 취소(확인 단계 이탈)하면 소모되지 않는다.
 10. Given 파편 교환/상점/퀘스트로 `inv`가 99일 때 / Then 구매·교환 버튼이 비활성이고 퀘스트 보상은 파편으로 대체된다.
 11. Given 시도 시작 직후 새로고침 / Then 결과(굴림)와 모든 소모·보상이 시도 시작 시점에 확정·저장돼 있어(연출은 결과 표시만 늦춤) 새로고침으로 결과를 다시 굴리거나 소모만 사라지는 일이 없다. (구현: 4)의 굴리기와 5)의 후처리를 연출 대기 전에 동기 실행하고 `save()` 후 연출 재생.)
