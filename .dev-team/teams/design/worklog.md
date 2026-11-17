@@ -15,3 +15,17 @@
 - 산출물: `docs/design/m1-*.md` 10개 수정 (idle, storage, overview, consumables, anvil-ore, quest, pity-cap, protect-shards, balance, constants-index)
 - 결정 사항: 결정 5 변경 — 사냥·자동·오프라인 수입은 보관함 최고 단계 검(`topLv = max(swords[].lv)`, 헬퍼 `topLv()`) 기준. 시뮬레이션은 단일 주력 검 기준과 동일하므로 수치 변경 없음(밸런스 §3·§6.0·§7 #6). 나머지 8건은 기존 문서 내용과 같아 열린 질문을 "결정 사항"으로 바꾸기만 함
 - 남은 문제: 없음(M1 기획 미결 0건). M2 환생 시 huntReward 식 재검토
+
+## 2026-11-17 — QA 후 기획 문서를 구현에 맞춤
+- 지시: 디렉터 / 관련 마일스톤: M1 콘텐츠 확장 / 처리한 요청: 없음
+- 참여 팀원: 시스템 디자이너
+- 산출물: `docs/design/` m1-constants-index(상수 11종 추가, 구조 테이블 포인터), m1-anvil-ore, m1-overview §3, m1-balance, m1-consumables, m1-pity-cap, m1-protect-shards
+- 결정 사항: 모루는 +5 미만에서 효과 없음(ANVIL_TOGGLE_MIN_LV=5), 상점 철 모루는 best 5까지 잠금, 부스터 가격은 100G 단위 반올림(최소 BOOSTER_PRICE_MIN), 보호로 막은 파괴는 pity+1, stats.protectSaved만 증가(stats.fail 제외)
+- 남은 문제: 코드와 값 충돌 없음. 전체 문서-코드 전수 비교는 하지 않음
+
+## 2026-11-17 — 저장 안전 문서화 (QA 2차)
+- 지시: 디렉터 / 관련 마일스톤: M1 콘텐츠 확장 / 처리한 요청: 없음
+- 참여 팀원: 시스템 디자이너
+- 산출물: `docs/design/m1-storage.md` ("저장 안전" 절 + 수용 기준 14~19), `docs/design/m1-pity-cap.md` 수용 기준 6을 공식 검증용으로 표기
+- 결정 사항: 탭 잠금은 M1에서 수동 해제만(자동 해제는 M2 후보). 손상 v2 저장은 `sword-enhance-v2-corrupt`에 1회만 백업, 손상 v1은 원본 유지
+- 남은 문제: 코드와 불일치 3건(takeOver가 무조건 채택 아님, 백업이 덮어쓰기됨, 손상 v1 토스트가 "백업 실패"로 표시) — 개발팀 수정 필요
