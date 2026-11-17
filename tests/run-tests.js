@@ -2,6 +2,8 @@
 'use strict';
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
+const vm = require('vm');
 
 const js = f => path.join(__dirname, '..', 'js', f);
 const C = require(js('constants.js'));
@@ -1137,6 +1139,144 @@ describe('fix round 2: tray cap note when bless and anvil are both capped', () =
   test('non-bonus and off toggles → null', () => {
     const S = capped(15, 10, { bless: false, protect: true });
     assert.deepStrictEqual(['bless', 'protect', 'keepdown', 'constructor'].map(id => R.bonusCapNote(S, id)), [null, null, null, null]);
+  });
+});
+
+// ============================================================ 테스트 페이지 설정 (test.html: js/test-mode.js)
+/** test.html과 같은 순서로 테스트 설정 + 규칙 모듈을 새 VM 문맥에 올린다(이 프로세스의 실제 설정과 분리) */
+function loadTestModeSG() {
+  const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  ['test-mode.js', 'constants.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js']
+    .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
+  return ctx.SG;
+}
+/** getItem 호출 키까지 기록하는 메모리 저장소 */
+function recordingStorage(init) {
+  const st = countingStorage(init);
+  st.reads = [];
+  const getItem = st.getItem;
+  st.getItem = k => { st.reads.push(k); return getItem(k); };
+  return st;
+}
+const REAL_KEYS = ['sword-enhance-v2', 'sword-enhance-v1', 'sword-enhance-v2-corrupt'];
+const realSaves = () => ({
+  'sword-enhance-v2': JSON.stringify(Object.assign(fresh(), { gold: 4242 })),
+  'sword-enhance-v1': JSON.stringify({ gold: 5000, level: 7 }),
+  'sword-enhance-v2-corrupt': '{old',
+});
+
+describe('test page config: forced success', () => {
+  const T = loadTestModeSG();
+  const PITY_SAMPLES = [0, 3, 50];
+  const eachCombo = fn => {
+    for (let lv = 0; lv < C.MAX; lv++) {
+      for (const bless of [false, true]) {
+        for (let anvilGrade = 0; anvilGrade < C.ANVIL_BONUS.length; anvilGrade++) {
+          for (const pity of PITY_SAMPLES) {
+            for (const sure of [false, true]) fn({ lv, pity }, { bless, anvilGrade, sure });
+          }
+        }
+      }
+    }
+  };
+  test('every level/band, with and without bless/anvil/pity/sure → succ 100, dest 0, fail 0', () => {
+    let n = 0;
+    eachCombo((sw, opts) => {
+      const ch = T.rules.chances(sw, opts);
+      assert.deepStrictEqual([ch.succ, ch.dest, ch.fail], [100, 0, 0], JSON.stringify([sw, opts]));
+      n++;
+    });
+    assert.strictEqual(n, C.MAX * 2 * C.ANVIL_BONUS.length * PITY_SAMPLES.length * 2);
+  });
+  test('+20 stays not enhanceable', () => {
+    assert.strictEqual(T.rules.chances({ lv: C.MAX, pity: 0 }).succ, 0);
+  });
+  test('attemptEnhance with the worst roll succeeds from every level up to +20 (bless/anvil/protect on)', () => {
+    const S = T.save.defaultState(NOW);
+    S.gold = 1e12;
+    S.inv.bless = 50; S.inv.protect = 99; S.inv.keepdown = 50;
+    S.anvils = [{ id: 1, g: 3, dura: 50 }]; S.anvilEq = 1;
+    for (let lv = 0; lv < C.MAX; lv++) {
+      S.use.bless = true; S.use.protect = true; S.use.anvil = true; S.use.keepdown = true;
+      const r = T.rules.attemptEnhance(S, ROLL_HIGH);
+      assert.strictEqual(r.outcome, 'success', `+${lv}`);
+      assert.strictEqual(r.to, lv + 1);
+    }
+    assert.strictEqual(S.stats.destroy + S.stats.fail, 0);
+    assert.strictEqual(S.best, C.MAX);
+  });
+  test('toggling config.forceSuccess off at runtime restores the normal table', () => {
+    T.config.forceSuccess = false;
+    try {
+      for (let lv = 0; lv < C.MAX; lv++) {
+        const ch = T.rules.chances({ lv, pity: 0 }, {});
+        assert.deepStrictEqual([ch.succ, ch.dest], [C.RATE[lv], C.DESTROY[lv]], `+${lv}`);
+      }
+    } finally {
+      T.config.forceSuccess = true;
+    }
+    assert.strictEqual(T.rules.chances({ lv: 19, pity: 0 }).succ, 100);
+  });
+});
+
+describe('real config is unchanged', () => {
+  test('defaults: forceSuccess off, real save keys', () => {
+    assert.strictEqual(globalThis.SG.config.forceSuccess, false);
+    assert.strictEqual(C.SAVE_KEY, 'sword-enhance-v2');
+    assert.strictEqual(C.SAVE_KEY_V1, 'sword-enhance-v1');
+    assert.strictEqual(SV.CORRUPT_BACKUP_KEY, 'sword-enhance-v2-corrupt');
+  });
+  test('chances without bonuses = RATE / DESTROY table at every level', () => {
+    for (let lv = 0; lv < C.MAX; lv++) {
+      const ch = R.chances({ lv, pity: 0 }, {});
+      assert.deepStrictEqual([ch.succ, ch.dest, ch.fail], [C.RATE[lv], C.DESTROY[lv], 100 - C.RATE[lv] - C.DESTROY[lv]], `+${lv}`);
+      assert.ok(!ch.forced);
+    }
+  });
+  test('worst roll still fails/destroys in the real game', () => {
+    assert.strictEqual(R.attemptEnhance(stateWith({ top: { gold: 1e9 } }), ROLL_HIGH).outcome, 'fail');
+  });
+});
+
+describe('test page config: separate save keys', () => {
+  const T = loadTestModeSG();
+  test('test save key, no v1 key, backup key derived from the test key', () => {
+    assert.strictEqual(T.C.SAVE_KEY, 'sword-enhance-test');
+    assert.strictEqual(T.C.SAVE_KEY_V1, null);
+    assert.strictEqual(T.save.CORRUPT_BACKUP_KEY, 'sword-enhance-test-corrupt');
+    REAL_KEYS.forEach(k => assert.ok(![T.C.SAVE_KEY, T.save.CORRUPT_BACKUP_KEY].includes(k), k));
+  });
+  test('load with only real saves present: new game, reads only the test key, writes nothing', () => {
+    const st = recordingStorage(realSaves());
+    const r = T.save.load(st, NOW);
+    assert.strictEqual(r.source, 'new');
+    assert.strictEqual(r.state.gold, C.START_GOLD);
+    assert.deepStrictEqual(st.reads, ['sword-enhance-test']);
+    assert.deepStrictEqual(st.writes, []);
+  });
+  test('save writes only the test key; real saves stay byte-identical', () => {
+    const before = realSaves();
+    const st = countingStorage(realSaves());
+    T.save.save(st, T.save.defaultState(NOW), NOW);
+    assert.deepStrictEqual(st.writes, ['sword-enhance-test']);
+    REAL_KEYS.forEach(k => assert.strictEqual(st.dump[k], before[k], k));
+  });
+  test('corrupt test save is backed up to the test backup key only', () => {
+    const before = realSaves();
+    const st = countingStorage(Object.assign(realSaves(), { 'sword-enhance-test': '{broken' }));
+    const r = T.save.load(st, NOW);
+    assert.strictEqual(r.source, 'corrupt');
+    assert.strictEqual(r.keptAt, 'sword-enhance-test-corrupt');
+    assert.deepStrictEqual(st.writes, ['sword-enhance-test-corrupt']);
+    REAL_KEYS.forEach(k => assert.strictEqual(st.dump[k], before[k], k));
+  });
+  test('the real config never reads the test key', () => {
+    const st = recordingStorage({ 'sword-enhance-test': JSON.stringify(Object.assign(fresh(), { gold: 999999 })) });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(r.source, 'new');
+    assert.ok(!st.reads.includes('sword-enhance-test'));
   });
 });
 

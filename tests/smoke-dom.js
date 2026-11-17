@@ -78,7 +78,7 @@ function makeEnv(initialStorage, opts = {}) {
   ctx.globalThis = ctx;
   ctx.window = ctx;
   vm.createContext(ctx);
-  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, opts.page || 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1])
     .filter(src => !(opts.withoutAssets && src.startsWith('assets/')));
   scripts.forEach(src => vm.runInContext(fs.readFileSync(path.join(ROOT, src), 'utf8'), ctx, { filename: src }));
@@ -368,7 +368,96 @@ async function main() {
   click(env, 'tab', 'idle');
   scanRendered();
 
+  // 7) 테스트 페이지(test.html): 같은 스크립트 + 테스트 설정. 강화 100%, 별도 저장 키, 실제 저장 불가침
+  await testPage(ok);
+
   console.log(`smoke-dom: ${checks} checks passed`);
+}
+
+const TEST_KEY = 'sword-enhance-test';
+const REAL_KEYS = ['sword-enhance-v2', 'sword-enhance-v1', 'sword-enhance-v2-corrupt'];
+// 잠금 화면은 setLocked가 처음 호출될 때 스텁 요소가 생긴다
+const isLocked = env => !!env.byId['#tabLock'] && env.byId['#tabLock'].hidden === false;
+const savedTest = env => JSON.parse(env.store[TEST_KEY]);
+const scriptList = page => [...fs.readFileSync(path.join(ROOT, page), 'utf8').matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
+const elementIds = page => [...fs.readFileSync(path.join(ROOT, page), 'utf8').matchAll(/id="([^"]+)"/g)].map(m => m[1]);
+
+async function testPage(ok) {
+  const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const testHtml = fs.readFileSync(path.join(ROOT, 'test.html'), 'utf8');
+  const title = html => html.match(/<title>([^<]*)<\/title>/)[1];
+  ok(title(testHtml) !== title(indexHtml) && title(testHtml).includes('TEST'), 'test page has its own title');
+  ok(testHtml.includes('TEST MODE · 강화 100%') && !indexHtml.includes('TEST MODE'), 'TEST MODE banner only on the test page');
+  ok(!/test-mode|test-panel/.test(indexHtml), 'index.html loads no test scripts');
+  // 마크업은 복제본이므로 index.html과 어긋나지 않는지 확인: 같은 요소 id + 같은 게임 스크립트 순서
+  ok(elementIds('index.html').every(id => elementIds('test.html').includes(id)), 'test page keeps every index.html element id');
+  const expectedScripts = ['js/test-mode.js', ...scriptList('index.html')];
+  expectedScripts.splice(expectedScripts.indexOf('js/main.js'), 0, 'js/test-panel.js');
+  ok(JSON.stringify(scriptList('test.html')) === JSON.stringify(expectedScripts), 'test page = real scripts + test config first + panel before main');
+
+  const realStore = {
+    'sword-enhance-v2': JSON.stringify(Object.assign(SG_default(), { gold: 4242 })),
+    'sword-enhance-v1': JSON.stringify({ gold: 5000, level: 7 }),
+    'sword-enhance-v2-corrupt': '{old',
+  };
+  const realUntouched = env => REAL_KEYS.every(k => env.store[k] === realStore[k]);
+
+  let env = makeEnv(realStore, { page: 'test.html' });
+  ok(env.scripts.length === 14, 'test page loads all scripts');
+  ok(env.ctx.SG.C.SAVE_KEY === TEST_KEY && env.ctx.SG.config.forceSuccess === true, 'test config applied');
+  ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'test page starts its own new game (no v1 migration, no real save)');
+  ok(realUntouched(env), 'real v2 / v1 / corrupt-backup keys untouched on test page start');
+  ok(env.byId['#testBannerText'].textContent === 'TEST MODE · 강화 100%', 'banner text');
+  ok(env.byId['#vSucc'].textContent === '100%' && env.byId['#vDest'].textContent === '0%', 'shown odds are 100% / 0%');
+  click(env, 'testGold');
+  ok(savedTest(env).gold === 300 + 1000000, 'gold +1,000,000');
+  scanRendered();
+
+  for (let i = 0; i < 60 && savedTest(env).swords[0].lv < 20; i++) {
+    env.byId['#btnEnhance'].listeners.click[0]();
+    await sleep(20);
+  }
+  const top = savedTest(env);
+  ok(top.swords[0].lv === 20 && top.stats.success === 20 && top.stats.tries === 20, 'enhance always succeeds: +0 → +20 in 20 tries');
+  ok(top.stats.fail === 0 && top.stats.destroy === 0, 'no fail / destroy');
+  ok(realUntouched(env), 'real saves untouched after test play');
+  scanRendered();
+
+  // 탭 잠금: 테스트 탭은 자기 키에만 반응
+  fire(env, 'storage', { key: 'sword-enhance-v2' });
+  fire(env, 'storage', { key: 'sword-enhance-v1' });
+  fire(env, 'storage', { key: 'sword-enhance-v2-corrupt' });
+  const goldNow = savedTest(env).gold;
+  click(env, 'testGold');
+  ok(!isLocked(env) && savedTest(env).gold === goldNow + 1000000, 'real-game storage events do not lock the test tab');
+  fire(env, 'storage', { key: TEST_KEY });
+  ok(isLocked(env), 'another test tab locks the test tab');
+  env.byId['#btnTakeover'].listeners.click[0]();
+  ok(!isLocked(env), 'test tab take over');
+
+  click(env, 'testReset');
+  ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'reset clears only the test save');
+  ok(realUntouched(env), 'real saves untouched after test reset');
+  click(env, 'testToggleForce');
+  ok(env.ctx.SG.config.forceSuccess === false && env.byId['#vSucc'].textContent === '95%', '100% toggle off shows the real table');
+  ok(env.byId['#testBannerText'].textContent.includes('꺼짐') && env.byId['#btnTestForce'].textContent.includes('꺼짐'), 'banner/button show the toggle state');
+  click(env, 'testToggleForce');
+  ok(env.ctx.SG.config.forceSuccess === true && env.byId['#vSucc'].textContent === '100%', '100% toggle back on');
+
+  // 손상된 테스트 저장: 테스트 백업 키에만 백업, 실제 백업 키는 그대로
+  env = makeEnv(Object.assign({}, realStore, { [TEST_KEY]: '{broken' }), { page: 'test.html' });
+  ok(env.store['sword-enhance-test-corrupt'] === '{broken' && realUntouched(env), 'corrupt test save backed up to the test backup key only');
+  ok(texts(env.byId['#toasts']).some(t => t.includes('sword-enhance-test-corrupt')), 'corrupt toast names the test backup key');
+
+  // 실제 페이지: 테스트 키 이벤트로 잠기지 않고, 테스트 조작은 없다
+  env = makeEnv({});
+  fire(env, 'storage', { key: TEST_KEY });
+  env.byId['#btnHunt'].listeners.click[0]();
+  const goldBefore = saved(env).gold;
+  ok(!isLocked(env) && goldBefore > 300, 'test-tab storage events do not lock the real tab');
+  click(env, 'testGold');
+  ok(saved(env).gold === goldBefore && !(TEST_KEY in env.store), 'real page has no test actions and never writes the test key');
+  ok(env.ctx.SG.config.forceSuccess === false && env.byId['#vSucc'].textContent === '95%', 'real page odds unchanged');
 }
 
 main().catch(e => { console.error('smoke-dom FAILED:', e.stack || e.message); process.exit(1); });
