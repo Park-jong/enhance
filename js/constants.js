@@ -217,7 +217,7 @@
     bless: 'bless', protect: 'protect', keepdown: 'keepdown', sure: 'sure', booster: 'booster', seal: 'seal',
     anvil: 'anvil_1', anvil_1: 'anvil_1', anvil_2: 'anvil_2', anvil_3: 'anvil_3',
     shop: 'tab_shop', forge: 'tab_forge', quests: 'tab_quest', idle: 'tab_idle', records: 'tab_log',
-    lock: 'lock', pity: 'pity', auto: 'auto_hunt',
+    lock: 'lock', pity: 'pity', auto: 'auto_hunt', deliver: 'deliver', sword: 'sword', settings: 'settings',
   };
 
   return Object.freeze({

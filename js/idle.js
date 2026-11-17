@@ -92,7 +92,7 @@
   const nextUpgradeCost = (S, id) => (S.idle.up[id] >= C.UP_MAX ? null : upgradeCost(id, S.idle.up[id]));
 
   function upgradeBlock(S, id) {
-    if (!(id in C.UP_COST_BASE)) return 'notFound';
+    if (!R.hasOwn(C.UP_COST_BASE, id)) return 'notFound';
     if (!autoUnlocked(S)) return 'locked';
     const price = nextUpgradeCost(S, id);
     if (price === null) return 'max';

@@ -4,13 +4,15 @@
 (function (root, factory) {
   'use strict';
   const SG = root.SG = root.SG || {};
-  if (!SG.rules && typeof require === 'function') require('./rules.js');
-  SG.save = factory(SG.C, SG.rules);
+  if (!SG.quests && typeof require === 'function') require('./quests.js');
+  SG.save = factory(SG.C, SG.rules, SG.quests);
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.save;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R, Q) {
   'use strict';
 
   const SAVE_VERSION = 2;
+  const CORRUPT_BACKUP_KEY = C.SAVE_KEY + '-corrupt';
+  const MIN_MS = 60 * 1000;
   const STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned',
     'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold'];
   const V1_STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned'];
@@ -20,13 +22,13 @@
   const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
   const obj = v => (isObj(v) ? v : {});
 
-  /** 숫자로 읽을 수 있으면 정수로 내리고 [min,max]로 자름, 아니면 기본값 */
+  /** 숫자로 읽을 수 있으면 정수로 내리고 [min,max]로 자름, 아니면 기본값. 범위는 항상 안전 정수 안 */
   function int(v, def, min, max) {
     if (typeof v !== 'number' && typeof v !== 'string') return def;
     const n = Number(v);
     if (!Number.isFinite(n) || v === '') return def;
-    const lo = min === undefined ? -Infinity : min;
-    const hi = max === undefined ? Infinity : max;
+    const lo = Math.max(-Number.MAX_SAFE_INTEGER, min === undefined ? -Infinity : min);
+    const hi = Math.min(Number.MAX_SAFE_INTEGER, max === undefined ? Infinity : max);
     return Math.min(hi, Math.max(lo, Math.floor(n)));
   }
   const bool = (v, def) => (typeof v === 'boolean' ? v : def);
@@ -84,10 +86,13 @@
     }).filter(a => a.id > 0 && C.ANVIL_CRAFT[a.g] && !seen.has(a.id) && seen.add(a.id)).slice(0, C.ANVIL_OWN_MAX);
   }
 
+  /** 골드·보상 수량은 저장값을 믿지 않고 난이도·단계로 다시 계산한다. 풀에 없는 품목은 버림 */
   function normQuest(q, slot) {
-    if (!isObj(q) || q.tier !== C.QUEST_TIERS[slot]) return null;
-    const item = isObj(q.item) && C.ITEMS[q.item.id] ? { id: q.item.id, n: int(q.item.n, 1, 1) } : null;
-    return { id: int(q.id, 0, 0), tier: q.tier, lv: int(q.lv, 1, 1, C.MAX), gold: int(q.gold, 0, 0), item };
+    const tier = C.QUEST_TIERS[slot];
+    if (!isObj(q) || q.tier !== tier) return null;
+    const lv = int(q.lv, 1, 1, C.MAX);
+    const item = isObj(q.item) ? Q.poolReward(tier, q.item.id, lv) : null;
+    return { id: int(q.id, 0, 0), tier, lv, gold: Q.questGold(tier, lv), item };
   }
 
   function normQuests(v) {
@@ -114,7 +119,8 @@
     S.nextSwordId = Math.max(int(d.nextSwordId, 1, 1), maxId(S.swords) + 1);
     if (S.swords.length === 0) R.createSword(S);
     S.slots = Math.max(int(d.slots, C.SLOT_START, C.SLOT_START, C.SLOT_MAX), S.swords.length);
-    S.active = R.findSword(S, d.active) ? d.active : R.bestSword(S).id;
+    const active = int(d.active, 0, 0);
+    S.active = R.findSword(S, active) ? active : R.bestSword(S).id;
     S.best = Math.max(S.best, R.bestSword(S).lv);
 
     S.inv = normCounts(d.inv, C.CONSUMABLES, C.STACK_MAX);
@@ -123,7 +129,8 @@
 
     S.anvils = normAnvils(d.anvils);
     S.nextAnvilId = Math.max(int(d.nextAnvilId, 1, 1), maxId(S.anvils) + 1);
-    S.anvilEq = R.findAnvil(S, d.anvilEq) ? d.anvilEq : null;
+    const anvilEq = int(d.anvilEq, null, 0);
+    S.anvilEq = R.findAnvil(S, anvilEq) ? anvilEq : null;
     S.ore = normCounts(d.ore, C.ORES, C.ORE_MAX);
 
     S.quests = normQuests(d.quests);
@@ -133,7 +140,7 @@
       autoOn: bool(idle.autoOn, false),
       up: normCounts(idle.up, C.UPGRADES.map(u => u.id), C.UP_MAX),
       lastSeen: int(idle.lastSeen, now),
-      boostUntil: int(idle.boostUntil, 0, 0),
+      boostUntil: int(idle.boostUntil, 0, 0, now + C.BOOSTER_MAX_MIN * MIN_MS),
     };
     const settings = obj(d.settings);
     S.settings = { muted: bool(settings.muted, false), skipFx: bool(settings.skipFx, false) };
@@ -170,32 +177,71 @@
   function read(storage, key) {
     try { return storage.getItem(key); } catch (e) { return null; }
   }
-  function write(storage, key, S) {
-    try { storage.setItem(key, JSON.stringify(S)); return true; } catch (e) { return false; }
+  function writeRaw(storage, key, raw) {
+    try { storage.setItem(key, raw); return true; } catch (e) { return false; }
   }
+  const write = (storage, key, S) => writeRaw(storage, key, JSON.stringify(S));
   function parse(raw) {
     try { return JSON.parse(raw); } catch (e) { return undefined; }
+  }
+
+  const isEmpty = raw => raw === null || raw === undefined || raw === '';
+
+  /**
+   * 읽을 수 없는 v2 원문을 백업 키에 남긴다. 백업 키는 한 번만 쓴다(m1-storage AC 18):
+   * 처음 손상된 원문이 가장 복구 가치가 높으므로 이후 손상 원문으로 덮어쓰지 않는다.
+   * 결과: 'written' | 'same'(같은 원문이 이미 있음) | 'occupied'(다른 이전 백업을 지킴) | 'failed'
+   */
+  function backupCorrupt(storage, raw) {
+    const existing = read(storage, CORRUPT_BACKUP_KEY);
+    if (existing === raw) return 'same';
+    if (!isEmpty(existing)) return 'occupied';
+    return writeRaw(storage, CORRUPT_BACKUP_KEY, raw) ? 'written' : 'failed';
+  }
+
+  function corruptV2Result(storage, raw, now) {
+    const outcome = backupCorrupt(storage, raw);
+    const backedUp = outcome === 'written' || outcome === 'same';
+    return {
+      state: defaultState(now),
+      source: 'corrupt',
+      backedUp,
+      keptAt: backedUp ? CORRUPT_BACKUP_KEY : null,
+      earlierBackupAt: outcome === 'occupied' ? CORRUPT_BACKUP_KEY : null,
+    };
   }
 
   /**
    * 로드 규칙: v2 → (없으면) v1 마이그레이션 후 v2로 저장(v1 키는 남김) → 기본 상태.
    * source: 'v2' | 'v1' | 'new' | 'corrupt'
+   * 읽을 수 없는 v2는 곧 새 게임으로 덮어쓰이므로 먼저 CORRUPT_BACKUP_KEY에 원문을 남긴다(backedUp).
+   * keptAt: 이번 손상 원문이 남아 있는 키(v2 백업 키, 또는 덮어쓰지 않는 v1 키). 남지 않았으면 null
+   * earlierBackupAt: 백업 키에 다른 이전 손상 원문이 있어 이번 원문을 보관하지 못했을 때 그 키, 아니면 null
    */
   function load(storage, now) {
     const raw2 = read(storage, C.SAVE_KEY);
     if (raw2 !== null && raw2 !== undefined) {
       const d = parse(raw2);
-      return isObj(d) ? { state: normalize(d, now), source: 'v2' } : { state: defaultState(now), source: 'corrupt' };
+      if (isObj(d)) return { state: normalize(d, now), source: 'v2' };
+      return corruptV2Result(storage, raw2, now);
     }
     const raw1 = read(storage, C.SAVE_KEY_V1);
     if (raw1 !== null && raw1 !== undefined) {
       const d = parse(raw1);
-      if (!isObj(d)) return { state: defaultState(now), source: 'corrupt' };
+      if (!isObj(d)) {
+        return { state: defaultState(now), source: 'corrupt', backedUp: false, keptAt: C.SAVE_KEY_V1, earlierBackupAt: null };
+      }
       const state = migrateV1(d, now);
       write(storage, C.SAVE_KEY, state);
       return { state, source: 'v1' };
     }
     return { state: defaultState(now), source: 'new' };
+  }
+
+  /** 읽기 전용: 저장소의 유효한 v2 상태(정규화) 또는 null. 백업·마이그레이션 등 어떤 쓰기도 하지 않는다 */
+  function peek(storage, now) {
+    const d = parse(read(storage, C.SAVE_KEY));
+    return isObj(d) ? normalize(d, now) : null;
   }
 
   /** 저장할 때마다 오프라인 기준 시각을 갱신 */
@@ -204,5 +250,5 @@
     return write(storage, C.SAVE_KEY, S);
   }
 
-  return { SAVE_VERSION, defaultState, normalize, migrateV1, load, save };
+  return { SAVE_VERSION, CORRUPT_BACKUP_KEY, defaultState, normalize, migrateV1, load, peek, save };
 });

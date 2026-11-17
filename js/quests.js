@@ -35,12 +35,19 @@
 
   const questGold = (tier, lv) => Math.round(R.sell(lv) * C.QUEST_GOLD_MULT[tier] / C.GOLD_ROUND) * C.GOLD_ROUND;
 
+  const poolEntryReward = (entry, lv) => ({ id: entry.id, n: typeof entry.n === 'number' ? entry.n : QUEST_QTY[entry.n](lv) });
+
   function rollItem(tier, lv, rng) {
     if (rng() >= C.QUEST_ITEM_CHANCE[tier]) return null;
     const pool = C.QUEST_ITEM_POOL[tier];
-    const pick = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
-    const n = typeof pick.n === 'number' ? pick.n : QUEST_QTY[pick.n](lv);
-    return { id: pick.id, n };
+    return poolEntryReward(pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))], lv);
+  }
+
+  /** 이 난이도 보상 풀에 있는 품목이면 단계에 맞는 보상 { id, n }, 아니면 null (저장 데이터 검증용) */
+  function poolReward(tier, id, lv) {
+    if (!R.hasOwn(C.QUEST_ITEM_POOL, tier)) return null;
+    const entry = C.QUEST_ITEM_POOL[tier].find(e => e.id === id);
+    return entry ? poolEntryReward(entry, lv) : null;
   }
 
   const takenLvs = (S, exceptSlot) =>
@@ -101,8 +108,9 @@
     if (!item) return null;
     const granted = R.grantItem(S, item.id, item.n);
     const rest = item.n - granted;
-    const costKey = C.QUEST_FALLBACK_SHARD_ITEM[item.id] || item.id;
-    const fallbackShards = rest > 0 ? rest * C.SHARD_COST[costKey] : 0;
+    const costKey = R.hasOwn(C.QUEST_FALLBACK_SHARD_ITEM, item.id) ? C.QUEST_FALLBACK_SHARD_ITEM[item.id] : item.id;
+    const unitShards = R.hasOwn(C.SHARD_COST, costKey) ? C.SHARD_COST[costKey] : 0;
+    const fallbackShards = rest > 0 ? rest * unitShards : 0;
     S.shards += fallbackShards;
     return { id: item.id, granted, fallbackShards };
   }
@@ -131,7 +139,7 @@
   }
 
   return {
-    unlocked, questBaseLv, pickLv, questGold, makeQuest, refreshQuests, rerollCost, rerollBlock, rerollQuest,
+    unlocked, questBaseLv, pickLv, questGold, poolReward, makeQuest, refreshQuests, rerollCost, rerollBlock, rerollQuest,
     candidate, deliverableSlots, slotForSword, grantReward, deliver, COOLDOWN_MS,
   };
 });

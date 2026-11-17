@@ -13,6 +13,9 @@
 
   const MIN_MS = 60 * 1000;
   const fail = reason => ({ ok: false, reason });
+  // 저장 데이터·data-id에서 온 키가 프로토타입 속성(constructor, __proto__ 등)과 맞아떨어지지 않게 한다
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+  const itemDef = id => (hasOwn(C.ITEMS, id) ? C.ITEMS[id] : null);
 
   // ============================================================ 공식
   const roundTo = (x, unit) => Math.round(x / unit) * unit;
@@ -138,16 +141,20 @@
   };
   const GRANT = {
     consumable: (S, id, n) => { S.inv[id] += n; },
-    anvil: (S, id, n) => { for (let i = 0; i < n; i++) addAnvil(S, C.ITEMS[id].g); },
+    anvil: (S, id, n) => { for (let i = 0; i < n; i++) addAnvil(S, itemDef(id).g); },
     shard: (S, id, n) => { S.shards += n; },
   };
 
-  const capacityFor = (S, id) => Math.max(0, CAPACITY[C.ITEMS[id].kind](S, id));
+  /** 알 수 없는 품목은 보관 공간 0 (지급되지 않음) */
+  const capacityFor = (S, id) => {
+    const def = itemDef(id);
+    return def ? Math.max(0, CAPACITY[def.kind](S, id)) : 0;
+  };
 
   /** 들어갈 만큼만 지급하고 지급한 수를 돌려준다 */
   function grantItem(S, id, n) {
     const granted = Math.min(n, capacityFor(S, id));
-    if (granted > 0) GRANT[C.ITEMS[id].kind](S, id, granted);
+    if (granted > 0) GRANT[itemDef(id).kind](S, id, granted);
     return granted;
   }
 
@@ -200,8 +207,11 @@
     return use;
   };
 
+  const isUseKey = id => id === 'seal' || C.TRAY_TOGGLES.includes(id);
+
   /** 토글 변경. 확정 강화권을 켜면 나머지 토글은 강제 해제 */
   function setUse(S, id, on) {
+    if (!isUseKey(id)) return fail('notFound');
     if (!on) { S.use[id] = false; return { ok: true }; }
     if (id === 'seal') {
       if (S.inv.seal <= 0) return fail('noStock');
@@ -217,9 +227,42 @@
 
   /** 보유량이 0이거나 장착 모루가 쓸 수 없으면 토글 해제 (단계 조건은 표시에서만 무효 처리) */
   function cleanupUse(S) {
-    C.CONSUMABLES.forEach(id => { if (id in S.use && S.inv[id] <= 0) S.use[id] = false; });
+    C.CONSUMABLES.forEach(id => { if (hasOwn(S.use, id) && S.inv[id] <= 0) S.use[id] = false; });
     const a = equippedAnvil(S);
     if (!a || a.dura <= 0) S.use.anvil = false;
+  }
+
+  // 성공률 보너스를 주는 토글 → 그 보너스를 뺀 확률 옵션
+  const WITHOUT_BONUS = {
+    bless: opts => Object.assign({}, opts, { bless: false }),
+    anvil: opts => Object.assign({}, opts, { anvilGrade: 0 }),
+  };
+
+  function bonusOpts(S) {
+    const use = effectiveUse(S);
+    const anvil = use.anvil ? equippedAnvil(S) : null;
+    return { bless: use.bless, anvilGrade: anvil ? anvil.g : 0 };
+  }
+  const succWithout = (S, opts, ids) => chances(activeSword(S), ids.reduce((o, id) => WITHOUT_BONUS[id](o), opts)).succ;
+
+  /** 켜진 보너스 토글(축복·모루)을 빼도 성공률이 같으면 true(상한 도달로 효과 없음). 보너스가 아닌 토글은 항상 false */
+  function bonusWasted(S, id) {
+    if (!hasOwn(WITHOUT_BONUS, id)) return false;
+    if (!effectiveUse(S)[id]) return false;
+    const opts = bonusOpts(S);
+    return succWithout(S, opts, []) === succWithout(S, opts, [id]);
+  }
+
+  /**
+   * 트레이 표시용 상한 메모: null | 'wasted'(빼도 성공률 불변) | 'partial'.
+   * 축복·모루가 각각은 낭비로 보여도 둘 다 빼면 성공률이 내려가면 'partial'(둘 중 하나만 필요)
+   */
+  function bonusCapNote(S, id) {
+    if (!bonusWasted(S, id)) return null;
+    const wasted = Object.keys(WITHOUT_BONUS).filter(k => bonusWasted(S, k));
+    if (wasted.length < 2) return 'wasted';
+    const opts = bonusOpts(S);
+    return succWithout(S, opts, []) === succWithout(S, opts, wasted) ? 'wasted' : 'partial';
   }
 
   // ============================================================ 강화 시도
@@ -358,7 +401,7 @@
 
   // ============================================================ 파편 교환 (F6)
   function exchangeBlock(S, id) {
-    if (!(id in C.SHARD_COST)) return 'notFound';
+    if (!hasOwn(C.SHARD_COST, id)) return 'notFound';
     if (!isUnlocked(S, 'forge')) return 'locked';
     if (capacityFor(S, id) < 1) return 'full';
     return S.shards < C.SHARD_COST[id] ? 'noShards' : null;
@@ -375,14 +418,14 @@
   return {
     // 공식
     cost, sell, protectNeed, huntReward, autoReward, shardGain, boosterPrice, pityBand, pityBonus, rarity,
-    isUnlocked, chances,
+    isUnlocked, chances, hasOwn, itemDef,
     // 보관함
     findSword, activeSword, bestSword, topLv, createSword, removeSword, buySword, setActive, sellSword,
     expandCost, expandSlots, sealActive, payWithSeal,
     // 아이템
     findAnvil, equippedAnvil, addAnvil, capacityFor, grantItem,
     // 강화
-    trayState, effectiveUse, setUse, cleanupUse, attemptEnhance, sureValidLv, keepdownValidLv,
+    trayState, effectiveUse, setUse, cleanupUse, bonusWasted, bonusCapNote, attemptEnhance, sureValidLv, keepdownValidLv,
     // 부스터 / 상점 / 파편
     boostActiveAt, boostRemainingMs, canExtendBoost, extendBoost, useBoosterFromInv,
     shopPrice, shopBlock, shopUnlocked, buyShopItem, exchangeBlock, exchangeShards,
