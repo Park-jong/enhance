@@ -1,7 +1,7 @@
 # M1 상수 총람 (Constants Index)
 
-> **모든 수치 확정** (2026-11-17, `m1-balance.md`). 확정 열의 값이 기준이며, 시스템 문서 본문에 남은 잠정값과 다르면 이 표와 `m1-balance.md`가 우선한다. "변경" 표시는 잠정값에서 바뀐 항목, "규칙" 표시는 식/규칙까지 바뀐 항목(`m1-balance.md` §7 변경 이력).
-> 코드의 식별자는 이름 그대로 사용. 기존 M0 상수(`MAX`, `RATE`, `DESTROY`, `DROP_FROM`, `BLESS_BONUS`, `HUNT_CD`, `cost()`, `sell()`, `huntReward()`)는 유지하며 아래에서 `M0`로 표기.
+> **모든 수치 확정** (2026-11-17, `m1-balance.md`). 확정 열의 값이 기준이며, 시스템 문서 본문의 값과 다르면 이 표와 `m1-balance.md`가 우선한다. "변경" 표시는 잠정값에서 바뀐 항목, "규칙" 표시는 식/규칙까지 바뀐 항목(`m1-balance.md` §7 변경 이력).
+> 코드의 식별자는 이름 그대로 사용. 기존 M0 상수(`MAX`, `RATE`, `DESTROY`, `DROP_FROM`, `BLESS_BONUS`, `HUNT_CD`, `cost()`, `sell()`, `huntReward()`)는 유지하며 아래에서 `M0`로 표기. M1에서 `huntReward()`·`autoReward()`의 인자는 보관함 최고 단계 검 `topLv = max(swords[].lv)`다(헬퍼 `topLv()`, 신규 상수 없음, 사용자 확정, bal §3·§8 결정 2).
 > 문서 약칭: storage=m1-storage, ps=m1-protect-shards, ao=m1-anvil-ore, q=m1-quest, pc=m1-pity-cap, idle=m1-idle, cons=m1-consumables, ov=m1-overview, bal=m1-balance.
 
 ## 1. 보관함 / 저장
@@ -67,6 +67,9 @@
 | `QUEST_REROLL_COST` | 새로고침 골드 | `max(200, 3 × cost(best))` | q |
 
 ## 6. 방치 / 연출 스킵
+> 수입 기준 검: 수동 사냥 `huntReward(topLv)`, 자동·오프라인 `autoReward(topLv)`. `topLv = max(swords[].lv)`(활성 여부와 무관, 헬퍼 `topLv()`). 신규 상수 없음, 아래 값 변경 없음(사용자 확정).
+> `AUTO_UNLOCK_BEST` = 5(무료 해금), `OFFLINE_EFF` = 0.25, `OFFLINE_CAP_H` = 8 사용자 확정.
+
 | 이름 | 의미 | 확정값 | 문서 |
 | --- | --- | --- | --- |
 | `AUTO_UNLOCK_BEST` | 자동 사냥 해금 `best` | 5 | idle |
@@ -118,3 +121,7 @@
 - (해결) 고단계 방치 수입: 자동·오프라인 전용 식 `autoReward(l)` 도입(bal §3).
 - (해결) `BONUS_CAP` band별 배열 전환 `[20, 20, 14, 14]`(bal §2.3, pc).
 - (해결) `SHARD_COST`: 파괴 1회 평균 14~40파편, 보통 플레이에서 파편 1개당 583G 이상 소비 → 1파편 ≈ 150G로 상향(bal §4).
+- (해결) 수입 기준 검 = 보관함 최고 단계 검(사용자 확정). `topLv = max(swords[].lv)`, 헬퍼 `topLv()`. 상수 변경 없음(bal §3·§7 #6).
+- (해결) F15 소모품 확정: 4종 신규(`keepdown`, `sure`, `booster`, `seal`), `SURE_MAX_TARGET` = 10 (`sure`는 +9까지), 후보 3종 제외(사용자 확정).
+- (해결) 자동 사냥 `AUTO_UNLOCK_BEST` = 5 무료, `OFFLINE_EFF` = 0.25, `OFFLINE_CAP_H` = 8 사용자 확정.
+- (해결) `BONUS_CAP` [20, 20, 14, 14]·`KEEPDOWN_MAX_LV` = 15 유지(+20 속도 유지), `huntReward` M0 식 M1 유지(M2 재검토), `QUEST_ITEM_CHANCE` 유지 — 사용자 확정(bal §8).

@@ -14,7 +14,7 @@
 | 보호 횟수 카운터 | **검별(per-sword)** `prot` | 검을 갈아타며 횟수를 세탁하는 것 방지, 문서 m1-protect-shards 참조 |
 | 실패 보정 카운터 | **검별(per-sword)** `pity` | 위와 동일. 검 전환으로 보정만 빼 쓰는 것 방지. 파괴되면 검과 함께 소멸 |
 | 활성 검이 비워질 때 | 남은 검 중 단계 최고 검을 자동 활성화, 없으면 무료 +0 | |
-| 사냥/방치 수입 기준 | 활성 검 단계 (M0 "들고 있는 검"과 동일) | 주력 검을 키울수록 수입 증가라는 M0 성질 유지 |
+| 사냥/방치 수입 기준 | 보관함 최고 단계 `topLv = max(swords[].lv)` (활성 여부 무관, `best` 기록 아님). 수동 사냥 `huntReward(topLv)`, 자동 `autoReward(topLv)`, 오프라인 모두 동일 | 수입을 위해 검을 바꿔 들 필요가 없고, 주력 검을 키울수록 수입이 늘어나는 성질도 유지. 최고 검을 판매/납품/파괴하면 수입 감소 |
 | +0 검 판매 | 불가(판매가 0) | M0와 동일 |
 
 ## 2. 규칙 상세
@@ -121,9 +121,10 @@
 | `stats.tries/success/fail/destroy/earned` | `stats.*` 동명 | 그대로. 신규 stats는 0 |
 | (없음) 나머지 | 기본값 | `shards=0`, `slots=SLOT_START`, 새 `inv.*`=0, `idle.lastSeen=Date.now()`(**마이그레이션 직후 오프라인 보상 없음**), `quests` 빈 상태 등 |
 
-## 열린 질문 (사용자 확인 필요)
-1. 파괴 시 칸이 비워지는 방식(권장) vs M0처럼 +0으로 남는 방식. 권장: 비움(위 근거). 
-2. 보관함에서 +0 검을 "버리기"(칸 비우기, 0G) 허용? 권장: 허용하지 않음(칸 확장·구매 비용이 낮아 불필요). 칸이 가득 차 고민될 때만 문제이므로 추후 요청 시 추가.
+## 결정 사항 (사용자 확정, 2026-11-17)
+1. 파괴 시 해당 칸은 비워진다(M0처럼 +0으로 남기지 않음).
+2. 보관함에서 +0 검 "버리기" 기능은 만들지 않는다.
+3. 수입 기준 = `topLv`(보관함 최고 단계). 수동 사냥·자동 사냥·오프라인 모두 단일 헬퍼 `topLv()`를 사용해 구현한다.
 
 ## 수용 기준 (Acceptance criteria)
 1. Given v2 저장이 없고 v1 저장 `{gold:5000, level:7, best:12, muted:true, inv:{bless:3,protect:2}, use:{bless:true,protect:false}, found:[...], stats:{...}}`이 있을 때 / When 게임을 로드하면 / Then `swords=[{id:1,lv:7,prot:2,pity:0}]`, `active=1`, `gold=5000`, `best=12`, `settings.muted=true`, `inv.bless=3`, `inv.protect=2`, `use.bless=true`이고 v2 키가 저장되며 v1 키는 남아 있다.
@@ -131,10 +132,11 @@
 3. Given 새 게임일 때 / When 로드하면 / Then 보유 검 1자루(+0), `slots=3`, 골드 300이고 모든 신규 필드가 §3 기본값이다.
 4. Given 저장 JSON이 손상됐을 때 / When 로드하면 / Then 예외 없이 기본 상태로 시작한다.
 5. Given 빈 칸 1개와 골드 ≥ `NEW_SWORD_PRICE`일 때 / When [+ 새 검]을 누르면 / Then 골드가 `NEW_SWORD_PRICE` 줄고 +0 검이 추가되며 `active`는 바뀌지 않는다. 빈 칸이 없거나 골드가 부족하면 아무것도 변하지 않고 토스트가 나온다.
-6. Given 검 2자루 이상일 때 / When 비활성 검을 [활성으로] 누르면 / Then `active`가 그 검 id로 바뀌고 강화 패널·성공/파괴 확률·사냥 보상이 그 검 기준으로 갱신된다. 강화 연출 중(`busy`)에는 전환이 거부된다.
-7. Given 검이 2자루이고 활성 검이 파괴될 때 / When 파괴가 확정되면 / Then 그 칸이 비고, 남은 검 중 최고 단계 검이 활성이 되며, 무료 +0은 지급되지 않는다.
-8. Given 검이 1자루뿐이고 파괴되거나 판매될 때 / Then 무료 +0 검 1자루가 지급되어 `swords.length ≥ 1`이 항상 유지된다.
-9. Given 비활성 검 +9가 있을 때 / When 보관함에서 [판매]를 누르면(+8 이상은 2회 클릭 확인) / Then 그 검만 사라지고 골드가 `sell(9)` 증가하며 활성 검과 그 `prot`/`pity`는 변하지 않는다.
-10. Given 검 A(`pity=3`)와 B(`pity=0`)일 때 / When A→B로 활성 전환 후 강화하면 / Then B의 `pity`만 갱신되고 A는 `pity=3` 유지.
-11. Given `slots=3`, 골드 충분일 때 / When 칸을 확장하면 / Then `slots=4`, 골드가 `SLOT_EXPAND_COST[0]` 감소; `slots=SLOT_MAX`면 확장 버튼이 없다.
-12. Given 저장 후 새로고침할 때 / Then 보유 검 목록, 활성 검, 각 검의 `prot`/`pity`, 칸 수가 그대로 복원된다.
+6. Given 검 2자루 이상일 때 / When 비활성 검을 [활성으로] 누르면 / Then `active`가 그 검 id로 바뀌고 강화 패널·성공/파괴 확률이 그 검 기준으로 갱신된다(사냥 보상은 `topLv` 기준이라 전환으로 변하지 않는다). 강화 연출 중(`busy`)에는 전환이 거부된다.
+7. Given 활성 검 +2와 보관함에 +8이 있을 때 / When 사냥하면 / Then 보상은 `huntReward(8)`이다. 그 +8을 판매/납품/파괴한 뒤 다음 사냥은 남은 검 중 최고 단계 기준으로 지급된다.
+8. Given 검이 2자루이고 활성 검이 파괴될 때 / When 파괴가 확정되면 / Then 그 칸이 비고, 남은 검 중 최고 단계 검이 활성이 되며, 무료 +0은 지급되지 않는다.
+9. Given 검이 1자루뿐이고 파괴되거나 판매될 때 / Then 무료 +0 검 1자루가 지급되어 `swords.length ≥ 1`이 항상 유지된다.
+10. Given 비활성 검 +9가 있을 때 / When 보관함에서 [판매]를 누르면(+8 이상은 2회 클릭 확인) / Then 그 검만 사라지고 골드가 `sell(9)` 증가하며 활성 검과 그 `prot`/`pity`는 변하지 않는다.
+11. Given 검 A(`pity=3`)와 B(`pity=0`)일 때 / When A→B로 활성 전환 후 강화하면 / Then B의 `pity`만 갱신되고 A는 `pity=3` 유지.
+12. Given `slots=3`, 골드 충분일 때 / When 칸을 확장하면 / Then `slots=4`, 골드가 `SLOT_EXPAND_COST[0]` 감소; `slots=SLOT_MAX`면 확장 버튼이 없다.
+13. Given 저장 후 새로고침할 때 / Then 보유 검 목록, 활성 검, 각 검의 `prot`/`pity`, 칸 수가 그대로 복원된다.

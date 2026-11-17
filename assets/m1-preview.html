@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M1 아이콘/사운드 미리보기</title>
+<style>
+  :root {
+    --bg: #0e1016;
+    --panel: #161922;
+    --panel2: #1d2130;
+    --line: #2a2f40;
+    --text: #e8eaf0;
+    --muted: #8a91a5;
+    --gold: #ffd166;
+    --good: #4cd97b;
+    --bad: #ff4d6d;
+    --warn: #ff9f1c;
+    --info: #4da3ff;
+    --accent: #7c5cff;
+    --tier: #3a4060;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 12px; color: var(--gold); }
+  h2 { font-size: 15px; margin: 24px 0 8px; color: var(--info); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .card .k { font: 12px monospace; color: var(--muted); margin-bottom: 6px; word-break: break-all; }
+  .sizes { display: flex; align-items: flex-end; gap: 10px; color: var(--text); }
+  .sizes span { display: inline-block; line-height: 0; }
+  svg { width: 1em; height: 1em; display: block; }
+  .tabbar { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; max-width: 480px; }
+  .tabbar button { flex: 1; background: none; border: 0; color: var(--muted); padding: 8px 4px; cursor: pointer; font-size: 11px; font-family: inherit; }
+  .tabbar button .ic { font-size: 24px; line-height: 0; display: flex; justify-content: center; margin-bottom: 4px; }
+  .tabbar button.on { color: var(--gold); background: var(--panel2); }
+  .sfx { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sfx button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; text-align: left; max-width: 340px; font-family: inherit; }
+  .sfx button:hover { border-color: var(--accent); }
+  .sfx button b { display: block; font: 12px monospace; color: var(--gold); }
+  .sfx button small { color: var(--muted); font-size: 11px; }
+  .note { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>M1 아이콘 / 사운드 미리보기</h1>
+<p class="note">file:// 에서 그대로 열기. 소리는 버튼을 눌러야 재생됩니다.</p>
+
+<h2>아이콘 (20 / 32 / 48px)</h2>
+<div class="grid" id="icons"></div>
+
+<h2>탭바 목업 (tab_* 아이콘)</h2>
+<div class="tabbar" id="tabbar"></div>
+
+<h2>사운드 큐</h2>
+<div class="sfx" id="sfx"></div>
+
+<script src="./m1-icons.js"></script>
+<script src="./m1-sfx.js"></script>
+<script>
+(function () {
+  var actx = null;
+  function ac() {
+    try {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+      return actx;
+    } catch (e) { return null; }
+  }
+  function tone(freq, dur, type, vol, delay, slideTo) {
+    if (type === undefined) type = 'sine';
+    if (vol === undefined) vol = .12;
+    if (delay === undefined) delay = 0;
+    if (slideTo === undefined) slideTo = null;
+    var a = ac(); if (!a) return;
+    var t = a.currentTime + delay;
+    var o = a.createOscillator();
+    var g = a.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(a.destination);
+    o.start(t); o.stop(t + dur + .02);
+  }
+  function noise(dur, vol) {
+    if (vol === undefined) vol = .2;
+    var a = ac(); if (!a) return;
+    var buf = a.createBuffer(1, a.sampleRate * dur, a.sampleRate);
+    var data = buf.getChannelData(0);
+    for (var i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    var src = a.createBufferSource();
+    var g = a.createGain();
+    g.gain.value = vol;
+    src.buffer = buf;
+    src.connect(g).connect(a.destination);
+    src.start();
+  }
+
+  var icons = window.M1_ICONS || {};
+  var grid = document.getElementById('icons');
+  Object.keys(icons).forEach(function (k) {
+    var c = document.createElement('div'); c.className = 'card';
+    var l = document.createElement('div'); l.className = 'k'; l.textContent = k;
+    var r = document.createElement('div'); r.className = 'sizes';
+    [20, 32, 48].forEach(function (px) {
+      var s = document.createElement('span');
+      s.style.fontSize = px + 'px';
+      s.title = px + 'px';
+      s.innerHTML = icons[k];
+      r.appendChild(s);
+    });
+    c.appendChild(l); c.appendChild(r); grid.appendChild(c);
+  });
+
+  var tabs = [['tab_shop', '상점'], ['tab_forge', '강화'], ['tab_quest', '의뢰'], ['tab_idle', '방치'], ['tab_log', '기록']];
+  var bar = document.getElementById('tabbar');
+  tabs.forEach(function (t, i) {
+    var b = document.createElement('button');
+    if (i === 1) b.className = 'on';
+    b.innerHTML = '<span class="ic">' + (icons[t[0]] || '') + '</span>' + t[1];
+    b.onclick = function () {
+      Array.prototype.forEach.call(bar.children, function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      window.M1_SFX_PLAY('tabSwitch', tone, noise);
+    };
+    bar.appendChild(b);
+  });
+
+  var sfx = document.getElementById('sfx');
+  var desc = window.M1_SFX_DESC || {};
+  Object.keys(window.M1_SFX || {}).forEach(function (name) {
+    var b = document.createElement('button');
+    var n = document.createElement('b'); n.textContent = name;
+    var d = document.createElement('small'); d.textContent = desc[name] || '';
+    b.appendChild(n); b.appendChild(d);
+    b.onclick = function () { window.M1_SFX_PLAY(name, tone, noise); };
+    sfx.appendChild(b);
+  });
+})();
+</script>
+</body>
+</html>

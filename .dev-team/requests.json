@@ -273,7 +273,7 @@
     "priority": "P1",
     "priorityReason": "M1 구현 시 반드시 함께 해야 하며, 빠지면 기존 진행 상황이 초기화됨",
     "milestone": "M1 콘텐츠 확장",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-17",
     "history": [
       {
@@ -281,6 +281,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "수락 후 M1 구현과 함께 진행 (save v2 + migrate)"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "js/save.js migrate() 구현, tests/run-tests.js에서 v1 여러 형태·손상 데이터·v1 키 보존 검증"
       }
     ]
   },

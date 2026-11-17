@@ -61,9 +61,9 @@ shardGain(l) = SHARD_BASE_PER_LV * l * (1 + floor(l / SHARD_BAND))
 - 교환은 1개 단위 버튼. 보유 상한(`STACK_MAX`=99, 모루는 `ANVIL_OWN_MAX`) 도달 시 비활성.
 - 파편 보유 상한 없음.
 
-## 열린 질문 (사용자 확인 필요)
-1. 하락 시 보호 횟수 복구(권장: 복구). 비복구(단계별 맵)를 원하면 `prot`를 `{lv: used}` 맵으로 바꿔야 함.
-2. 보호권 필요 장수를 유지할지(권장: 유지) vs 1장/회로 단순화.
+## 결정 사항 (사용자 확정, 2026-11-17)
+1. 보호 카운터 `prot`는 검의 단계가 바뀔 때마다(상승·하락 모두) 2로 초기화된다(`{lv: used}` 맵 방식은 채택하지 않음).
+2. 보호권 필요 장수 `protectNeed(l)`의 다중 장수 규칙을 유지한다(1장/회로로 단순화하지 않음).
 
 ## 수용 기준 (Acceptance criteria)
 1. Given +12 검(`prot=2`), 보호 ON, `protect`=10장, 파괴가 판정될 때 / When 강화하면 / Then 검은 +12로 유지, `inv.protect`가 `protectNeed(12)=3` 감소, `prot=1`, `stats.protectSaved`+1, 파편 지급 없음.

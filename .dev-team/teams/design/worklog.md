@@ -8,3 +8,10 @@
 - 산출물: `docs/design/` 아래 m1-overview, m1-storage(저장 v2·v1 매핑), m1-protect-shards, m1-anvil-ore, m1-quest, m1-pity-cap, m1-idle, m1-consumables, m1-constants-index, m1-balance
 - 결정 사항: 보관 3칸(최대 8), 파괴 시 칸 비움; 보호 횟수 단계 변동 시 2회로 초기화(검별); 구 파괴방지권을 protect로 통합; 모루 3등급(보너스 2/3/4%p, 내구 30/40/50, 0이 되면 파손 후 광석 수리); 보너스 상한 구간별 [20,20,14,14]; 소모품 신규 4종(keepdown, sure, booster, seal), 3종 삭제; 자동사냥 best≥5 해금, 오프라인 8시간·25%
 - 남은 문제: 사냥/방치 수입 기준 검(활성 검 vs 보관 최고 검), +20 도달이 M0 대비 약 9배 빠름, 초반 퀘스트 아이템 보상 과다 — 사용자 판단 필요
+
+## 2026-11-17 — 사용자 결정 9건 기획 문서 반영
+- 지시: 디렉터 / 관련 마일스톤: M1 콘텐츠 확장 / 처리한 요청: 없음
+- 참여 팀원: 시스템 디자이너(시스템 문서 8종), 밸런스 디자이너(밸런스·상수 총람)
+- 산출물: `docs/design/m1-*.md` 10개 수정 (idle, storage, overview, consumables, anvil-ore, quest, pity-cap, protect-shards, balance, constants-index)
+- 결정 사항: 결정 5 변경 — 사냥·자동·오프라인 수입은 보관함 최고 단계 검(`topLv = max(swords[].lv)`, 헬퍼 `topLv()`) 기준. 시뮬레이션은 단일 주력 검 기준과 동일하므로 수치 변경 없음(밸런스 §3·§6.0·§7 #6). 나머지 8건은 기존 문서 내용과 같아 열린 질문을 "결정 사항"으로 바꾸기만 함
+- 남은 문제: 없음(M1 기획 미결 0건). M2 환생 시 huntReward 식 재검토
