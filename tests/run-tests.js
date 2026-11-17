@@ -894,6 +894,252 @@ describe('save & migrate', () => {
   });
 });
 
+// ============================================================ M1 QA 수정 1차 회귀
+describe('fix round 1: tray "no effect" only for bonus toggles (#1)', () => {
+  const rich = (sword, inv, use) => stateWith({ sword, inv, use, top: { gold: 1e9 } });
+  test('protect / keepdown / sure with anvil off are never "no effect"', () => {
+    const p = rich({ lv: 12 }, { protect: 9 }, { protect: true });
+    const k = rich({ lv: 12 }, { keepdown: 2 }, { keepdown: true });
+    const s = rich({ lv: 5 }, { sure: 1 }, { sure: true });
+    assert.deepStrictEqual([R.bonusWasted(p, 'protect'), R.bonusWasted(k, 'keepdown'), R.bonusWasted(s, 'sure')], [false, false, false]);
+  });
+  test('bless and anvil report "no effect" only when the cap swallows them', () => {
+    // +12 band cap 14: pity 4 → 8, bless 10, anvil g3 4 → raw 22. Without anvil still capped; without bless 12 < 14
+    const S = rich({ lv: 12, pity: 4 }, { bless: 1 }, { bless: true, anvil: true });
+    S.anvils = [{ id: 1, g: 3, dura: 50 }];
+    S.anvilEq = 1;
+    assert.strictEqual(R.bonusWasted(S, 'anvil'), true);
+    assert.strictEqual(R.bonusWasted(S, 'bless'), false);
+    const low = rich({ lv: 0 }, { bless: 1 }, { bless: true });   // 95% base is above the 90% ceiling
+    assert.strictEqual(R.bonusWasted(low, 'bless'), true);
+  });
+  test('unknown or off toggles are not "no effect"', () => {
+    const S = rich({ lv: 12 }, { bless: 1 }, { bless: false });
+    assert.strictEqual(R.bonusWasted(S, 'bless'), false);
+    assert.strictEqual(R.bonusWasted(S, 'constructor'), false);
+  });
+});
+
+describe('fix round 1: crafted quest items in saves (#4)', () => {
+  const CRAFTED_IDS = ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf'];
+  const saveWithQuest = (slot, quest) => {
+    const d = fresh();
+    d.best = 15;
+    d.swords = [{ id: 1, lv: quest.lv, prot: 2, pity: 0 }, { id: 2, lv: 15, prot: 2, pity: 0 }];
+    d.active = 2;
+    d.quests.list[slot] = quest;
+    return JSON.parse(JSON.stringify(d));
+  };
+  test('prototype-named item ids are dropped on load and delivery pays exactly once', () => {
+    CRAFTED_IDS.forEach(id => {
+      const S = SV.normalize(saveWithQuest(2, { id: 1, tier: 'hard', lv: 7, gold: 1000, item: { id, n: 3 } }), NOW);
+      assert.strictEqual(S.quests.list[2].item, null, id);
+      const gold = S.gold;
+      const r = Q.deliver(S, 2, NOW, {});
+      assert.strictEqual(r.ok, true, id);
+      assert.strictEqual(S.gold, gold + Q.questGold('hard', 7), id);
+      assert.strictEqual(S.quests.list[2], null, id);
+      assert.strictEqual(Q.deliver(S, 2, NOW, {}).ok, false, id);
+    });
+  });
+  test('items that exist but are not in this tier pool are dropped', () => {
+    const S = SV.normalize(saveWithQuest(0, { id: 1, tier: 'easy', lv: 7, gold: 1, item: { id: 'anvil_3', n: 1 } }), NOW);
+    assert.strictEqual(S.quests.list[0].item, null);
+    const T = SV.normalize(saveWithQuest(0, { id: 1, tier: 'easy', lv: 7, gold: 1, item: { id: 'booster', n: 1 } }), NOW);
+    assert.strictEqual(T.quests.list[0].item, null);
+  });
+  test('quest gold and item quantity are recomputed from the pool, not trusted', () => {
+    const S = SV.normalize(saveWithQuest(1, { id: 1, tier: 'normal', lv: 7, gold: 999999999, item: { id: 'protect', n: 99 } }), NOW);
+    assert.deepStrictEqual(S.quests.list[1], { id: 1, tier: 'normal', lv: 7, gold: Q.questGold('normal', 7), item: { id: 'protect', n: 1 } });
+    const T = SV.normalize(saveWithQuest(0, { id: 1, tier: 'easy', lv: 10, gold: 5, item: { id: 'shard', n: 5000 } }), NOW);
+    assert.deepStrictEqual(T.quests.list[0].item, { id: 'shard', n: R.shardGain(10) });
+  });
+  test('grantItem / grantReward / deliver tolerate a bogus in-memory item without throwing', () => {
+    const S = stateWith({ swords: [{ id: 1, lv: 7, prot: 2, pity: 0 }, { id: 2, lv: 15, prot: 2, pity: 0 }], active: 2, top: { best: 15 } });
+    assert.strictEqual(R.grantItem(S, 'constructor', 1), 0);
+    assert.strictEqual(R.capacityFor(S, '__proto__'), 0);
+    S.quests.list[2] = { id: 1, tier: 'hard', lv: 7, gold: 1000, item: { id: 'constructor', n: 2 } };
+    const shards = S.shards;
+    const r = Q.deliver(S, 2, NOW, {});
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(S.shards, shards);
+    assert.ok(Number.isFinite(S.shards));
+    assert.strictEqual(S.quests.list[2], null);
+  });
+});
+
+describe('fix round 1: own-property checks and save clamps', () => {
+  test('prototype-named ids are rejected by setUse / exchange / upgrade', () => {
+    const S = stateWith({ top: { best: 10, gold: 1e9, shards: 999 } });
+    assert.deepStrictEqual(R.setUse(S, 'constructor', true), { ok: false, reason: 'notFound' });
+    assert.deepStrictEqual(R.setUse(S, '__proto__', false), { ok: false, reason: 'notFound' });
+    assert.strictEqual(R.exchangeBlock(S, 'constructor'), 'notFound');
+    assert.strictEqual(R.exchangeBlock(S, 'toString'), 'notFound');
+    assert.strictEqual(I.upgradeBlock(S, 'constructor'), 'notFound');
+    assert.strictEqual(I.upgradeBlock(S, 'valueOf'), 'notFound');
+  });
+  test('integers clamp to MAX_SAFE_INTEGER; boostUntil to now + BOOSTER_MAX_MIN', () => {
+    const d = fresh();
+    d.gold = 1e300;
+    d.stats.tries = '9e99';
+    d.idle.boostUntil = NOW + 1000 * HOUR;
+    const S = SV.normalize(JSON.parse(JSON.stringify(d)), NOW);
+    assert.strictEqual(S.gold, Number.MAX_SAFE_INTEGER);
+    assert.strictEqual(S.stats.tries, Number.MAX_SAFE_INTEGER);
+    assert.strictEqual(S.idle.boostUntil, NOW + C.BOOSTER_MAX_MIN * MIN);
+  });
+  test('active and anvilEq are coerced to integers', () => {
+    const d = fresh();
+    d.swords = [{ id: 1, lv: 9 }, { id: 2, lv: 3 }];
+    d.active = '2';
+    d.anvils = [{ id: 1, g: 1, dura: 10 }, { id: 4, g: 2, dura: 10 }];
+    d.anvilEq = '4';
+    const S = SV.normalize(JSON.parse(JSON.stringify(d)), NOW);
+    assert.strictEqual(S.active, 2);
+    assert.strictEqual(S.anvilEq, 4);
+    d.anvilEq = { id: 4 };
+    assert.strictEqual(SV.normalize(JSON.parse(JSON.stringify(d)), NOW).anvilEq, null);
+  });
+  test('corrupt v2 is backed up before it can be overwritten', () => {
+    const st = memStorage({ [C.SAVE_KEY]: '{broken' });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(r.source, 'corrupt');
+    assert.strictEqual(r.backedUp, true);
+    assert.strictEqual(st.dump[SV.CORRUPT_BACKUP_KEY], '{broken');
+    assert.strictEqual(SV.CORRUPT_BACKUP_KEY, C.SAVE_KEY + '-corrupt');
+  });
+});
+
+// ============================================================ M1 QA 수정 2차 회귀
+/** setItem 호출을 기록하는 메모리 저장소 */
+function countingStorage(init) {
+  const st = memStorage(init);
+  const writes = [];
+  const setItem = st.setItem;
+  st.setItem = (k, v) => { writes.push(k); setItem(k, v); };
+  st.writes = writes;
+  return st;
+}
+
+describe('fix round 2: read-only SV.peek', () => {
+  test('valid v2 → normalized state, no writes', () => {
+    const st = countingStorage();
+    SV.save(st, Object.assign(fresh(), { gold: 1234 }), NOW);
+    st.writes.length = 0;
+    const S = SV.peek(st, NOW + MIN);
+    assert.strictEqual(S.gold, 1234);
+    assert.strictEqual(S.idle.lastSeen, NOW);
+    assert.deepStrictEqual(st.writes, []);
+  });
+  test('corrupt v2 → null and the backup key is not written', () => {
+    const st = countingStorage({ [C.SAVE_KEY]: '{broken' });
+    assert.strictEqual(SV.peek(st, NOW), null);
+    assert.deepStrictEqual(st.writes, []);
+  });
+  test('v1 only → null, no migration write; empty / throwing storage → null', () => {
+    const st = countingStorage({ [C.SAVE_KEY_V1]: JSON.stringify({ gold: 5, level: 3 }) });
+    assert.strictEqual(SV.peek(st, NOW), null);
+    assert.deepStrictEqual(st.writes, []);
+    assert.strictEqual(SV.peek(memStorage(), NOW), null);
+    assert.strictEqual(SV.peek({ getItem() { throw new Error('denied'); } }, NOW), null);
+  });
+});
+
+describe('fix round 2: corrupt save bookkeeping', () => {
+  test('reloading the same corrupt v2 does not write the backup a second time', () => {
+    const st = countingStorage({ [C.SAVE_KEY]: '{broken' });
+    SV.load(st, NOW);
+    const r = SV.load(st, NOW + 1);
+    assert.deepStrictEqual(st.writes, [SV.CORRUPT_BACKUP_KEY]);
+    assert.strictEqual(r.backedUp, true);
+    assert.strictEqual(r.keptAt, SV.CORRUPT_BACKUP_KEY);
+  });
+  test('failed backup → keptAt null', () => {
+    const st = { getItem: k => (k === C.SAVE_KEY ? '{broken' : null), setItem() { throw new Error('quota'); } };
+    assert.strictEqual(SV.load(st, NOW).keptAt, null);
+  });
+  test('corrupt v1 → original stays at the v1 key (keptAt), nothing written', () => {
+    const st = countingStorage({ [C.SAVE_KEY_V1]: '{gold:' });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(r.source, 'corrupt');
+    assert.strictEqual(r.keptAt, C.SAVE_KEY_V1);
+    assert.deepStrictEqual(st.writes, []);
+    assert.strictEqual(st.dump[C.SAVE_KEY_V1], '{gold:');
+    assert.strictEqual(r.earlierBackupAt, null);
+  });
+});
+
+describe('AC 18: corrupt v2 backup key is write-once', () => {
+  test('empty backup key → written, keptAt = backup key, no earlier backup', () => {
+    const st = countingStorage({ [C.SAVE_KEY]: 'AAA' });
+    const r = SV.load(st, NOW);
+    assert.deepStrictEqual(st.writes, [SV.CORRUPT_BACKUP_KEY]);
+    assert.strictEqual(r.keptAt, SV.CORRUPT_BACKUP_KEY);
+    assert.strictEqual(r.earlierBackupAt, null);
+  });
+  test('a different, later corrupt save never overwrites the existing backup', () => {
+    const st = countingStorage({ [C.SAVE_KEY]: 'AAA' });
+    SV.load(st, NOW);
+    st.dump[C.SAVE_KEY] = 'BBB';
+    st.writes.length = 0;
+    const r = SV.load(st, NOW + 1);
+    assert.strictEqual(st.dump[SV.CORRUPT_BACKUP_KEY], 'AAA');
+    assert.deepStrictEqual(st.writes, []);
+    assert.strictEqual(r.source, 'corrupt');
+    assert.strictEqual(r.backedUp, false);
+    assert.strictEqual(r.keptAt, null, 'this corrupt original is not kept anywhere');
+    assert.strictEqual(r.earlierBackupAt, SV.CORRUPT_BACKUP_KEY);
+  });
+  test('a pre-existing backup from outside this session is also preserved', () => {
+    const st = countingStorage({ [C.SAVE_KEY]: '{broken', [SV.CORRUPT_BACKUP_KEY]: 'older' });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(st.dump[SV.CORRUPT_BACKUP_KEY], 'older');
+    assert.deepStrictEqual(st.writes, []);
+    assert.strictEqual(r.earlierBackupAt, SV.CORRUPT_BACKUP_KEY);
+  });
+  test('an empty-string backup counts as empty and is filled', () => {
+    const st = memStorage({ [C.SAVE_KEY]: '{broken', [SV.CORRUPT_BACKUP_KEY]: '' });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(st.dump[SV.CORRUPT_BACKUP_KEY], '{broken');
+    assert.strictEqual(r.keptAt, SV.CORRUPT_BACKUP_KEY);
+  });
+  test('failed backup write → keptAt null and no earlier backup claimed', () => {
+    const st = { getItem: k => (k === C.SAVE_KEY ? '{broken' : null), setItem() { throw new Error('quota'); } };
+    const r = SV.load(st, NOW);
+    assert.strictEqual(r.backedUp, false);
+    assert.strictEqual(r.earlierBackupAt, null);
+  });
+});
+
+describe('fix round 2: tray cap note when bless and anvil are both capped', () => {
+  const capped = (lv, pity, use) => {
+    const S = stateWith({ sword: { lv, pity }, inv: { bless: 1 }, use, top: { gold: 1e9 } });
+    S.anvils = [{ id: 1, g: 3, dura: 50 }];
+    S.anvilEq = 1;
+    return S;
+  };
+  test('+15 pity 10 with bless + anvil_3: each alone is redundant, together they matter → partial', () => {
+    const S = capped(15, 10, { bless: true, anvil: true });
+    assert.deepStrictEqual([R.bonusWasted(S, 'bless'), R.bonusWasted(S, 'anvil')], [true, true]);
+    const opts = { bless: true, anvilGrade: 3 };
+    const sw15 = R.activeSword(S);
+    assert.ok(R.chances(sw15, { bless: false, anvilGrade: 0 }).succ < R.chances(sw15, opts).succ, 'turning both off lowers the rate');
+    assert.deepStrictEqual([R.bonusCapNote(S, 'bless'), R.bonusCapNote(S, 'anvil')], ['partial', 'partial']);
+  });
+  test('only one redundant bonus → wasted for it, null for the other', () => {
+    const S = capped(12, 4, { bless: true, anvil: true });
+    assert.deepStrictEqual([R.bonusCapNote(S, 'anvil'), R.bonusCapNote(S, 'bless')], ['wasted', null]);
+  });
+  test('+0 (base above ceiling): bless wasted, anvil not usable below its level → wasted / null', () => {
+    const S = capped(0, 0, { bless: true, anvil: true });
+    assert.deepStrictEqual([R.bonusCapNote(S, 'bless'), R.bonusCapNote(S, 'anvil')], ['wasted', null]);
+  });
+  test('non-bonus and off toggles → null', () => {
+    const S = capped(15, 10, { bless: false, protect: true });
+    assert.deepStrictEqual(['bless', 'protect', 'keepdown', 'constructor'].map(id => R.bonusCapNote(S, id)), [null, null, null, null]);
+  });
+});
+
 // ------------------------------------------------------------ 결과
 console.log(`\n${results.pass} passed, ${results.fail} failed`);
 process.exit(results.fail ? 1 : 0);

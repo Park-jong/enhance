@@ -53,6 +53,7 @@ function makeEnv(initialStorage, opts = {}) {
   const docListeners = {};
   const store = Object.assign({}, initialStorage);
   const timers = [];
+  const winListeners = {};
   const document = {
     hidden: false,
     documentElement: new El('html'),
@@ -61,15 +62,17 @@ function makeEnv(initialStorage, opts = {}) {
     createElement: t => new El(t),
     addEventListener: (t, f) => { (docListeners[t] = docListeners[t] || []).push(f); },
   };
+  // opts.now: 가짜 시계(탭 동결 등 시간 경과 재현용)
+  const ClockDate = opts.now ? Object.assign(class extends Date {}, { now: opts.now }) : Date;
   const ctx = {
-    console, Math, Date, JSON, Promise, Object, Array, Number, String, Set, Map, Proxy, Error,
+    console, Math, Date: ClockDate, JSON, Promise, Object, Array, Number, String, Set, Map, Proxy, Error,
     document,
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
     requestAnimationFrame: () => 0,
     setTimeout: (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),   // 연출 대기를 짧게
     setInterval: f => { timers.push(f); return timers.length; },
     confirm: () => true,
-    addEventListener: () => {},
+    addEventListener: (t, f) => { (winListeners[t] = winListeners[t] || []).push(f); },
     devicePixelRatio: 1,
   };
   ctx.globalThis = ctx;
@@ -79,7 +82,7 @@ function makeEnv(initialStorage, opts = {}) {
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1])
     .filter(src => !(opts.withoutAssets && src.startsWith('assets/')));
   scripts.forEach(src => vm.runInContext(fs.readFileSync(path.join(ROOT, src), 'utf8'), ctx, { filename: src }));
-  return { ctx, byId, docListeners, store, tick: () => timers.forEach(f => f()), scripts };
+  return { ctx, byId, docListeners, winListeners, store, tick: () => timers.forEach(f => f()), scripts };
 }
 
 function click(env, act, id) {
@@ -100,6 +103,15 @@ function scanRendered() {
   assert.deepStrictEqual(bad.map(e => e.sel + ': ' + (e._html + e.textContent).slice(0, 160)), []);
 }
 const saved = env => JSON.parse(env.store['sword-enhance-v2']);
+const texts = el => el.children.map(c => c.textContent);
+const offlineShown = env => !!env.byId['#modal'] && !env.byId['#modal'].hidden && env.byId['#modal']._html.includes('자리 비운 동안');
+function fire(env, type, ev) { (env.winListeners[type] || []).forEach(f => f(ev)); }
+function setVisible(env, visible) {
+  env.ctx.document.hidden = !visible;
+  env.docListeners.visibilitychange.forEach(f => f());
+}
+
+const SG_default = () => require(path.join(ROOT, 'js', 'save.js')).defaultState(Date.now());
 
 async function main() {
   let checks = 0;
@@ -113,6 +125,7 @@ async function main() {
   ok(saved(env).v === 2, 'v2 saved on start');
   scanRendered();
   ok(env.byId['#tabbar']._html.includes(env.ctx.M1_ICONS.lock), 'locked tabs show lock icon');
+  ok(env.byId['#btnSettings']._html === '<span class="ic">' + env.ctx.M1_ICONS.settings + '</span>', 'settings button uses content icon');
 
   // 2) 사냥, 새 검 구매, 칸 선택/활성 전환, 상점, 탭 전환
   env.byId['#btnHunt'].listeners.click[0]();
@@ -156,6 +169,7 @@ async function main() {
   click(env, 'closeModal');
   ['bless', 'protect', 'keepdown'].forEach(id => change(env, 'tray', id, true));
   ok(saved(env).use.bless === true && saved(env).use.keepdown === true, 'tray toggles saved');
+  ok(!env.byId['#tray']._html.includes('상한 도달'), 'keepdown/bless with anvil off are not shown as "no effect" (#1)');
   ['bless', 'protect', 'keepdown', 'sure', 'seal', 'booster', 'anvil_1'].forEach(id => click(env, 'buy', id));
   click(env, 'craft', 1); click(env, 'craft', 2); click(env, 'craft', 3);
   ok(saved(env).anvils.length === 4, 'shop anvil + crafted 3 anvils');
@@ -178,6 +192,8 @@ async function main() {
   st.swords.push({ id: 50, lv: q.lv, prot: 2, pity: 0 });
   st.nextSwordId = 51;
   st.slots = Math.max(st.slots, st.swords.length);
+  st.quests.list[0].item = { id: 'bless', n: 2 };
+  st.inv.bless = 0;
   env = makeEnv({ 'sword-enhance-v2': JSON.stringify(st) });
   change(env, 'seal', undefined, true);
   const goldBefore = saved(env).gold;
@@ -185,6 +201,11 @@ async function main() {
   const after = saved(env);
   ok(after.stats.delivered === 1 && !after.swords.some(s => s.id === 50), 'delivered quest');
   ok(after.gold - goldBefore === Math.floor(q.gold * 1.3), 'seal applied to quest gold');
+  ok(after.inv.bless === 2, 'quest item reward granted');
+  const rewardLog = texts(env.byId['#log']).find(t => t.includes('납품했습니다'));
+  const rewardToast = texts(env.byId['#toasts']).find(t => t.includes('납품했습니다'));
+  ok(rewardLog.includes('✨ 축복 주문서 ×2') && !/[<>]/.test(rewardLog), 'quest reward log is plain text (#2): ' + rewardLog);
+  ok(rewardToast.includes('축복 주문서 ×2') && !/[<>]/.test(rewardToast), 'quest reward toast is plain text (#2)');
   click(env, 'reroll', 1);
   click(env, 'sellSel', 2);   // +9 → 확인 필요
   ok(saved(env).swords.some(s => s.id === 2), 'sell +9 needs second click');
@@ -205,11 +226,144 @@ async function main() {
   scanRendered();
   env = makeEnv({ 'sword-enhance-v2': '{broken' });
   ok(saved(env).gold === 300, 'corrupt v2 → new game');
+  ok(env.store['sword-enhance-v2-corrupt'] === '{broken', 'corrupt v2 backed up before overwrite');
+  ok(texts(env.byId['#toasts']).some(t => t.includes('sword-enhance-v2-corrupt') && t.includes('백업되어')), 'corrupt backup toast shown');
   scanRendered();
+  // AC 18: 백업 키가 이미 차 있으면 덮어쓰지 않고, 토스트는 이번 원본이 보관됐다고 말하지 않는다
+  env = makeEnv({ 'sword-enhance-v2': '{second', 'sword-enhance-v2-corrupt': '{first' });
+  ok(saved(env).gold === 300, 'second corrupt v2 → new game');
+  ok(env.store['sword-enhance-v2-corrupt'] === '{first', 'existing corrupt backup is never overwritten');
+  {
+    const toast = texts(env.byId['#toasts']).find(t => t.includes('sword-enhance-v2-corrupt'));
+    ok(!!toast && toast.includes('이전 백업') && !toast.includes('백업되어'), 'toast says the earlier backup was kept, not this original: ' + toast);
+  }
+
+  // 5b) 두 탭 (#3): 다른 탭이 저장하면 이 탭은 멈추고 덮어쓰지 않는다. 이어받으면 최신 저장으로 계속
+  const idleSave = Object.assign(SG_default(), { gold: 1000, best: 8 });
+  idleSave.swords = [{ id: 1, lv: 8, prot: 2, pity: 0 }];
+  idleSave.idle.autoOn = true;
+  env = makeEnv({ 'sword-enhance-v2': JSON.stringify(idleSave) });
+  const otherTab = Object.assign(saved(env), { gold: 777777 });
+  otherTab.idle.lastSeen = Date.now() + 5;
+  env.store['sword-enhance-v2'] = JSON.stringify(otherTab);
+  fire(env, 'storage', { key: 'sword-enhance-v2' });
+  ok(env.byId['#tabLock'].hidden === false, 'other-tab lock shown on storage event');
+  env.byId['#btnHunt'].listeners.click[0]();
+  key(env, 'KeyH');
+  env.tick();
+  setVisible(env, false);
+  fire(env, 'pagehide', {});
+  ok(saved(env).gold === 777777, 'suspended tab neither acts nor overwrites the other tab save');
+  await sleep(10);
+  env.byId['#btnTakeover'].listeners.click[0]();
+  ok(env.byId['#tabLock'].hidden === true, 'take over hides the lock');
+  ok(saved(env).gold === 777777 && env.byId['#gold'].textContent === '777,777', 'take over continues from the latest save');
+  env.byId['#btnHunt'].listeners.click[0]();
+  ok(saved(env).gold > 777777, 'tab is active again after take over');
+
+  // 5c) storage 이벤트 없이도: 숨김→복귀 시 다른 탭의 더 최근 저장을 이어받고 오프라인 보상을 다시 주지 않는다
+  env = makeEnv({ 'sword-enhance-v2': JSON.stringify(idleSave) });
+  setVisible(env, false);
+  await sleep(10);
+  const newer = Object.assign(saved(env), { gold: 424242 });
+  newer.idle.lastSeen = Date.now() + 5;
+  env.store['sword-enhance-v2'] = JSON.stringify(newer);
+  setVisible(env, true);
+  ok(saved(env).gold === 424242 && saved(env).stats.offlineGold === 0, 'resume adopts the newer save from another tab');
+  ok(!offlineShown(env), 'no duplicate offline reward on resume');
+
+  // 5e) 이어받기 직후 이 탭의 옛 자동 사냥 시각으로 다른 탭이 이미 받은 몫을 다시 지급하지 않는다 (가짜 시계)
+  const TAKEOVER_GAP_MS = 5 * 60 * 1000;     // 이 탭이 멈춰 있던 시간
+  const OTHER_TAB_SAVE_AGO_MS = 10 * 1000;   // 다른 탭의 마지막 저장: OFFLINE_MIN_SEC보다 최근
+  const tickMs = 500;
+  const autoSave = t => {
+    const s = JSON.parse(JSON.stringify(idleSave));
+    s.gold = 50000;
+    s.idle.lastSeen = t;
+    return s;
+  };
+  const otherTabWrites = (env2, t, gold) => {
+    const s = Object.assign(saved(env2), { gold });
+    s.idle.lastSeen = t - OTHER_TAB_SAVE_AGO_MS;
+    env2.store['sword-enhance-v2'] = JSON.stringify(s);
+  };
+  const oneAutoRun = (env2, t) => env2.ctx.SG.idle.autoRunGold(saved(env2), t);
+  const autoMs = env2 => env2.ctx.SG.idle.autoInterval(saved(env2));
+  {
+    const clk = { t: Date.now() };
+    env = makeEnv({ 'sword-enhance-v2': JSON.stringify(autoSave(clk.t)) }, { now: () => clk.t });
+    env.tick();
+    fire(env, 'storage', { key: 'sword-enhance-v2' });
+    ok(env.byId['header'].inert === true && env.byId['main'].inert === true, 'locked tab makes header/main inert');
+    clk.t += TAKEOVER_GAP_MS;
+    otherTabWrites(env, clk.t, 60000);
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(env.byId['header'].inert === false && env.byId['main'].inert === false, 'take over removes inert');
+    ok(saved(env).gold === 60000 && !offlineShown(env), 'take over adopts the other tab save without offline reward');
+    clk.t += tickMs;
+    env.tick();
+    ok(saved(env).gold === 60000, 'no auto catch-up payout right after take over: ' + saved(env).gold);
+    clk.t += autoMs(env);
+    const expected = 60000 + oneAutoRun(env, clk.t);
+    env.tick();
+    ok(saved(env).gold === expected, 'next auto run pays exactly once after take over');
+  }
+
+  // 5f) 숨김→복귀 시 다른 탭의 더 최근 저장(storage 이벤트 없음)을 이어받아도 추가 지급 없음
+  {
+    const clk = { t: Date.now() };
+    env = makeEnv({ 'sword-enhance-v2': JSON.stringify(autoSave(clk.t)) }, { now: () => clk.t });
+    env.tick();
+    setVisible(env, false);
+    clk.t += TAKEOVER_GAP_MS;
+    otherTabWrites(env, clk.t, 70000);
+    setVisible(env, true);
+    ok(saved(env).gold === 70000 && !offlineShown(env), 'resume adopts the newer save without offline reward');
+    clk.t += tickMs;
+    env.tick();
+    ok(saved(env).gold === 70000, 'no auto catch-up payout right after resume with a newer save: ' + saved(env).gold);
+  }
+
+  // 5g) 이어받기 버튼은 lastSeen 비교 없이 저장된 유효 v2를 이어받는다. localStorage.clear(key=null)도 잠금
+  {
+    const clk = { t: Date.now() };
+    env = makeEnv({ 'sword-enhance-v2': JSON.stringify(autoSave(clk.t)) }, { now: () => clk.t });
+    fire(env, 'storage', { key: null });
+    ok(env.byId['#tabLock'].hidden === false, 'storage clear (key null) locks the tab');
+    const older = Object.assign(saved(env), { gold: 999 });
+    older.idle.lastSeen = clk.t - OTHER_TAB_SAVE_AGO_MS;
+    env.store['sword-enhance-v2'] = JSON.stringify(older);
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(saved(env).gold === 999, 'take over adopts the stored save even with an older lastSeen');
+    fire(env, 'storage', { key: null });
+    delete env.store['sword-enhance-v2'];
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(saved(env).gold === 999, 'take over with no stored save keeps and re-saves the in-memory state');
+    fire(env, 'storage', { key: 'other-key' });
+    ok(env.byId['#tabLock'].hidden === true, 'unrelated storage keys do not lock');
+  }
+
+  // 5h) 손상된 v1: v1 키는 덮어쓰지 않으므로 "백업 실패"가 아니라 원본 위치를 알린다
+  env = makeEnv({ 'sword-enhance-v1': '{gold:' });
+  ok(saved(env).gold === 300 && env.store['sword-enhance-v1'] === '{gold:', 'corrupt v1 → new game, v1 key kept');
+  ok(texts(env.byId['#toasts']).some(t => t.includes('sword-enhance-v1') && t.includes('그대로') && !t.includes('백업 실패')), 'corrupt v1 toast says the v1 original was left as is (AC 19)');
+  ok(!('sword-enhance-v2-corrupt' in env.store), 'corrupt v1 writes no v2 backup');
+
+  // 5d) visibilitychange 없이 탭이 동결됐다 깨어나도 tick에서 오프라인 정산
+  const clock = { t: Date.now() };
+  const frozenSave = JSON.parse(JSON.stringify(idleSave));
+  frozenSave.idle.lastSeen = clock.t;
+  env = makeEnv({ 'sword-enhance-v2': JSON.stringify(frozenSave) }, { now: () => clock.t });
+  ok(!offlineShown(env), 'no offline popup right after load');
+  clock.t += 2 * 3600 * 1000;
+  env.tick();
+  ok(offlineShown(env) && saved(env).stats.offlineGold > 0, 'tick after a freeze settles offline income');
+  ok(saved(env).idle.lastSeen === clock.t, 'lastSeen advanced after freeze settlement');
 
   // 6) 콘텐츠 에셋 없이도 동작(이모지·합성음 대체)
   env = makeEnv({}, { withoutAssets: true });
   ok(env.byId['#tabbar']._html.includes('🔒'), 'emoji fallback without assets');
+  ok(env.byId['#btnSettings']._html === '⚙️', 'settings emoji fallback without assets');
   env.byId['#btnHunt'].listeners.click[0]();
   click(env, 'tab', 'idle');
   scanRendered();
