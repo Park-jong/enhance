@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>[TEST] 검 강화하기 · 강화 100%</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/test-mode.css">
+</head>
+<body class="test-mode">
+<!-- 테스트 페이지: 실제 게임 스크립트를 그대로 쓰되 js/test-mode.js 설정으로 강화 100%, 저장 키 sword-enhance-test (실제 저장과 분리) -->
+<div id="testBar" role="status">
+  <span id="testBannerText">TEST MODE · 강화 100%</span>
+  <button class="small-btn gold" data-act="testGold">골드 +1,000,000</button>
+  <button class="small-btn" data-act="testReset">초기화(테스트 저장만)</button>
+  <button class="small-btn" data-act="testToggleForce" id="btnTestForce">강화 100%: 켜짐</button>
+</div>
+
+<header>
+  <div class="logo">⚔️ 검 강화하기 <span class="badge bad">TEST</span></div>
+  <div class="spacer"></div>
+  <div class="resbar">
+    <div class="gold" id="goldBox"><span class="coin"></span><span id="gold">0</span></div>
+    <div class="res-other" id="resOther"></div>
+  </div>
+  <div class="settings-wrap">
+    <button class="icon-btn" id="btnSettings" title="설정">⚙️</button>
+    <div class="popover" id="settingsPop" hidden>
+      <label><input type="checkbox" id="setSound"> 🔊 소리</label>
+      <label><input type="checkbox" id="setSkip"> ⏩ 강화 연출 건너뛰기</label>
+      <button class="small-btn" id="btnReset" title="처음부터 다시">초기화</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="main-col">
+    <section class="card">
+      <h2>보관함 <span id="slotCount"></span></h2>
+      <div class="strip" id="strip"></div>
+      <div class="strip-actions" id="stripActions"></div>
+    </section>
+
+    <section class="card">
+      <div class="title-row">
+        <span class="rarity" id="rarity">일반</span>
+        <span class="sword-name" id="swordName">+0 낡은 목검</span>
+      </div>
+
+      <div class="stage" id="stage">
+        <div class="floor"></div>
+        <div class="float"><div id="sword"></div></div>
+        <canvas id="fx"></canvas>
+        <div id="flash"></div>
+        <div id="result"></div>
+      </div>
+
+      <div class="info">
+        <div><span>성공 확률</span><b id="vSucc" style="color:var(--good)">-</b></div>
+        <div><span>파괴 확률</span><b id="vDest" style="color:var(--bad)">-</b> <span class="badge bad" id="destWarn" hidden>⚠ 보호 불가</span></div>
+        <div><span>강화 비용</span><b id="vCost" style="color:var(--gold)">-</b></div>
+        <div><span>판매 가격</span><b id="vSell" style="color:var(--gold)">-</b></div>
+      </div>
+      <div class="breakdown" id="breakdown"></div>
+      <div class="pity-gauge" id="pityLine"></div>
+      <p class="note" id="note"></p>
+      <p class="income-note" id="incomeNote"></p>
+
+      <h3 class="tray-title">소모품</h3>
+      <div class="tray" id="tray"></div>
+
+      <div class="actions">
+        <button class="btn btn-enhance" id="btnEnhance">강화하기<kbd id="enhanceSub">Space</kbd></button>
+        <button class="btn btn-sell" id="btnSell">판매<kbd>S</kbd></button>
+        <button class="btn btn-hunt" id="btnHunt">사냥<kbd>H</kbd></button>
+      </div>
+      <div class="auto-row" id="autoRow"></div>
+    </section>
+  </div>
+
+  <aside class="side">
+    <nav class="tabbar" id="tabbar"></nav>
+    <section class="card tab-panel" data-panel="shop"><h2>상점</h2><div class="panel-body"></div></section>
+    <section class="card tab-panel" data-panel="forge" hidden><h2>대장간</h2><div class="panel-body"></div></section>
+    <section class="card tab-panel" data-panel="quests" hidden><h2>납품 의뢰</h2><div class="panel-body"></div></section>
+    <section class="card tab-panel" data-panel="idle" hidden><h2>방치</h2><div class="panel-body"></div></section>
+    <section class="card tab-panel" data-panel="records" hidden>
+      <h2>기록</h2>
+      <div class="stats" id="statsGrid"></div>
+      <h2 style="margin-top:16px">로그</h2>
+      <ul id="log"></ul>
+    </section>
+  </aside>
+
+  <section class="card full">
+    <h2>검 도감 <span id="foundCount"></span></h2>
+    <div class="collection" id="collection"></div>
+  </section>
+</main>
+
+<div id="toasts"></div>
+<div id="banner"><div class="inner"><div class="big" id="bannerBig"></div><div class="sub" id="bannerSub"></div></div></div>
+<div id="modal" hidden></div>
+<div id="tabLock" hidden>
+  <div class="sheet">
+    <h3>다른 탭에서 실행 중</h3>
+    <p>같은 저장 데이터를 다른 탭(창)에서 쓰고 있어 이 탭을 멈췄습니다. 진행이 서로 덮어쓰이지 않도록 한 곳에서만 플레이하세요.</p>
+    <button class="small-btn gold" id="btnTakeover">이 탭에서 계속하기</button>
+  </div>
+</div>
+
+<!-- 규칙 모듈(node 테스트와 공용) → 화면 모듈 → 컨트롤러 순서로 로드. file:// 에서도 동작하도록 ES 모듈을 쓰지 않는다 -->
+<!-- 테스트 설정은 constants.js보다 먼저 -->
+<script src="js/test-mode.js"></script>
+<script src="js/constants.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/forge.js"></script>
+<script src="js/idle.js"></script>
+<script src="js/quests.js"></script>
+<script src="js/save.js"></script>
+<!-- 콘텐츠 팀 아이콘·효과음(없어도 이모지·합성음으로 동작) -->
+<script src="assets/m1-icons.js"></script>
+<script src="assets/m1-sfx.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/view.js"></script>
+<!-- 테스트 조작판은 main.js보다 먼저 등록 -->
+<script src="js/test-panel.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

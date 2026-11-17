@@ -434,8 +434,8 @@
     persist();
     render();
   }));
-  $('#btnReset').addEventListener('click', whenActive(() => {
-    if (!confirm('모든 진행 상황을 지우고 처음부터 시작할까요?')) return;
+  /** 현재 저장 키(C.SAVE_KEY)의 진행을 새 게임으로 덮어쓴다 */
+  function startNewGame() {
     S = SV.defaultState(now());
     Object.assign(ui, { selectedId: S.active, armed: {}, view: null, nextEnhanceAt: 0, nextAutoAt: now() + I.autoInterval(S) });
     $('#log').innerHTML = '';
@@ -443,6 +443,10 @@
     persist();
     render();
     FX.log('새 게임을 시작했습니다. 행운을 빕니다!');
+  }
+  $('#btnReset').addEventListener('click', whenActive(() => {
+    if (!confirm('모든 진행 상황을 지우고 처음부터 시작할까요?')) return;
+    startNewGame();
   }));
   $('#banner').addEventListener('click', () => $('#banner').classList.remove('show'));
 
@@ -475,11 +479,24 @@
   /** 손상 저장 토스트: 이번 원문이 실제로 어디에 남았는지(또는 남지 않았는지)만 말한다 */
   function corruptNotice(l) {
     const head = START_LOG.corrupt;
-    if (l.keptAt === C.SAVE_KEY_V1) return `${head} v1 원본은 '${l.keptAt}'에 그대로 두었습니다.`;
-    if (l.keptAt) return `${head} 원본은 '${l.keptAt}'에 백업되어 있습니다.`;
+    if (l.keptAt) {
+      return l.keptAt === C.SAVE_KEY_V1
+        ? `${head} v1 원본은 '${l.keptAt}'에 그대로 두었습니다.`
+        : `${head} 원본은 '${l.keptAt}'에 백업되어 있습니다.`;
+    }
     if (l.earlierBackupAt) return `${head} '${l.earlierBackupAt}'에 이전 백업이 이미 있어 그대로 두었습니다. (이번 원본은 보관되지 않음)`;
     return `${head} (원본 백업 실패)`;
   }
+  // 확장 지점: main.js보다 먼저 로드된 페이지 전용 스크립트(예: test.html의 js/test-panel.js)가 SG.extensions에
+  // 넣은 함수에 좁은 조작 API를 넘긴다. 추가 동작은 data-act 클릭으로만 불리므로 탭 잠금(whenActive)도 그대로 적용된다
+  const controllerApi = {
+    state: () => S,
+    commit: afterChange,
+    newGame: startNewGame,
+    addActions: actions => Object.assign(ACTIONS, actions),
+  };
+  (SG.extensions || []).forEach(extend => extend(controllerApi));
+
   V.buildCollection();
   V.decorateStatic();
   FX.sizeFx();

@@ -1,0 +1,19 @@
+/* 테스트 페이지(test.html) 전용: TEST MODE 표시줄과 조작판.
+ * 넓은 화면은 하단 고정, 좁은 화면은 하단 탭바(style.css)를 가리지 않도록 맨 위에 흐름 배치 */
+#testBar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  background: repeating-linear-gradient(135deg, #5a1020 0 14px, #6b1426 14px 28px);
+  border-top: 2px solid var(--bad);
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, .5);
+}
+#testBannerText { font-weight: 900; letter-spacing: .02em; color: #fff; margin-right: auto; }
+#testBar .small-btn { background: rgba(0, 0, 0, .35); }
+body.test-mode { padding-bottom: 64px; }
+body.test-mode #toasts { bottom: 76px; }
+
+@media (max-width: 720px) {
+  #testBar { position: static; border-top: 0; border-bottom: 2px solid var(--bad); box-shadow: none; }
+  body.test-mode { padding-bottom: 0; }
+}

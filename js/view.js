@@ -179,6 +179,7 @@
 
   function breakdownHTML(c) {
     if (c.sure) return `${ic('sure')} 확정 강화권: 성공 100% · 파괴 0%`;
+    if (c.forced) return 'TEST MODE: 성공 100% · 파괴 0%';
     if (!c.parts) return '';
     const terms = [`기본 ${c.base}%`];
     if (c.parts.bless) terms.push(`축복 ${c.parts.bless}`);
