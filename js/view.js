@@ -47,6 +47,7 @@
     maxLv: () => '최대 강화',
   };
   const BAD_REASONS = ['needMore', 'protExhausted'];
+  const CAP_NOTE = { wasted: '상한 도달 — 효과 없음', partial: '상한 도달 — 일부 효과 없음' };
   const TIER_NAME = { easy: '쉬움', normal: '보통', hard: '어려움' };
   const TABS = [
     { id: 'shop', name: '상점' },
@@ -73,8 +74,12 @@
   ];
 
   const swordName = lv => `+${lv} ${C.SWORDS[lv].n}`;
-  const itemName = id => (C.ITEMS[id] ? C.ITEMS[id].name : C.ORE_NAMES[id]);
-  const itemLabel = (id, n) => `${ic(id)} ${itemName(id)}${n > 1 ? ' ×' + fmt(n) : ''}`;
+  const itemName = id => (R.itemDef(id) ? R.itemDef(id).name : C.ORE_NAMES[id]);
+  const qtySuffix = n => (n > 1 ? ' ×' + fmt(n) : '');
+  /** innerHTML 전용(SVG 아이콘 포함) */
+  const itemLabel = (id, n) => `${ic(id)} ${itemName(id)}${qtySuffix(n)}`;
+  /** textContent용(로그·토스트): 이모지 + 이름 */
+  const itemText = (id, n) => `${C.ICONS[id] || ''} ${itemName(id)}${qtySuffix(n)}`.trim();
 
   function fmtDuration(ms) {
     const total = Math.max(0, Math.ceil(ms / 1000));
@@ -244,17 +249,6 @@
   }
 
   // ============================================================ 소모품 트레이
-  /** 이 보너스 항목을 빼도 성공률이 같으면 '효과 없음'(상한 도달) */
-  function noEffect(S, id) {
-    const use = R.effectiveUse(S);
-    if (!use[id]) return false;
-    const anvil = use.anvil ? R.equippedAnvil(S) : null;
-    const opts = { bless: use.bless, anvilGrade: anvil ? anvil.g : 0 };
-    const without = Object.assign({}, opts, id === 'bless' ? { bless: false } : { anvilGrade: 0 });
-    const sw = R.activeSword(S);
-    return R.chances(sw, opts).succ === R.chances(sw, without).succ;
-  }
-
   const TRAY_ROW = {
     bless: S => ({
       title: `${ic('bless')} ${C.ITEMS.bless.name} <span class="muted">보유 ${S.inv.bless}</span><span class="tag">+${C.BLESS_BONUS}%p</span>`,
@@ -296,7 +290,7 @@
     const rows = C.TRAY_TOGGLES.filter(id => !(TRAY_HIDE[id] && TRAY_HIDE[id](S, sw))).map(id => {
       const t = tray[id];
       const row = TRAY_ROW[id](S, sw);
-      const reason = t.block ? TRAY_REASON[t.block](sw) : (noEffect(S, id) ? '상한 도달 — 효과 없음' : '');
+      const reason = t.block ? TRAY_REASON[t.block](sw) : (CAP_NOTE[R.bonusCapNote(S, id)] || '');
       const bad = BAD_REASONS.includes(t.block);
       return `<label class="opt ${t.block ? 'off' : ''}">
         <input type="checkbox" data-change="tray" data-id="${id}" ${t.on ? 'checked' : ''} ${t.block || ui.busy ? 'disabled' : ''}>
@@ -490,6 +484,12 @@
     setHTML($('#statsGrid'), STATS.map(([k, f]) => `<div><span>${k}</span><b>${f(S)}</b></div>`).join(''));
   }
 
+  // ============================================================ 정적 요소
+  /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지) */
+  function decorateStatic() {
+    $('#btnSettings').innerHTML = ic('settings');
+  }
+
   // ============================================================ 도감
   function buildCollection() {
     $('#collection').innerHTML = C.SWORDS.map((s, i) => `
@@ -530,5 +530,8 @@
       <button class="small-btn gold" data-act="closeModal">받기</button></div>`;
   }
 
-  SG.view = { REASON, render, buildCollection, updateCountdowns, offlineModalHTML, swordName, itemLabel, fmtDuration };
+  SG.view = {
+    REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
+    swordName, itemLabel, itemText, fmtDuration,
+  };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -45,8 +45,14 @@
     huntUntil: 0, nextAutoAt: now() + I.autoInterval(S), nextEnhanceAt: 0,
   };
   let lastSaveAt = 0;
+  // 다른 탭이 같은 저장을 쓰기 시작하면 true: 이 탭은 저장·틱·입력을 멈춘다
+  let suspended = false;
 
-  function persist() { SV.save(storage, S, now()); lastSaveAt = now(); }
+  function persist() {
+    if (suspended) return;
+    SV.save(storage, S, now());
+    lastSaveAt = now();
+  }
   function render() { V.render(S, ui, now()); }
   function afterChange() {
     R.cleanupUse(S);
@@ -123,6 +129,7 @@
       sfx(resultCue('destroy', fx, 'destroy'));
       FX.log(`+${r.from} ${sw.n}이(가) 산산조각 났습니다... 파편 ${r.shards}개 획득`, 'bad');
       if (fx.shatter) await wait(fx.shatter);
+      if (r.shards > 0) sfx('shardGain');
       ui.view = null;
       ui.selectedId = S.active;
       render();
@@ -168,6 +175,7 @@
     persist();
     const fx = pickFx(r);
     const outcome = OUTCOME_FX[r.outcome];
+    if (r.used.sure) sfx('useSure');
     ui.busy = true;
     ui.view = { lv: r.from, chances: r.chances };
     render();
@@ -199,6 +207,7 @@
     ui.huntUntil = t + C.HUNT_CD;
     FX.floatGold(r.gold);
     sfx('coin');
+    if (Object.keys(r.ore).some(k => r.ore[k] > 0)) sfx('oreGain');
     persist();
     render();
     tickHunt();
@@ -236,11 +245,15 @@
     FX.showResult(`+${fmt(r.gold)}G`, 'var(--gold)');
     FX.floatGold(r.gold);
     sfx('coin');
+    if (r.sealed) sfx('useSeal');
     if (r.freeSword) FX.log('보유 검이 없어 +0 검 1자루를 무료로 받았습니다.', 'info');
     ui.selectedId = S.active;
     afterChange();
     if (wasActive) FX.setSwordAnim('appear');
   }
+
+  const rewardGaveShards = reward =>
+    !!reward && (reward.fallbackShards > 0 || (reward.granted > 0 && R.itemDef(reward.id).kind === 'shard'));
 
   function deliverSlot(slot, swordId) {
     const q = S.quests.list[slot];
@@ -254,13 +267,15 @@
     if (!r.ok) return reject(r.reason);
     let msg = `+${q.lv} 검을 납품했습니다. ${fmt(r.gold)}G${r.sealed ? ` (감정 인장 ×${C.SEAL_MULT})` : ''}`;
     if (r.reward) {
-      if (r.reward.granted) msg += ` + ${V.itemLabel(r.reward.id, r.reward.granted)}`;
+      if (r.reward.granted) msg += ` + ${V.itemText(r.reward.id, r.reward.granted)}`;
       if (r.reward.fallbackShards) msg += ` · 보유 한도로 ${C.ICONS.shard} 파편 ${r.reward.fallbackShards}개로 대체`;
     }
     FX.log(msg, 'gold');
     FX.toast(`${C.ICONS.deliver} ${msg}`, 'special');
     FX.floatGold(r.gold);
     sfx('questDeliver');
+    if (r.sealed) sfx('useSeal');
+    if (rewardGaveShards(r.reward)) sfx('shardGain');
     if (r.freeSword) FX.log('보유 검이 없어 +0 검 1자루를 무료로 받았습니다.', 'info');
     ui.selectedId = S.active;
     afterChange();
@@ -327,8 +342,26 @@
     $('#modal').hidden = false;
     FX.log(`자리 비운 동안 ${fmt(r.gold)}G를 벌었습니다.`, 'gold');
   }
-  function resume() {
+  /**
+   * 저장소의 유효한 v2 상태를 이어받는다. force가 아니면 다른 탭이 더 나중에 저장했을 때(lastSeen이 더 최근)만.
+   * 오래된 탭이 옛 lastSeen으로 오프라인 보상을 다시 받고 최신 저장을 덮어쓰는 것을 막는다.
+   * 이 탭의 저장이 실패해 저장소 쪽이 더 오래된 경우에는 메모리 상태를 유지한다.
+   */
+  function adoptStoredSave(t, force) {
+    const latest = SV.peek(storage, t);
+    if (!latest || (!force && latest.idle.lastSeen <= S.idle.lastSeen)) return;
+    S = latest;
+    // 이 탭의 옛 자동 사냥 시각을 두면, 다른 탭이 이미 지급한 몫을 catch-up으로 다시 지급한다
+    ui.nextAutoAt = t + I.autoInterval(S);
+    ui.view = null;
+    ui.busy = false;
+    ui.selectedId = S.active;
+    ui.armed = {};
+  }
+  function resume(forceAdopt = false) {
+    if (suspended) return;
     const t = now();
+    adoptStoredSave(t, forceAdopt);
     const off = I.settleOffline(S, t);
     if (off) ui.nextAutoAt = t + I.autoInterval(S);
     Q.refreshQuests(S, t, rng);
@@ -337,8 +370,10 @@
     if (off && off.gold > 0) showOffline(off);
   }
   function tick() {
-    if (document.hidden) return;   // 숨김 동안은 복귀 정산(resume)이 처리
+    if (suspended || document.hidden) return;   // 숨김 동안은 복귀 정산(resume)이 처리
     const t = now();
+    // 탭 동결 등으로 visibilitychange 없이 오래 멈췄다 깨어난 경우도 복귀 정산으로 처리
+    if (t - S.idle.lastSeen >= C.OFFLINE_MIN_SEC * 1000) return resume();
     const auto = I.runAutoCatchup(S, t, ui.nextAutoAt, rng);
     ui.nextAutoAt = auto.nextAutoAt;
     const created = Q.refreshQuests(S, t, rng);
@@ -347,31 +382,59 @@
     render();
   }
 
+  // ============================================================ 다른 탭과의 충돌 방지
+  // 같은 저장 키를 다른 탭이 쓰면(storage 이벤트) 이 탭을 멈추고, 사용자가 고르면 최신 저장을 이어받아 계속한다.
+  // 잠금 화면 뒤의 조작부에 키보드 포커스가 닿지 않게 한다
+  function setLocked(locked) {
+    $('#tabLock').hidden = !locked;
+    $('header').inert = locked;
+    $('main').inert = locked;
+  }
+  function suspendForOtherTab() {
+    if (suspended) return;
+    suspended = true;
+    ui.armed = {};
+    $('#modal').hidden = true;
+    $('#settingsPop').hidden = true;
+    setLocked(true);
+  }
+  /** 사용자가 이 탭을 고르면 저장소의 유효한 저장을 무조건 이어받는다(없으면 메모리 상태로 계속) */
+  function takeOver() {
+    suspended = false;
+    setLocked(false);
+    resume(true);
+  }
+  // key === null: 다른 탭의 localStorage.clear()도 저장 변경으로 본다
+  root.addEventListener('storage', e => { if (e.key === C.SAVE_KEY || e.key === null) suspendForOtherTab(); });
+  $('#btnTakeover').addEventListener('click', takeOver);
+  /** 멈춘 동안에는 입력을 무시 */
+  const whenActive = fn => (...args) => (suspended ? undefined : fn(...args));
+
   // ============================================================ 이벤트
-  document.addEventListener('click', e => {
+  document.addEventListener('click', whenActive(e => {
     const pop = $('#settingsPop');
     if (!pop.hidden && !e.target.closest('.settings-wrap')) pop.hidden = true;
     const el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
     const fn = ACTIONS[el.dataset.act];
     if (fn) fn(el.dataset.id);
-  });
-  document.addEventListener('change', e => {
+  }));
+  document.addEventListener('change', whenActive(e => {
     const el = e.target.closest('[data-change]');
     if (el && CHANGES[el.dataset.change]) CHANGES[el.dataset.change](el);
-  });
-  $('#btnEnhance').addEventListener('click', enhance);
-  $('#btnSell').addEventListener('click', () => sellSword(S.active));
-  $('#btnHunt').addEventListener('click', hunt);
-  $('#btnSettings').addEventListener('click', () => { $('#settingsPop').hidden = !$('#settingsPop').hidden; });
-  $('#setSound').addEventListener('change', e => { S.settings.muted = !e.target.checked; persist(); render(); });
-  $('#setSkip').addEventListener('change', e => {
+  }));
+  $('#btnEnhance').addEventListener('click', whenActive(enhance));
+  $('#btnSell').addEventListener('click', whenActive(() => sellSword(S.active)));
+  $('#btnHunt').addEventListener('click', whenActive(hunt));
+  $('#btnSettings').addEventListener('click', whenActive(() => { $('#settingsPop').hidden = !$('#settingsPop').hidden; }));
+  $('#setSound').addEventListener('change', whenActive(e => { S.settings.muted = !e.target.checked; persist(); render(); }));
+  $('#setSkip').addEventListener('change', whenActive(e => {
     S.settings.skipFx = e.target.checked;
     FX.log(S.settings.skipFx ? '강화 연출 건너뛰기를 켰습니다.' : '강화 연출 건너뛰기를 껐습니다.', 'info');
     persist();
     render();
-  });
-  $('#btnReset').addEventListener('click', () => {
+  }));
+  $('#btnReset').addEventListener('click', whenActive(() => {
     if (!confirm('모든 진행 상황을 지우고 처음부터 시작할까요?')) return;
     S = SV.defaultState(now());
     Object.assign(ui, { selectedId: S.active, armed: {}, view: null, nextEnhanceAt: 0, nextAutoAt: now() + I.autoInterval(S) });
@@ -380,10 +443,10 @@
     persist();
     render();
     FX.log('새 게임을 시작했습니다. 행운을 빕니다!');
-  });
+  }));
   $('#banner').addEventListener('click', () => $('#banner').classList.remove('show'));
 
-  document.addEventListener('keydown', e => {
+  document.addEventListener('keydown', whenActive(e => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.code === 'Space') {
       e.preventDefault();
@@ -397,7 +460,7 @@
       $('#modal').hidden = true;
       $('#settingsPop').hidden = true;
     }
-  });
+  }));
   // 포커스된 버튼·체크박스가 Space로 한 번 더 눌리는 것을 막음
   document.addEventListener('keyup', e => { if (e.code === 'Space') e.preventDefault(); });
   document.addEventListener('visibilitychange', () => (document.hidden ? persist() : resume()));
@@ -409,9 +472,19 @@
     v1: '이전 저장을 새 형식으로 옮겼습니다. 기존 검은 보관함 첫 칸에 있습니다.',
     corrupt: '저장 데이터를 읽을 수 없어 새 게임으로 시작합니다.',
   };
+  /** 손상 저장 토스트: 이번 원문이 실제로 어디에 남았는지(또는 남지 않았는지)만 말한다 */
+  function corruptNotice(l) {
+    const head = START_LOG.corrupt;
+    if (l.keptAt === C.SAVE_KEY_V1) return `${head} v1 원본은 '${l.keptAt}'에 그대로 두었습니다.`;
+    if (l.keptAt) return `${head} 원본은 '${l.keptAt}'에 백업되어 있습니다.`;
+    if (l.earlierBackupAt) return `${head} '${l.earlierBackupAt}'에 이전 백업이 이미 있어 그대로 두었습니다. (이번 원본은 보관되지 않음)`;
+    return `${head} (원본 백업 실패)`;
+  }
   V.buildCollection();
+  V.decorateStatic();
   FX.sizeFx();
   resume();
   FX.log(START_LOG[loaded.source] || (S.stats.tries ? '저장된 게임을 불러왔습니다.' : '검을 강화해 전설을 만들어 보세요! (Space: 강화)'));
+  if (loaded.source === 'corrupt') FX.toast(corruptNotice(loaded), 'bad');
   setInterval(tick, TICK_MS);
 })(typeof globalThis !== 'undefined' ? globalThis : this);

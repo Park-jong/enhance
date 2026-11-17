@@ -368,16 +368,17 @@ main {
 .tier-normal { color: var(--info); }
 .tier-hard { color: var(--warn); }
 
-/* ---------- 모달 (오프라인 보상) ---------- */
-#modal { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.6); display: grid; place-items: center; }
-#modal .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; width: min(92vw, 380px); }
-#modal h3 { margin: 0 0 10px; font-size: 18px; }
-#modal p { margin: 6px 0; font-size: 14px; color: var(--muted); }
+/* ---------- 모달 (오프라인 보상) / 다른 탭 실행 중 잠금 ---------- */
+#modal, #tabLock { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.6); display: grid; place-items: center; }
+#tabLock { z-index: 90; background: rgba(0,0,0,.8); }
+#modal .sheet, #tabLock .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; width: min(92vw, 380px); }
+#modal h3, #tabLock h3 { margin: 0 0 10px; font-size: 18px; }
+#modal p, #tabLock p { margin: 6px 0; font-size: 14px; color: var(--muted); }
 #modal .big-gold { font-size: 24px; font-weight: 900; color: var(--gold); }
-#modal .small-btn { width: 100%; margin-top: 12px; min-height: 44px; font-size: 15px; }
+#modal .small-btn, #tabLock .small-btn { width: 100%; margin-top: 12px; min-height: 44px; font-size: 15px; }
 @media (max-width: 720px) {
-  #modal { place-items: end center; }
-  #modal .sheet { width: 100%; border-radius: 16px 16px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  #modal, #tabLock { place-items: end center; }
+  #modal .sheet, #tabLock .sheet { width: 100%; border-radius: 16px 16px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 }
 
 /* 살 수 없지만 누르면 사유 토스트가 나오는 버튼 */
