@@ -1,0 +1,341 @@
+[
+  {
+    "id": "REQ-001",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F1 방치형 요소 기획",
+    "detail": "시간이 지나면 자원이 쌓이는 방치형 구조를 기획한다. 현재는 사냥 버튼(2.5초 쿨다운, 검 단계에 따라 보상 증가)만 있다. 자동 수입 방식, 오프라인 보상과 상한 시간, 방치 수입 성장 요소, 강화 루프와의 밸런스를 정한다. 상세: .dev-team/roadmap.md 'M1 기능 요구사항 F1'",
+    "priority": "P1",
+    "priorityReason": "현재 마일스톤 M1의 핵심 기능이며, 구현 전에 기획이 먼저 나와야 함",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-idle.md, m1-balance.md"
+      }
+    ]
+  },
+  {
+    "id": "REQ-002",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F2 파괴 보호권(강화 당 2회) 방어 요소 기획",
+    "detail": "강화 중 파괴를 막는 방어 수단을 정비한다. 사용자 지정 조건은 '강화 당 2회'. 현재 파괴 방지권은 파괴 시 소모되고 필요 장수가 1+⌊단계/5⌋장이다. '강화 당 2회' 규칙의 정확한 의미는 사용자 확인 대기 중(로드맵 미결 사항 참고). 기존 방지권과의 관계, 획득 경로, 가격을 정한다. 상세: .dev-team/roadmap.md 'F2'",
+    "priority": "P1",
+    "priorityReason": "현재 마일스톤 M1의 핵심 기능. 다만 규칙 해석은 사용자 확인 후 확정",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-protect-shards.md"
+      }
+    ]
+  },
+  {
+    "id": "REQ-003",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F3 모루 소모품 기획 (등급별 확률 상승, 내구도)",
+    "detail": "강화에 쓰는 장비형 소모품 '모루'를 기획한다. 모루 등급이 높을수록 강화 성공 확률이 오르고, 내구도가 있어 사용할수록 닳는다. 등급 수와 등급별 보너스, 내구도 수치와 소모 조건(시도마다/실패 시만), 획득 경로, 축복 주문서와 중첩 여부를 정한다. 상세: .dev-team/roadmap.md 'F3'",
+    "priority": "P1",
+    "priorityReason": "현재 마일스톤 M1의 핵심 기능이며 강화 확률 밸런스 전체에 영향을 줌",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-anvil-ore.md, m1-balance.md"
+      }
+    ]
+  },
+  {
+    "id": "REQ-004",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F4 납품 퀘스트 기획",
+    "detail": "의뢰인이 특정 강화 단계의 검을 요구하고 납품하면 보상을 주는 퀘스트를 기획한다. 의뢰 생성 규칙(요구 단계, 갱신 주기, 동시 의뢰 수), 보상 종류(골드, 모루, 보호권 등), 판매 대비 이점, 납품 시 검 소멸 여부를 정한다. 상세: .dev-team/roadmap.md 'F4'",
+    "priority": "P1",
+    "priorityReason": "현재 마일스톤 M1의 핵심 기능. 보상으로 모루·보호권이 연결되므로 F2·F3와 함께 기획 필요",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-quest.md"
+      }
+    ]
+  },
+  {
+    "id": "REQ-005",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F5 검 보관함(여러 자루 보유) 기획 — M1 최우선 확정",
+    "detail": "검을 여러 자루 보유하고 한 자루를 골라 강화하는 구조. 납품(F4)용 검을 따로 보관하면서 주력 검을 키우기 위함. 저장 구조와 화면 배치가 크게 바뀌므로 M1 기획 중 가장 먼저 확정한다. 보관 칸 수와 확장, 새 검 획득 방법, 보관함에서 판매·납품 가능 여부를 정한다. 상세: .dev-team/roadmap.md 'F5'",
+    "priority": "P1",
+    "priorityReason": "M1 기능이며 F4 납품과 저장 구조 설계의 전제가 되므로 M1 기획 중 먼저 처리해야 함",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수 (최우선)"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-storage.md (저장 v2 구조·v1 매핑 포함)"
+      }
+    ]
+  },
+  {
+    "id": "REQ-006",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F6 파괴 파편 · F8 광석과 모루 제작/수리 기획",
+    "detail": "F6: 검 파괴 시 단계에 비례한 파편 지급, 파편을 보호권·모루로 교환(단계별 파편 양, 교환 비율, 교환 품목). F8: 방치 수입으로 광석이 쌓이고 광석으로 모루 제작·수리(광석 종류와 획득량, 등급별 제작·수리 비용). 둘 다 F2 보호권·F3 모루의 획득 경로이므로 함께 설계한다. 상세: .dev-team/roadmap.md 'F6', 'F8'",
+    "priority": "P1",
+    "priorityReason": "M1 기능이며 F1·F2·F3의 자원 흐름과 바로 연결됨",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-protect-shards.md, m1-anvil-ore.md"
+      }
+    ]
+  },
+  {
+    "id": "REQ-007",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F7 실패 보정(천장) 기획 + 확률 보너스 합계 상한",
+    "detail": "실패할 때마다 다음 강화 성공 확률이 조금씩 오르고 성공 시 초기화. 단계별 증가량과 최대치, 파괴·하락 시 보정 유지 여부, 표시 방법을 정한다. 또한 축복 주문서(+10%p)·모루(F3)·실패 보정(F7)이 겹칠 때의 성공 확률 보너스 합계 상한을 정한다. 상세: .dev-team/roadmap.md 'F7', '공통 주의사항'",
+    "priority": "P1",
+    "priorityReason": "M1 기능이며 확률 보너스가 중첩되면 강화 밸런스 전체가 무너질 수 있어 M1 안에 상한을 확정해야 함",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-pity-cap.md (구간별 보너스 상한 [20,20,14,14])"
+      }
+    ]
+  },
+  {
+    "id": "REQ-008",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F9 강화 연출 스킵 · F10 골드 자동 수급 버튼 기획",
+    "detail": "F9: 강화 연출(충전 0.65초, 결과 표시, 파괴 애니메이션)을 건너뛰는 설정 토글. 스킵 중 남길 최소 피드백, 중요한 결과(높은 단계 성공·파괴) 표시 여부를 정한다. F10: 켜 두면 골드가 자동으로 들어오는 버튼(예: 자동 사냥 토글). 수동 사냥 대비 효율, 해금 조건, 오프라인 보상(F1)과의 관계를 정한다. 상세: .dev-team/roadmap.md 'F9', 'F10'",
+    "priority": "P1",
+    "priorityReason": "사용자가 직접 요청한 M1 편의 기능. F10은 F1 방치형의 일부",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-idle.md"
+      }
+    ]
+  },
+  {
+    "id": "REQ-009",
+    "from": "user",
+    "to": "tech",
+    "kind": "requirement",
+    "title": "저장 데이터 버전 이전 (sword-enhance-v1 → 새 구조)",
+    "detail": "M1에서 보관함(F5), 모루·광석·파편, 보호 횟수, 실패 보정 등으로 저장 구조가 바뀐다. 기존 localStorage 저장(`sword-enhance-v1`, 단일 검 구조)을 새 버전으로 옮기는 처리를 넣어 기존 플레이어의 진행 상황(골드, 현재 검, 도감, 기록, 보유 아이템)이 사라지지 않게 한다. 기획 확정 후 구현.",
+    "priority": "P1",
+    "priorityReason": "M1 구현 시 반드시 함께 해야 하며, 빠지면 기존 진행 상황이 초기화됨",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "open",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      }
+    ]
+  },
+  {
+    "id": "REQ-010",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "M2 장기 플레이 기능 기획 (F11 환생, F12 업적·일일 의뢰, F13 시간 이벤트, F14 검 랜덤 특성)",
+    "detail": "F11 환생: +20 달성 후 리셋 대신 영구 보너스. F12 업적과 매일 바뀌는 의뢰. F13 한시 버프 이벤트(예: 5분간 성공 +5%p). F14 같은 단계라도 붙는 랜덤 특성(사냥 보상·판매가 보너스 등). M1 밸런스가 잡힌 뒤 진행한다. 상세: .dev-team/roadmap.md 'M2 기능 요구사항'",
+    "priority": "P2",
+    "priorityReason": "다음 마일스톤(M2) 범위. M1 수치가 확정되어야 영구 보너스·이벤트 수치를 정할 수 있음",
+    "milestone": "M2 장기 플레이",
+    "status": "open",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P2"
+      }
+    ]
+  },
+  {
+    "id": "REQ-011",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F15 소모품 종류 추가 기획",
+    "detail": "축복 주문서·파괴 보호권·모루 외에 소모품을 더 늘린다. 후보 예시: 하락 방지 주문서, 확정 강화권(예: +10까지 1회 100%), 단계 복구권(파괴된 검을 한 단계 낮게 복구), 행운의 부적(시간제 성공 확률 상승), 골드 부스터(시간제 수입 증가), 감정 인장(다음 판매·납품 보상 증가), 의뢰 갱신권. 최종 품목과 수치, 획득 경로(상점·납품 보상·파편 교환·광석 제작), 가격, 같이 쓸 수 있는지, 확률 보너스 상한(REQ-007) 포함 여부를 정한다. 상세: .dev-team/roadmap.md 'F15'",
+    "priority": "P1",
+    "priorityReason": "사용자가 M1 소모품 요소 확장으로 요청. F3 모루·F6 파편·F4 납품 보상과 자원 흐름이 묶여 있어 함께 기획해야 함",
+    "milestone": "M1 콘텐츠 확장",
+    "status": "done",
+    "createdAt": "2026-11-17",
+    "history": [
+      {
+        "at": "2026-11-17",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "M1 기획 착수"
+      },
+      {
+        "at": "2026-11-17",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "docs/design/m1-consumables.md"
+      }
+    ]
+  }
+]
