@@ -10,6 +10,7 @@
     skipSuccess: 'success', skipFail: 'fail', skipDestroy: 'destroy', skipBigWin: 'fanfare',
     anvilCraft: 'craft', anvilRepair: 'craft', anvilBreak: 'error', questDeliver: 'deliver',
     offlineCollect: 'coin', shardExchange: 'buy', useBooster: 'buy', useKeepdown: 'keep', unlock: 'fanfare',
+    useSure: 'buy', useSeal: 'buy', shardGain: 'buy',
   };
 
   SG.createAudio = function createAudio(isMuted) {
