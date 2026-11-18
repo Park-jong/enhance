@@ -1280,6 +1280,288 @@ describe('test page config: separate save keys', () => {
   });
 });
 
+// ============================================================ M1.1 천장 게이지 + 성공 숙련 (m1.1-late-correction §12)
+describe('M1.1 ceiling gauge and stage mastery', () => {
+  const RICH = 1e12;
+  const lateState = (lv, extra = {}) => {
+    const S = stateWith({ sword: Object.assign({ lv }, extra.sword), inv: extra.inv, use: extra.use, top: { gold: RICH } });
+    if (extra.gauge) S.gauge = extra.gauge.slice();
+    if (extra.mastery) S.mastery = extra.mastery.slice();
+    if (extra.anvil) { S.anvils = [{ id: 1, g: extra.anvil, dura: C.ANVIL_DURA[extra.anvil] }]; S.anvilEq = 1; S.nextAnvilId = 2; }
+    return S;
+  };
+  const destroyRoll = S => rollDestroy(R.currentChances(S));
+  const triple = c => [c.succ, c.dest, c.fail];
+
+  test('constants: per-stage arrays and REC_MAX = ceil(MAX/STEP) = [4,4,4,3,2]', () => {
+    assert.deepStrictEqual([C.GAUGE_FROM, C.GAUGE_TO, C.MASTERY_FROM, C.MASTERY_TO], [15, 19, 15, 19]);
+    assert.deepStrictEqual(C.GAUGE_N, [4, 5, 6, 8, 10]);
+    assert.deepStrictEqual(C.MASTERY_STEP, [3, 3, 3, 4, 5]);
+    assert.deepStrictEqual(C.MASTERY_MAX, [12, 12, 12, 12, 10]);
+    assert.deepStrictEqual(C.MASTERY_REC_MAX, [4, 4, 4, 3, 2]);
+    assert.deepStrictEqual([C.BONUS_CAP, C.PITY_STEP, C.PITY_MAX, C.SUCC_CEIL], [[20, 20, 14, 14], [1, 1, 2, 2], [5, 6, 8, 10], 90]);
+  });
+
+  // AC 1
+  test('AC1: +16 drop, protected destroy and destroy each add 1 to gauge[1]; at 5 chances are 100/0/0', () => {
+    const S = lateState(16, { inv: { protect: 99 } });
+    R.attemptEnhance(S, ROLL_HIGH);                                   // drop +16 → +15
+    assert.deepStrictEqual([S.swords[0].lv, S.gauge[1]], [15, 1]);
+    S.swords[0].lv = 16;
+    assert.ok(R.setUse(S, 'protect', true).ok);
+    assert.strictEqual(R.attemptEnhance(S, destroyRoll(S)).outcome, 'protected');
+    assert.strictEqual(S.gauge[1], 2);
+    R.setUse(S, 'protect', false);
+    assert.strictEqual(R.attemptEnhance(S, destroyRoll(S)).outcome, 'destroy');
+    assert.strictEqual(S.gauge[1], 3);
+    assert.deepStrictEqual(S.gauge, [0, 3, 0, 0, 0]);
+    S.gauge[1] = 5;
+    assert.deepStrictEqual(triple(R.chances({ lv: 16, pity: 0 }, { gaugeFull: true })), [100, 0, 0]);
+    S.swords[0].lv = 16;
+    const c = R.currentChances(S);
+    assert.deepStrictEqual(triple(c), [100, 0, 0]);
+    assert.strictEqual(c.gaugeFull, true);
+  });
+  test('AC1: gauge is keyed on the attempt start level and clamps at GAUGE_N', () => {
+    const S = lateState(16, { gauge: [0, 4, 0, 0, 0] });
+    R.attemptEnhance(S, ROLL_HIGH);                                   // +16 → +15: counts for +16
+    assert.deepStrictEqual(S.gauge, [0, 5, 0, 0, 0]);
+    R.attemptEnhance(S, ROLL_HIGH);                                   // +15 → +14: counts for +15
+    assert.deepStrictEqual(S.gauge, [1, 5, 0, 0, 0]);
+  });
+  test('gaugeFull flag is ignored outside +15..+19; sure keeps priority', () => {
+    for (const lv of [0, 9, 14]) assert.strictEqual(R.chances({ lv, pity: 0 }, { gaugeFull: true }).succ, C.RATE[lv]);
+    assert.ok(R.chances({ lv: 9, pity: 0 }, { gaugeFull: true, sure: true }).sure);
+  });
+
+  // AC 2
+  test('AC2: full gauge locks bless/anvil/protect/keepdown/sure with reason gaugeFull', () => {
+    const S = lateState(17, { gauge: [0, 0, 6, 0, 0], inv: { bless: 5, protect: 20, keepdown: 5, sure: 5 }, anvil: 3 });
+    const tray = R.trayState(S);
+    C.TRAY_TOGGLES.forEach(id => assert.deepStrictEqual(tray[id], { on: false, block: 'gaugeFull' }, id));
+    assert.strictEqual(R.setUse(S, 'bless', true).reason, 'gaugeFull');
+    assert.ok(R.setUse(S, 'bless', false).ok, 'switching off is always allowed');
+  });
+  test('AC2: guaranteed attempt consumes nothing but cost(l), keeps saved use flags and succeeds on the worst roll', () => {
+    const S = lateState(17, { gauge: [0, 0, 5, 0, 0], inv: { bless: 5, protect: 20 }, anvil: 3, sword: { prot: 1, pity: 3 } });
+    ['bless', 'anvil', 'protect'].forEach(id => assert.ok(R.setUse(S, id, true).ok, id));
+    R.attemptEnhance(S, ROLL_HIGH);                                   // fail → gauge 6/6 (full)
+    assert.strictEqual(S.gauge[2], 6);
+    S.swords[0].lv = 17;
+    const use = Object.assign({}, S.use);
+    const before = { gold: S.gold, bless: S.inv.bless, protect: S.inv.protect, dura: S.anvils[0].dura, prot: S.swords[0].prot };
+    const r = R.attemptEnhance(S, ROLL_HIGH);
+    assert.strictEqual(r.outcome, 'success');
+    assert.ok(r.chances.gaugeFull);
+    assert.strictEqual(S.gold, before.gold - R.cost(17));
+    assert.deepStrictEqual([S.inv.bless, S.inv.protect, S.anvils[0].dura], [before.bless, before.protect, before.dura]);
+    assert.deepStrictEqual(S.use, use);
+    assert.deepStrictEqual([S.swords[0].lv, S.swords[0].pity, S.gauge[2]], [18, 0, 0]);
+    assert.ok(Object.values(r.used).every(v => v === false), 'no toggle applied');
+  });
+  test('AC2: a full gauge also makes bonusWasted / cap notes inert', () => {
+    const S = lateState(15, { gauge: [4, 0, 0, 0, 0], inv: { bless: 5 }, use: { bless: true }, anvil: 3 });
+    S.use.anvil = true;
+    ['bless', 'anvil'].forEach(id => assert.strictEqual(R.bonusCapNote(S, id), null, id));
+  });
+
+  // AC 3
+  test('AC3: success at l resets only gauge[l-15]', () => {
+    const S = lateState(18, { gauge: [3, 4, 5, 7, 9] });
+    R.attemptEnhance(S, ROLL_SUCCESS);
+    assert.deepStrictEqual(S.gauge, [3, 4, 5, 0, 9]);
+  });
+
+  // AC 4
+  test('AC4: destroy keeps (and bumps) the gauge, survives reload; a full gauge is not lost by destroy', () => {
+    const S = lateState(16, { gauge: [0, 4, 6, 0, 0] });
+    assert.strictEqual(R.attemptEnhance(S, destroyRoll(S)).outcome, 'destroy');
+    assert.deepStrictEqual(S.gauge, [0, 5, 6, 0, 0]);
+    const st = memStorage();
+    SV.save(st, S, NOW);
+    const T = SV.load(st, NOW).state;
+    assert.deepStrictEqual(T.gauge, [0, 5, 6, 0, 0]);
+    T.swords[0].lv = 16;                                              // the next sword reaching +16 inherits the full gauge
+    assert.strictEqual(R.attemptEnhance(T, ROLL_HIGH).outcome, 'success');
+    assert.deepStrictEqual(T.gauge, [0, 0, 6, 0, 0]);
+  });
+
+  // AC 5
+  test('AC5: attempts at +14 and below never touch gauge or mastery', () => {
+    for (const lv of [0, 5, 9, 10, 14]) {
+      for (const rng of [ROLL_SUCCESS, ROLL_HIGH]) {
+        const S = lateState(lv, { gauge: [1, 2, 3, 4, 5], mastery: [1, 1, 1, 1, 1] });
+        R.attemptEnhance(S, rng);
+        assert.deepStrictEqual([S.gauge, S.mastery], [[1, 2, 3, 4, 5], [1, 1, 1, 1, 1]], `+${lv}`);
+      }
+      const D = lateState(lv, { gauge: [1, 2, 3, 4, 5] });
+      if (C.DESTROY[lv] > 0) R.attemptEnhance(D, destroyRoll(D));
+      assert.deepStrictEqual(D.gauge, [1, 2, 3, 4, 5], `destroy +${lv}`);
+    }
+  });
+  test('AC5: +14 → +15 success records nothing (sure tickets cannot reach +15 either)', () => {
+    const S = lateState(14);
+    R.attemptEnhance(S, ROLL_SUCCESS);
+    assert.deepStrictEqual([S.swords[0].lv, S.mastery, S.gauge], [15, [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]);
+    const T = lateState(9, { inv: { sure: 1 } });
+    R.setUse(T, 'sure', true);
+    R.attemptEnhance(T, ROLL_HIGH);
+    assert.deepStrictEqual(T.mastery, [0, 0, 0, 0, 0]);
+  });
+
+  // AC 6
+  test('AC6: natural and gauge-guaranteed successes add mastery; fail/drop/destroy do not', () => {
+    const S = lateState(16);
+    let r = R.attemptEnhance(S, ROLL_SUCCESS);
+    assert.deepStrictEqual(S.mastery, [0, 1, 0, 0, 0]);
+    assert.deepStrictEqual(r.mastery, { lv: 16, gained: 3, bonus: 3, count: 1, max: 4 });
+    S.swords[0].lv = 16;
+    r = R.attemptEnhance(S, ROLL_HIGH);
+    assert.strictEqual(r.outcome, 'drop');
+    assert.strictEqual(r.mastery, null);
+    S.swords[0].lv = 16;
+    R.attemptEnhance(S, destroyRoll(S));
+    assert.deepStrictEqual(S.mastery, [0, 1, 0, 0, 0]);
+    const G = lateState(19, { gauge: [0, 0, 0, 0, 10] });
+    r = R.attemptEnhance(G, ROLL_HIGH);
+    assert.deepStrictEqual([r.outcome, G.swords[0].lv, G.mastery[4], r.mastery.gained], ['success', 20, 1, 5]);
+  });
+  test('AC6: gaugeBefore reports the pre-attempt gauge for display', () => {
+    const S = lateState(15, { gauge: [2, 0, 0, 0, 0] });
+    const r = R.attemptEnhance(S, ROLL_HIGH);
+    assert.deepStrictEqual(r.gaugeBefore, { value: 2, n: 4, full: false });
+    assert.strictEqual(S.gauge[0], 3);
+    assert.strictEqual(R.attemptEnhance(lateState(14), ROLL_HIGH).gaugeBefore, null);
+  });
+
+  // AC 7
+  test('AC7: mastery[1]=2 at +16 with bless + mithril, pity 0 → 15 + 14 + 6 = 35', () => {
+    assert.strictEqual(R.chances({ lv: 16, pity: 0 }, { bless: true, anvilGrade: 3, mastery: 2 }).succ, 35);
+    const S = lateState(16, { mastery: [0, 2, 0, 0, 0], inv: { bless: 1 }, use: { bless: true }, anvil: 3 });
+    S.use.anvil = true;
+    const c = R.currentChances(S);
+    assert.deepStrictEqual([c.succ, c.bonus, c.mastery, c.capped], [35, 14, 6, false]);
+    assert.strictEqual(c.dest, C.DESTROY[16]);
+  });
+
+  // AC 8
+  test('AC8: maximum mastery is +12%p (+19: +10%p) and records never exceed REC_MAX', () => {
+    C.MASTERY_REC_MAX.forEach((max, i) => {
+      const lv = C.MASTERY_FROM + i;
+      assert.strictEqual(R.masteryBonus(lv, max), C.MASTERY_MAX[i]);
+      assert.strictEqual(R.masteryBonus(lv, max + 5), C.MASTERY_MAX[i]);
+      const S = lateState(lv, { mastery: C.MASTERY_REC_MAX });
+      const r = R.attemptEnhance(S, ROLL_SUCCESS);
+      assert.strictEqual(S.mastery[i], max, `+${lv}`);
+      assert.strictEqual(r.mastery, null, 'no record, no toast');
+    });
+    assert.deepStrictEqual([R.masteryBonus(15, 4), R.masteryBonus(19, 2), R.masteryBonus(14, 4), R.masteryBonus(20, 4)], [12, 10, 0, 0]);
+  });
+
+  // AC 9
+  test('AC9: mastery[0]=4 at +15 with bless + mithril + max pity → raw 24 capped 14 → 46', () => {
+    const c = R.chances({ lv: 15, pity: 10 }, { bless: true, anvilGrade: 3, mastery: 4 });
+    assert.deepStrictEqual([c.raw, c.bonus, c.mastery, c.succ], [24, 14, 12, 46]);
+  });
+  test('AC9: max success table 46/41/36/33/29 never reaches 90', () => {
+    const max = C.MASTERY_REC_MAX.map((rec, i) => R.chances({ lv: 15 + i, pity: 0 }, { bless: true, anvilGrade: 3, mastery: rec }).succ);
+    assert.deepStrictEqual(max, [46, 41, 36, 33, 29]);
+  });
+  test('AC9: exhaustive with mastery/gaugeFull: sum 100, dest >= 0, succ <= max(base, ceil), dest never lowered by mastery', () => {
+    for (let lv = 0; lv < C.MAX; lv++) for (const bless of [false, true]) for (let g = 0; g <= 3; g++) for (const p of [0, 3, 10]) {
+      for (let m = 0; m <= 6; m++) for (const gaugeFull of [false, true]) {
+        const c = R.chances({ lv, pity: p }, { bless, anvilGrade: g, mastery: m, gaugeFull });
+        const tag = JSON.stringify([lv, bless, g, p, m, gaugeFull]);
+        assert.strictEqual(c.succ + c.dest + c.fail, 100, tag);
+        assert.ok(c.dest >= 0 && c.fail >= 0, tag);
+        if (c.gaugeFull) continue;
+        assert.ok(c.succ <= Math.max(C.RATE[lv], C.SUCC_CEIL), tag);
+        assert.ok(c.bonus <= C.BONUS_CAP[R.pityBand(lv)], tag);
+        assert.strictEqual(c.dest, Math.min(C.DESTROY[lv], 100 - c.succ), tag);
+      }
+    }
+  });
+
+  // AC 10
+  test('AC10: mastery and gauge survive destroy and selling', () => {
+    const S = lateState(17, { mastery: [2, 1, 0, 0, 0], gauge: [1, 1, 1, 1, 1] });
+    R.attemptEnhance(S, destroyRoll(S));
+    assert.deepStrictEqual([S.mastery, S.gauge], [[2, 1, 0, 0, 0], [1, 1, 2, 1, 1]]);
+    S.swords[0].lv = 18;
+    R.sellSword(S, S.swords[0].id);
+    assert.deepStrictEqual([S.mastery, S.gauge], [[2, 1, 0, 0, 0], [1, 1, 2, 1, 1]]);
+  });
+
+  // AC 11 (+ m1-storage AC 20-21)
+  test('AC11: an old v2 save without gauge/mastery loads zeros and keeps other fields', () => {
+    const old = fresh();
+    delete old.gauge; delete old.mastery;
+    old.gold = 4321; old.swords[0].lv = 16; old.best = 16;
+    const st = memStorage({ 'sword-enhance-v2': JSON.stringify(old) });
+    const { state: S, source } = SV.load(st, NOW);
+    assert.strictEqual(source, 'v2');
+    assert.deepStrictEqual([S.gauge, S.mastery], [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]);
+    assert.deepStrictEqual([S.gold, S.swords[0].lv, S.v], [4321, 16, 2]);
+  });
+  test('AC11: storage AC21 example gauge=[-1,99,2.7,"a",null,7], mastery="x" → clamped, survives a round trip', () => {
+    const S = SV.normalize(Object.assign(fresh(), { gauge: [-1, 99, 2.7, 'a', null, 7], mastery: 'x' }), NOW);
+    assert.deepStrictEqual(S.gauge, [0, 5, 2, 0, 0]);
+    assert.deepStrictEqual(S.mastery, [0, 0, 0, 0, 0]);
+    const st = memStorage();
+    SV.save(st, S, NOW);
+    assert.deepStrictEqual(SV.load(st, NOW).state.gauge, [0, 5, 2, 0, 0]);
+  });
+  test('AC11: short / long / huge / fractional / non-array values follow the §5 rules', () => {
+    const norm = (gauge, mastery) => SV.normalize(Object.assign(fresh(), { gauge, mastery }), NOW);
+    assert.deepStrictEqual(norm([3], [9, 9, 9, 9, 9, 9]).gauge, [3, 0, 0, 0, 0]);
+    assert.deepStrictEqual(norm([3], [9, 9, 9, 9, 9, 9]).mastery, [4, 4, 4, 3, 2]);
+    assert.deepStrictEqual(norm([1e300, -1e300, '3', 3.99, true], [1.5, -2, {}, [], 2.9]).gauge, [4, 0, 3, 3, 0]);
+    assert.deepStrictEqual(norm([0], [1.5, -2, {}, [], 2.9]).mastery, [1, 0, 0, 0, 2]);
+    for (const bad of [null, 5, 'abc', {}, { 0: 3, length: 5 }]) {
+      const T = norm(bad, bad);
+      assert.deepStrictEqual([T.gauge, T.mastery], [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]], JSON.stringify(bad));
+    }
+  });
+  test('new game and v1 migration start with zero gauge/mastery', () => {
+    assert.deepStrictEqual([fresh().gauge, fresh().mastery], [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]);
+    const M = SV.migrateV1({ level: 16, gold: 10 }, NOW);
+    assert.deepStrictEqual([M.gauge, M.mastery], [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]);
+  });
+
+  // AC 12
+  test('AC12: test-page forced successes leave gauge/mastery alone and never touch the real save', () => {
+    const T = loadTestModeSG();
+    const S = T.save.defaultState(NOW);
+    S.gold = RICH;
+    S.swords[0].lv = 15;
+    S.gauge = [1, 2, 3, 4, 5];
+    S.mastery = [1, 0, 0, 0, 0];
+    for (let lv = 15; lv < C.MAX; lv++) {
+      const r = T.rules.attemptEnhance(S, ROLL_HIGH);
+      assert.deepStrictEqual([r.outcome, r.mastery], ['success', null], `+${lv}`);
+    }
+    assert.deepStrictEqual([Array.from(S.gauge), Array.from(S.mastery)], [[1, 2, 3, 4, 5], [1, 0, 0, 0, 0]]);
+    const real = Object.assign(fresh(), { gauge: [2, 2, 2, 2, 2], mastery: [3, 3, 3, 3, 2] });
+    const st = countingStorage({ 'sword-enhance-v2': JSON.stringify(real) });
+    T.save.save(st, S, NOW);
+    assert.deepStrictEqual(st.writes, ['sword-enhance-test']);
+    assert.deepStrictEqual(SV.load(st, NOW).state.gauge, [2, 2, 2, 2, 2]);
+    assert.deepStrictEqual(SV.load(st, NOW).state.mastery, [3, 3, 3, 3, 2]);
+  });
+
+  // AC 14
+  test('AC14: with zero gauge/mastery the injected options give exactly the M1 chances', () => {
+    for (let lv = 0; lv < C.MAX; lv++) for (const p of [0, 4, 10]) for (const bless of [false, true]) {
+      const S = lateState(lv, { sword: { pity: p }, inv: { bless: 1 }, anvil: 3 });
+      S.use.bless = bless;
+      S.use.anvil = true;
+      const use = R.effectiveUse(S);
+      const legacy = R.chances(S.swords[0], { bless: use.bless, anvilGrade: use.anvil ? 3 : 0, sure: use.sure });
+      assert.deepStrictEqual(R.currentChances(S), legacy, `+${lv} p${p} bless ${bless}`);
+    }
+  });
+});
+
 // ------------------------------------------------------------ 결과
 console.log(`\n${results.pass} passed, ${results.fail} failed`);
 process.exit(results.fail ? 1 : 0);

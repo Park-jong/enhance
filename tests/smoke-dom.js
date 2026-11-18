@@ -368,10 +368,90 @@ async function main() {
   click(env, 'tab', 'idle');
   scanRendered();
 
-  // 7) 테스트 페이지(test.html): 같은 스크립트 + 테스트 설정. 강화 100%, 별도 저장 키, 실제 저장 불가침
+  // 7) M1.1 천장 게이지 + 성공 숙련 화면 (m1.1-late-correction §11, AC 13)
+  await lateCorrection(ok);
+
+  // 8) 테스트 페이지(test.html): 같은 스크립트 + 테스트 설정. 강화 100%, 별도 저장 키, 실제 저장 불가침
   await testPage(ok);
 
   console.log(`smoke-dom: ${checks} checks passed`);
+}
+
+/** 태그를 지운 화면 글자(공백 정리) */
+const plain = html => html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+
+async function lateCorrection(ok) {
+  const MASTERY_TOAST_16 = '+16 숙련! 이후 +16 강화 성공률 +3%p';
+  /** 활성 검 하나(+lv), 넉넉한 골드·소모품, 미스릴 모루 장착 */
+  const lateSave = (lv, fields) => {
+    const s = Object.assign(SG_default(), { gold: 1e9, best: Math.max(lv, 15) }, fields);
+    s.swords = [{ id: 1, lv, prot: 2, pity: (fields && fields.pity) || 0 }];
+    Object.assign(s.inv, { bless: 3, protect: 20, keepdown: 3 });
+    s.anvils = [{ id: 1, g: 3, dura: 50 }]; s.anvilEq = 1; s.nextAnvilId = 2;
+    return s;
+  };
+  const load = s => makeEnv({ 'sword-enhance-v2': JSON.stringify(s) });
+  const toastCount = (env, text) => texts(env.byId['#toasts']).filter(t => t === text).length;
+  const masteryRows = env => (env.byId['#masteryList']._html.match(/<li>[\s\S]*?<\/li>/g) || []).map(plain);
+
+  // +14 이하: 게이지 줄 숨김. 기록 탭에는 5단계 숙련 행
+  let env = load(lateSave(14, { gauge: [3, 3, 3, 3, 3], mastery: [0, 2, 0, 0, 0] }));
+  ok(env.byId['#gaugeLine'].hidden === true && env.byId['#gaugeLine']._html === '', 'gauge line hidden at +14');
+  ok(!env.byId['#breakdown']._html.includes('숙련'), 'no mastery term at +14');
+  ok(JSON.stringify(masteryRows(env)) === JSON.stringify(['+15 숙련 +0%p (0/4)', '+16 숙련 +6%p (2/4)', '+17 숙련 +0%p (0/4)',
+    '+18 숙련 +0%p (0/3)', '+19 숙련 +0%p (0/2)']), 'records tab lists 5 mastery rows: ' + masteryRows(env).join(' | '));
+  scanRendered();
+
+  // +16 게이지 3/5 (저장값과 일치), 확정 아님
+  env = load(lateSave(16, { gauge: [0, 3, 0, 0, 0] }));
+  ok(env.byId['#gaugeLine'].hidden === false && plain(env.byId['#gaugeLine']._html) === '천장 3/5', 'gauge 3/5 at +16 matches the save');
+  ok(env.byId['#vSucc'].textContent === '15%', 'odds unchanged while the gauge is not full');
+
+  // 숙련 항목은 상한 표시와 분리: +16 숙련 2회 + 축복 + 미스릴 = 35%
+  const mastered = lateSave(16, { mastery: [0, 2, 0, 0, 0] });
+  Object.assign(mastered.use, { bless: true, anvil: true });
+  env = load(mastered);
+  ok(env.byId['#vSucc'].textContent === '35%', 'success 15 + 14 + 6 = 35%');
+  ok(plain(env.byId['#breakdown']._html) === '기본 15% + 축복 10 + 모루 4 = +14 + 숙련 +6 = 35%', 'breakdown: ' + plain(env.byId['#breakdown']._html));
+  // +15 상한 초과(축복+미스릴+보정 최대) + 숙련 최대: 취소선·상한 뱃지 뒤에 숙련이 따로 붙는다
+  const capped = lateSave(15, { mastery: [4, 0, 0, 0, 0], pity: 10 });
+  Object.assign(capped.use, { bless: true, anvil: true });
+  env = load(capped);
+  const bd = env.byId['#breakdown']._html;
+  ok(env.byId['#vSucc'].textContent === '46%', 'success 20 + 14(cap) + 12 = 46%');
+  ok(bd.includes('<s>+24</s> +14') && bd.indexOf('상한 14') < bd.indexOf('mastery-term') && !/<s>[^<]*숙련/.test(bd), 'mastery term sits apart from the cap strikethrough/badge: ' + plain(bd));
+  scanRendered();
+
+  // 게이지 가득: 확정!, 100%/0%, 토글 전부 잠금(gaugeFull 사유). 시도는 cost만 쓰고 숙련 토스트 1회
+  const full = lateSave(16, { gauge: [0, 5, 0, 0, 0], mastery: [0, 1, 0, 0, 0] });
+  Object.assign(full.use, { bless: true, anvil: true, protect: true });
+  env = load(full);
+  ok(plain(env.byId['#gaugeLine']._html) === '천장 5/5 확정!', 'full gauge shows 확정!');
+  ok(env.byId['#vSucc'].textContent === '100%' && env.byId['#vDest'].textContent === '0%', 'full gauge odds 100% / 0%');
+  ok(env.byId['#breakdown']._html.includes('천장 확정'), 'breakdown names the guaranteed attempt');
+  const trayHtml = env.byId['#tray']._html;
+  const rows = (trayHtml.match(/<label class="opt/g) || []).length;
+  ok(rows >= 4 && (trayHtml.match(/disabled>/g) || []).length === rows && (trayHtml.match(/천장 확정: 소모품이 필요 없음/g) || []).length === rows,
+    'every tray toggle is locked with the gaugeFull reason');
+  const before = saved(env);
+  const pending = env.byId['#btnEnhance'].listeners.click[0]();
+  ok(plain(env.byId['#gaugeLine']._html) === '천장 5/5 확정!', 'during the animation the pre-attempt gauge is shown (no spoiler)');
+  await pending;
+  const after = saved(env);
+  ok(after.swords[0].lv === 17 && JSON.stringify(after.gauge) === '[0,0,0,0,0]' && JSON.stringify(after.mastery) === '[0,2,0,0,0]', 'guaranteed success resets the gauge and records mastery');
+  ok(after.gold === before.gold - env.ctx.SG.rules.cost(16), 'only cost(16) was paid');
+  ok(after.inv.bless === 3 && after.inv.protect === 20 && after.anvils[0].dura === 50, 'no consumable / anvil durability spent');
+  ok(after.use.bless && after.use.anvil && after.use.protect, 'saved toggle choices kept');
+  ok(toastCount(env, MASTERY_TOAST_16) === 1, 'one mastery toast per new record');
+  ok(plain(env.byId['#gaugeLine']._html) === '천장 0/6', 'gauge line follows the sword to +17');
+  ok(masteryRows(env)[1] === '+16 숙련 +6%p (2/4)', 'records tab updated');
+  scanRendered();
+
+  // 기록 상한(REC_MAX)에서는 성공해도 토스트 없음
+  env = load(lateSave(16, { gauge: [0, 5, 0, 0, 0], mastery: [0, 4, 0, 0, 0] }));
+  await env.byId['#btnEnhance'].listeners.click[0]();
+  ok(saved(env).swords[0].lv === 17 && saved(env).mastery[1] === 4 && toastCount(env, MASTERY_TOAST_16) === 0
+    && !texts(env.byId['#toasts']).some(t => t.includes('숙련!')), 'no mastery toast once the record is maxed');
 }
 
 const TEST_KEY = 'sword-enhance-test';
