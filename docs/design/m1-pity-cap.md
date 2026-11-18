@@ -62,6 +62,14 @@ function chances(sword, opts):            // opts: {bless, anvil, sure}
 - 보관함 칸 카드에는 `pity>0`이면 `⬆+N%p` 뱃지(활성 아닌 검도 확인 가능).
 - 토글 on/off를 바꿀 때마다 즉시 재계산·갱신. 상한에 이미 도달한 상태에서 추가 보너스 항목 토글 시 "효과 없음" 경고 표시.
 
+## M1.1 확정 강화/숙련과의 관계
+> 상세는 `m1.1-late-correction.md`. 수치는 시뮬레이션 미검증(플레이테스트로 조정).
+- 천장 게이지 확정 성공(+15~+19)은 `sure`처럼 **상한/천장을 우회**하는 100/0/0 대체다. 성공이므로 `pity=0`. `pity` +1 규칙(실패/하락/보호로 막은 파괴)은 변하지 않음.
+- 성공 숙련은 `BONUS_CAP` **밖**(raw·pity에 더하지 않음)이고 `SUCC_CEIL`은 **적용**된다. `BONUS_CAP`/`PITY_*`/`SUCC_CEIL` 값 변경 없음.
+- `chances(sword, opts)`의 opts에 `gaugeFull`, `mastery`(횟수)가 추가됨(호출자가 `S`에서 주입).
+- 순서: `sure`(<`SURE_MAX_TARGET`) → `gaugeFull`(15..19) 100/0/0 → raw/bonus/cap → `succ = min(base + bonus + mBonus, max(base, SUCC_CEIL))` → dest → fail. §3 의사코드의 4번째 줄에서 `mBonus`가 더해진다.
+- 게이지/숙련이 0이면 위 §3~§수용 기준의 결과는 그대로다(수용 기준 번호 유지).
+
 ## 결정 사항 (사용자 확정, 2026-11-17)
 1. (해결, m1-balance) 합계 상한을 band별 배열 `BONUS_CAP = [20, 20, 14, 14]`로 확정. 절대 천장 90% 유지.
 2. 보호로 막은 파괴는 `pity`+1로 센다(수용 기준 8과 일치). 단 통계는 분리: `stats.protectSaved`+1이며 `stats.fail`에는 더하지 않는다(디렉터 확정, 코드 일치).

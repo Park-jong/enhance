@@ -1,6 +1,7 @@
 # M1 상수 총람 (Constants Index)
 
 > **모든 수치 확정** (2026-11-17, `m1-balance.md`). 확정 열의 값이 기준이며, 시스템 문서 본문의 값과 다르면 이 표와 `m1-balance.md`가 우선한다. "변경" 표시는 잠정값에서 바뀐 항목, "규칙" 표시는 식/규칙까지 바뀐 항목(`m1-balance.md` §7 변경 이력).
+> **M1.1 신규 상수(천장 게이지·성공 숙련)는 `m1.1-late-correction.md`가 기준**이며 아래 §3.1에 요약한다(수치는 시뮬레이션 미검증, 플레이테스트로 조정).
 > 코드의 식별자는 이름 그대로 사용. 기존 M0 상수(`MAX`, `RATE`, `DESTROY`, `DROP_FROM`, `BLESS_BONUS`, `HUNT_CD`, `cost()`, `sell()`, `huntReward()`)는 유지하며 아래에서 `M0`로 표기. M1에서 `huntReward()`·`autoReward()`의 인자는 보관함 최고 단계 검 `topLv = max(swords[].lv)`다(헬퍼 `topLv()`, 신규 상수 없음, 사용자 확정, bal §3·§8 결정 2).
 > 문서 약칭: storage=m1-storage, ps=m1-protect-shards, ao=m1-anvil-ore, q=m1-quest, pc=m1-pity-cap, idle=m1-idle, cons=m1-consumables, ov=m1-overview, bal=m1-balance.
 
@@ -39,6 +40,18 @@
 | `BONUS_CAP[band]` | 보너스 합계 상한 %p (bless+anvil+pity), band별 | **[20, 20, 14, 14]** (규칙: 단일값 → 배열) | pc |
 | `SUCC_CEIL` | 절대 성공률 천장 % (`max(base, SUCC_CEIL)`) | 90 | pc |
 | `BLESS_BONUS` | 축복 보너스 %p | 10 (M0) | pc/cons |
+
+> `BONUS_CAP`, `PITY_STEP`, `PITY_MAX`, `SUCC_CEIL`: **M1.1 변경 없음**.
+
+## 3.1 후반 강화 보정 (M1.1, 문서 m1.1 = m1.1-late-correction)
+| 이름 | 의미 | 확정값 | 문서 |
+| --- | --- | --- | --- |
+| `GAUGE_FROM` / `GAUGE_TO` | 천장 게이지 대상 단계 | 15 / 19 | m1.1 |
+| `GAUGE_N[i]` | 가득 차는 비성공 횟수(i=l-15) | [4, 5, 6, 8, 10] | m1.1 |
+| `MASTERY_FROM` / `MASTERY_TO` | 성공 숙련 대상 단계 | 15 / 19 | m1.1 |
+| `MASTERY_STEP[i]` | 성공 1회당 %p | [3, 3, 3, 4, 5] | m1.1 |
+| `MASTERY_MAX[i]` | 숙련 최대 %p(`BONUS_CAP` 밖) | [12, 12, 12, 12, 10] | m1.1 |
+| `MASTERY_REC_MAX[i]` | 저장 기록 상한 = `ceil(MAX/STEP)` | [4, 4, 4, 3, 2] | m1.1 |
 
 ## 4. 모루 / 광석
 | 이름 | 의미 | 확정값 | 문서 |

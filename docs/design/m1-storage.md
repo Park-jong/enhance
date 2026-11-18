@@ -42,6 +42,9 @@
   "active": 1,
   "slots": 3,
 
+  "gauge": [0, 0, 0, 0, 0],
+  "mastery": [0, 0, 0, 0, 0],
+
   "inv": { "bless": 0, "protect": 0, "keepdown": 0, "sure": 0, "booster": 0, "seal": 0 },
   "use": { "bless": false, "protect": false, "keepdown": false, "sure": false, "anvil": false, "seal": false },
 
@@ -86,6 +89,8 @@
 | `nextSwordId` | 정수 | 2 | | |
 | `active` | 검 id | 1 | 반드시 `swords`에 존재 | |
 | `slots` | `SLOT_START`..`SLOT_MAX` | 3 | 열린 칸 수 | |
+| `gauge` | 정수 5칸 배열(+15..+19) | `[0,0,0,0,0]` | 계정 공통 천장 게이지. 칸별 `0..GAUGE_N[i]` (M1.1) | m1.1-late-correction |
+| `mastery` | 정수 5칸 배열(+15..+19) | `[0,0,0,0,0]` | 계정 공통 성공 숙련 기록(성공 횟수). 칸별 `0..MASTERY_REC_MAX[i]` (M1.1) | m1.1-late-correction |
 | `inv.*` | 정수 0..`STACK_MAX`(99) | 0 | 소모품 보유 수. 추가 품목은 consumables 문서 | consumables |
 | `use.*` | bool | false | 다음 강화 토글(`seal`은 다음 판매/납품 토글) | consumables |
 | `anvils[]` | `{id,g,dura}` g=1..3, dura 0..`ANVIL_DURA[g]` | `[]` | 보유 모루 인스턴스. 최대 `ANVIL_OWN_MAX`개 | anvil-ore |
@@ -106,6 +111,7 @@
 2. 없고 `sword-enhance-v1`이 있으면 `migrate(v1)` 실행 후 v2로 저장. **v1 키는 지우지 않는다**(롤백용).
 3. 둘 다 없거나 파싱 실패 시 기본 상태.
 4. 로드 후 **정합성 보정**: `swords`가 비면 무료 +0 추가; `active`가 없으면 최고 단계 검 선택; 각 `lv`는 0..20, `prot`는 0..`PROTECT_USES`로 clamp; `inv`/`ore`/`gold`/`shards`는 음수면 0; `anvilEq`가 존재하지 않는 id면 null; `swords.length > slots`면 `slots`를 올려 맞춤.
+5. (M1.1) `gauge`/`mastery`: 없거나 배열이 아니면 `[0,0,0,0,0]`; 길이를 5로 맞추고(부족은 0, 초과는 자름), 칸마다 정수화 후 `gauge`는 `0..GAUGE_N[i]`, `mastery`는 `0..MASTERY_REC_MAX[i]`로 clamp. 버전(`v`)은 2 유지, 마이그레이션 없음.
 
 ### v1 → v2 마이그레이션 매핑 (`migrate`)
 | v1 필드 | v2 위치 | 변환 |
@@ -157,3 +163,5 @@
 17. Given 탭 A가 잠긴 뒤 탭 B를 닫았을 때 / Then A는 버튼을 누르기 전까지 잠긴 상태를 유지한다(자동 해제 없음).
 18. Given 손상된 v2 저장이고 `sword-enhance-v2-corrupt`가 비어 있을 때 / When 로드하면 / Then 원문이 그 키에 백업된 뒤 기본 게임이 시작되고 백업 키 이름이 담긴 토스트가 나온다. 이미 백업이 있으면 덮어쓰지 않는다.
 19. Given 손상된 v1 저장(v2 없음)일 때 / When 로드하면 / Then `sword-enhance-v1`은 변하지 않고 기본 게임이 시작되며 토스트가 "v1 원본을 그대로 둠"을 알린다.
+20. (M1.1) Given `gauge`/`mastery`가 없는 v2 저장일 때 / When 로드하면 / Then 둘 다 `[0,0,0,0,0]`이고 나머지 필드는 그대로다.
+21. (M1.1) Given `gauge=[-1,99,2.7,"a",null,7]`, `mastery="x"`일 때 / When 로드하면 / Then `gauge`는 길이 5로 정수화·clamp(`0..GAUGE_N[i]`)되고 `mastery`는 `[0,0,0,0,0]`이다. 저장 후 새로고침하면 값이 그대로 복원된다.
