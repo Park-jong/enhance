@@ -412,5 +412,243 @@
         "note": "우선순위 P3"
       }
     ]
+  },
+  {
+    "id": "REQ-015",
+    "from": "user",
+    "to": "design",
+    "kind": "feedback",
+    "title": "F16 후반 강화 확률 보정 요소 기획 (플레이 시간 단축)",
+    "detail": "사용자 피드백: 후반 강화가 확률에만 너무 의존해 플레이 시간이 너무 길다. 확률 외에 시도를 쌓으면 반드시 진행되는 보정 수단을 추가한다. 후보: 확정 천장 게이지, 단계 숙련도, 대장장이 숙련도(계정 성장), 검 합성(같은 단계 2자루 → +1), 후반 전용 상위 주문서, 실패 보정 구간·상한 조정. 후반 목표 플레이 시간, 확률 보너스 합계 상한(+10 이상 14%p) 재검토, M2 환생과의 관계도 정한다. 상세: .dev-team/roadmap.md 'M1.1 기능 요구사항 F16'",
+    "priority": "P1",
+    "priorityReason": "현재 마일스톤 M1.1의 유일한 목표이며, M2 환생 수치가 이 속도에 맞춰져야 하므로 먼저 처리",
+    "milestone": "M1.1 후반 강화 보정",
+    "status": "done",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "제안 단계: 후반 보정 옵션 설계와 시뮬레이션 착수"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "제안서 완료(사용자 선택 대기): docs/design/m1.1-late-correction-proposal.md, 시뮬레이션 tools/sim-late/. 추천 A+C. 구현 요청은 선택 후 별도 등록"
+      }
+    ]
+  },
+  {
+    "id": "REQ-016",
+    "from": "user",
+    "to": "design",
+    "kind": "requirement",
+    "title": "F16 확정 기획: A 천장 게이지 + C' 단계 성공 숙련(+15부터)",
+    "detail": "사용자가 제안서(docs/design/m1.1-late-correction-proposal.md)를 보고 A+C를 골랐다. 단, C는 누적 강화 횟수 방식 대신 \"해당 단계 강화에 성공한 기록으로 이후 같은 단계 강화 확률을 보정\"하는 방식으로 바꾼다. 예: +16 강화 성공 → 이후 +16 강화 확률 상승. +15부터 적용하고, 계정 단위로 파괴를 넘어 유지한다. 세부 사항은 추천대로 한다: 환생 시 숙련 유지·게이지 초기화, \"천장 3/6\" 표시, 검 합성은 M2로 이동, m1-balance의 0.62h 문구 정정. 해야 할 일: C' 규칙·수치 설계와 재시뮬레이션, §3 목표 충족 여부 확인, 기존 M1 문서 4개(m1-pity-cap, m1-storage §3, m1-constants-index, m1-balance §5/§8) 갱신 또는 m1.1 확정 기획서 작성, 개발·QA용 인수 기준 정리.",
+    "priority": "P1",
+    "priorityReason": "현재 마일스톤 M1.1의 기획 확정 작업이고, 개발·QA가 이 작업을 기다린다",
+    "milestone": "M1.1",
+    "status": "done",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "F16 최종 기획 착수 (A + C')"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "확정 기획서 docs/design/m1.1-late-correction.md. 갱신: m1-pity-cap, m1-storage §3, m1-constants-index, m1-balance(0.62h 정정), 제안서 상태줄. 사용자 지시로 시뮬레이션 없이 설계 판단이라 수치 미검증, 플레이 테스트로 조정. 사용자 확인 질문 2건 기획서 §10."
+      }
+    ]
+  },
+  {
+    "id": "REQ-017",
+    "from": "design",
+    "to": "tech",
+    "kind": "requirement",
+    "title": "F16 천장 게이지·단계 성공 숙련 구현",
+    "detail": "docs/design/m1.1-late-correction.md를 따른다.\n- 상수는 js/constants.js에 추가한다.\n- 저장: defaultState에 gauge[5]와 mastery[5]를 추가한다. 불러올 때 범위를 제한하고 마이그레이션은 하지 않는다(v2 유지).\n- 확률: chances opts에 gaugeFull과 mastery를 추가한다. gaugeFull이면 100%/0%이고 상한을 우회한다.\n- 갱신: 시도가 끝나면 시도를 시작한 단계 기준으로 게이지와 숙련을 갱신한다.\n- 게이지가 차면 소모품 토글을 잠그고, 잠금 이유는 gaugeFull로 한다.\n- UI\n  - '천장 n/N' 표시와 '확정!' 배지\n  - 확률 내역에 상한 배지와 별도로 '숙련 +N' 줄\n  - 기록 탭에 숙련 섹션\n  - 새 숙련 기록이 생기면 알림\n- test.html의 강제 성공은 실제 필드를 건드리지 않는다.\n사용자 결정: 숙련은 +15부터만 적용하고, 게이지 확정 성공도 숙련 기록으로 센다.",
+    "priority": "P1",
+    "priorityReason": "현재 마일스톤 M1.1의 핵심 구현 작업",
+    "milestone": "M1.1",
+    "status": "done",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "F16 구현 시작"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "구현 완료. 변경: js/constants.js, rules.js, save.js, view.js, main.js, index.html, test.html, css/style.css, tests/run-tests.js, tests/smoke-dom.js. 테스트 164/116/29/36 전부 통과. 브라우저 모바일 확인은 QA 필요."
+      }
+    ]
+  },
+  {
+    "id": "REQ-018",
+    "from": "design",
+    "to": "qa",
+    "kind": "requirement",
+    "title": "F16 규칙·저장 테스트와 플레이 테스트 시간 기록",
+    "detail": "구현이 끝나면 다음을 확인한다.\n- 기획서(docs/design/m1.1-late-correction.md) §12의 AC 1~14를 규칙 테스트, 저장 범위 제한 테스트, 회귀 테스트, UI 테스트로 확인한다.\n- AC 15는 소모품을 아끼는 플레이로 플레이 테스트를 하고 시간을 기록하는 것이다. 이 항목이 기존의 시뮬레이션 기반 밸런스 검사를 대신한다.\n- 기존 m1-pity-cap AC 1~12는 게이지와 숙련이 0일 때 그대로 통과해야 한다.",
+    "priority": "P1",
+    "priorityReason": "M1.1 완료 판정에 필요한 검증",
+    "milestone": "M1.1",
+    "status": "done",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "QA 팀장",
+        "status": "in_progress",
+        "note": "F16 검증 착수"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "QA 팀장",
+        "status": "done",
+        "note": "F16 검증 완료, 승인. tests/run-m1.1-qa-tests.js, docs/qa/m1.1-playtest-checklist.md. AC15는 사용자 플레이테스트 대기(비차단). should-fix: V.REASON.gaugeFull 누락."
+      }
+    ]
+  },
+  {
+    "id": "REQ-019",
+    "from": "design",
+    "to": "content",
+    "kind": "requirement",
+    "title": "확정 강화·숙련 알림 아이콘 (선택)",
+    "detail": "'확정!' 배지와 숙련 기록 알림에 쓸 아이콘이나 효과(선택 사항)를 만든다. 시간이 없으면 기존 성공 연출로 충분하다.",
+    "priority": "P3",
+    "priorityReason": "없어도 기능에 지장 없는 개선",
+    "milestone": "M1.1",
+    "status": "open",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
+  },
+  {
+    "id": "REQ-020",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "F16 QA 후속 수정: gaugeFull 잠금 알림 문구 외 정리",
+    "detail": "QA 승인과 함께 받은 후속 수정 사항이다.\n1. 꼭 고칠 것: js/view.js의 V.REASON에 gaugeFull이 없다. 그래서 잠긴 소모품을 누르면 '천장 확정' 문구가 아니라 일반 문구 '지금은 사용할 수 없습니다'가 뜬다. tests/run-m1.1-qa-tests.js의 테스트 1건이 이 때문에 실패한다.\n2. 튜닝 안전: constants.js에서 GAUGE_FROM/TO와 MASTERY_FROM/TO를 배열 길이에서 계산하거나, 길이가 맞는지 검사한다. 이름이 겹치는 mastery 변수 이름 정리는 선택 사항이다.\n3. 소소한 정리\n   - style.css:307의 중복 color\n   - view.js:240-241의 #gaugeLine 이중 조회\n4. 기존 M1 문제: 320~390px 화면에서 사냥 버튼 글자가 버튼 밖으로 넘친다.",
+    "priority": "P1",
+    "priorityReason": "M1.1 안에서 테스트 실패 1건을 없애고 끝내야 함. 나머지는 작아서 함께 처리",
+    "milestone": "M1.1",
+    "status": "done",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "개발 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "gaugeFull 문구 추가, GAUGE_TO/MASTERY_TO 유도, 중복 정리, 모바일 버튼 넘침 수정(css/style.css). 테스트 5종 통과. 상세는 tech/worklog.md"
+      }
+    ]
+  },
+  {
+    "id": "REQ-021",
+    "from": "qa",
+    "to": "tech",
+    "kind": "requirement",
+    "title": "tools/sim-late가 F16 새 옵션(gaugeFull, mastery)을 반영하지 않음",
+    "detail": "tools/sim-late/lib/mechanics.js:158은 R.chances를 gaugeFull과 mastery 없이 부른다. 나중에 시뮬레이션을 다시 쓸 경우 확정안의 성공 확률을 낮게 잡게 된다.",
+    "priority": "P3",
+    "priorityReason": "사용자가 시뮬레이션을 하지 않기로 해서 지금은 영향 없음. 다시 쓸 때만 필요",
+    "milestone": "M1.1",
+    "status": "open",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
+  },
+  {
+    "id": "REQ-022",
+    "from": "qa",
+    "to": "design",
+    "kind": "feedback",
+    "title": "F16 AC1 문구에서 '하락 방지로 유지된 실패' 삭제",
+    "detail": "하락 방지는 +15 이상에서 쓸 수 없다(KEEPDOWN_MAX_LV=15). 그런데 m1.1-late-correction.md AC1에는 +15~19의 '하락 방지로 유지된 실패'가 적혀 있다. 이 문구를 삭제한다.",
+    "priority": "P1",
+    "priorityReason": "M1.1 문서 정합성. 작은 수정이라 이번 마일스톤에 처리",
+    "milestone": "M1.1",
+    "status": "done",
+    "createdAt": "2026-11-18",
+    "history": [
+      {
+        "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "기획 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-18",
+        "by": "기획 팀장",
+        "status": "done",
+        "note": "AC1·게이지 규칙에 keepdown 유지 실패 문구 없음 확인. +15 이상 keepdown 불가 참고 한 줄 추가: docs/design/m1.1-late-correction.md"
+      }
+    ]
   }
 ]

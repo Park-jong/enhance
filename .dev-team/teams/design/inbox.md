@@ -20,8 +20,11 @@ F11 환생: +20 달성 후 리셋 대신 영구 보너스. F12 업적과 매일 
 
 - 2026-11-17 메인 세션: 접수 — 우선순위 P2
 
-## 닫힌 요청 (9건)
+## 닫힌 요청 (12건)
 
+- REQ-022 [P1] F16 AC1 문구에서 '하락 방지로 유지된 실패' 삭제 — 완료 (AC1·게이지 규칙에 keepdown 유지 실패 문구 없음 확인. +15 이상 keepdown 불가 참고 한 줄 추가: docs/design/m1.1-late-correction.md)
+- REQ-016 [P1] F16 확정 기획: A 천장 게이지 + C' 단계 성공 숙련(+15부터) — 완료 (확정 기획서 docs/design/m1.1-late-correction.md. 갱신: m1-pity-cap, m1-storage §3, m1-constants-index, m1-balance(0.62h 정정), 제안서 상태줄. 사용자 지시로 시뮬레이션 없이 설계 판단이라 수치 미검증, 플레이 테스트로 조정. 사용자 확인 질문 2건 기획서 §10.)
+- REQ-015 [P1] F16 후반 강화 확률 보정 요소 기획 (플레이 시간 단축) — 완료 (제안서 완료(사용자 선택 대기): docs/design/m1.1-late-correction-proposal.md, 시뮬레이션 tools/sim-late/. 추천 A+C. 구현 요청은 선택 후 별도 등록)
 - REQ-011 [P1] F15 소모품 종류 추가 기획 — 완료 (docs/design/m1-consumables.md)
 - REQ-008 [P1] F9 강화 연출 스킵 · F10 골드 자동 수급 버튼 기획 — 완료 (docs/design/m1-idle.md)
 - REQ-007 [P1] F7 실패 보정(천장) 기획 + 확률 보너스 합계 상한 — 완료 (docs/design/m1-pity-cap.md (구간별 보너스 상한 [20,20,14,14]))

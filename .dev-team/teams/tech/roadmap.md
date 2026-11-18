@@ -11,5 +11,7 @@ M1 콘텐츠 확장: F1~F10, F15 구현 (보관함, 보호권/파편, 모루/광
 | P1 | 브라우저 실기 확인(file://, 데스크톱/모바일 폭) | 디렉터 (QA 요청 예정) | QA | 대기 |
 
 ## 완료
+- REQ-020 F16 QA 후 수정: gaugeFull 토스트, 튜닝 안전(TO 유도), 모바일 버튼 넘침 수정 (테스트 5종 통과 164/116/29/36/189) — client-programmer
+- REQ-017 F16 천장 게이지 + 성공 숙련 구현 (M1.1, 테스트 164+116+29+36 통과) — client-programmer
 - M1 F1~F10, F15 구현 (index.html + css/ + js/, 노드 테스트 101건 + DOM 스모크 31건 통과) — 디렉터 / client-programmer
 - REQ-009 v1 → v2 저장 이전 (js/save.js migrate) — client-programmer

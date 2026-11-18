@@ -22,3 +22,10 @@
 - 산출물: tests/run-m1-round2-tests.js 수정(write-once 케이스, takeOver 정규식, AC17 테스트), 스크린샷 scratchpad final_overlay.png, final_settings.png
 - 결정 사항: 필수 수정 없음 → APPROVED. 전 스위트 통과(127/66/29/36). 이중 지급 수정 확인(뮤턴트로 실패 재현), 헤드리스 두 탭에서 잠금/inert/인수 정상.
 - 남은 문제(Tech P2): 인수 중 강화 애니메이션 epoch 처리, 인수 시 손상 v2 백업, UI 리셋 중복, backedUp 중복, 백업 실패 시 원본 덮어쓰기 정책(디자인 결정), 잠금 시 인수 버튼 포커스.
+
+## 2026-11-18 — F16 천장 게이지 + 성공 숙련 검증 (M1.1)
+- 지시: 디렉터 / 관련 마일스톤: M1.1 / 처리한 요청: REQ-018
+- 참여 팀원: tester, code-reviewer
+- 산출물: tests/run-m1.1-qa-tests.js (189개), docs/qa/m1.1-playtest-checklist.md (AC 15 템플릿), 헤드리스 Chrome 스크린샷(scratchpad shot_*_320/390/720.png)
+- 결정 사항: 필수 수정 없음 → APPROVED. 기존 스위트 164/116/29/36 통과, 신규 188 통과 + 1 실패. 실패는 should-fix(V.REASON.gaugeFull 누락으로 잠긴 토글 클릭 토스트가 일반 문구). 변이 8종 모두 검출. 320/390/720 모바일 레이아웃 시각 확인 완료.
+- 남은 문제: AC 15 플레이테스트(사용자), Tech P2: gaugeFull 문구, *_TO와 배열 길이 연동, mastery 이름 중복, 사냥 버튼 라벨 320~390px 잘림(기존 이슈).

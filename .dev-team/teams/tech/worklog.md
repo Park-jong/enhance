@@ -29,3 +29,17 @@
 - 산출물: test.html, js/test-mode.js, js/test-panel.js, css/test-mode.css, (수정) js/constants.js, rules.js, save.js, view.js, main.js, tests/run-tests.js, tests/smoke-dom.js
 - 결정 사항: SG.config(saveKey, legacySaveKey, forceSuccess)로 주입, chances()에 가드 1곳. 테스트 저장 키 sword-enhance-test, v1 미읽기. test.html은 index.html 마크업 복사(드리프트 가드 테스트 있음).
 - 남은 문제: 토글 상태는 저장되지 않음. 실제 브라우저 두 탭 확인은 QA 필요.
+
+## 2026-11-18 — F16 후반 강화 보정 (천장 게이지 + 성공 숙련)
+- 지시: 디렉터 / 관련 마일스톤: M1.1 / 처리한 요청: REQ-017
+- 참여 팀원: client-programmer
+- 산출물: js/constants.js, rules.js, save.js, view.js, main.js, index.html, test.html, css/style.css, tests/run-tests.js(164), tests/smoke-dom.js(116). QA 테스트 파일은 무수정, 29/36 통과.
+- 결정 사항: enhanceOpts(S)로 시도/화면/안내가 같은 옵션 사용. 천장 가득 시 모든 토글 gaugeFull 잠금(저장된 use 값 유지). 테스트 페이지 강제 성공은 gauge/mastery 갱신을 건너뜀. 토스트는 이번 기록의 증가량 표시. 기록 탭은 +15 도달 전에도 5행 표시. 수치는 시뮬레이션 미검증(설계 문서 명시).
+- 남은 문제: 실제 브라우저/모바일 폭(320~720px) 확인 필요(QA). 토스트 표기, 기록 탭 표시 시점, 테스트 저장의 필드 추적은 설계 확인 필요.
+
+## 2026-11-18 — F16 QA 후 수정 (REQ-020)
+- 지시: 디렉터 / 관련 마일스톤: M1.1 / 처리한 요청: REQ-020
+- 참여 팀원: client-programmer
+- 산출물: js/view.js(REASON.gaugeFull 추가, TRAY_REASON이 재사용, #gaugeLine 중복 조회 제거), js/constants.js(GAUGE_TO/MASTERY_TO를 배열 길이에서 유도 + 길이 불일치 시 throw), css/style.css(중복 color 제거, 520px 이하 .actions 버튼 줄바꿈/축소)
+- 결정 사항: 모바일 breakpoint는 420px가 아니라 520px(421px에서 극단값 넘침 확인, .info 2열 전환폭과 동일). 320/360/390/520/521/720/1280px 헤드리스 Chrome에서 넘침 0. rules.js 이름 변경은 위험 대비 이득이 적어 생략. tools/ 미변경(REQ-021 제외). 테스트 5종 통과: 164 / 116 / 29 / 36 / 189.
+- 남은 문제: 320px에서 사냥 보상 8자리 이상이면 숫자 중간에서 줄바꿈(실제 값 ~10만 수준이라 안전망으로 둠). 커밋 안 함.
