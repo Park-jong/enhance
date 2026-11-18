@@ -152,6 +152,13 @@ main {
   background: rgba(0,0,0,.45);
   transform-origin: left; transform: scaleX(var(--cd, 0));
 }
+/* 좁은 폰(~520px, .info 2열 전환과 같은 폭): 사냥 골드·강화 비용이 길어지면 버튼 밖으로 잘리므로
+ * 글자·여백을 줄이고 판매 칸 몫을 사냥 칸에 넘긴다. 그래도 넘치는 큰 숫자는 잘리는 대신 줄바꿈한다 */
+@media (max-width: 520px) {
+  .actions { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 6px; }
+  .actions .btn { padding: 12px 4px; font-size: 14px; overflow-wrap: anywhere; }
+  .actions .btn-enhance { font-size: 15px; }
+}
 
 /* ---------- 상점 ---------- */
 .shop-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -300,6 +307,15 @@ main {
 .pity-gauge .bar { flex: 0 0 90px; height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
 .pity-gauge .bar i { display: block; height: 100%; background: var(--good); }
 .income-note { margin: 4px 2px 0; font-size: 12px; color: var(--muted); }
+
+/* ---------- 천장 게이지 / 성공 숙련 (M1.1) ---------- */
+/* 성공 확률 칸 안, 값 아래 줄. 좁은 칸에서는 뱃지가 다음 줄로 넘어간다 */
+.info .gauge-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0 0; font-variant-numeric: tabular-nums; }
+.info .gauge-line .badge { display: inline-block; margin: 0; }
+.breakdown .mastery-term { color: var(--info); white-space: nowrap; }
+.mastery-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; font-size: 13px; }
+.mastery-list li { background: var(--panel2); border-radius: 10px; padding: 6px 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mastery-list b { color: var(--text); }
 
 /* ---------- 소모품 트레이 ---------- */
 .tray-title { margin: 14px 2px 6px; font-size: 13px; color: var(--muted); font-weight: 700; }

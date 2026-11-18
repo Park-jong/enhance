@@ -45,6 +45,8 @@
       nextSwordId: 2,
       active: 1,
       slots: C.SLOT_START,
+      gauge: C.GAUGE_N.map(() => 0),
+      mastery: C.MASTERY_REC_MAX.map(() => 0),
       inv: zeros(C.CONSUMABLES),
       use: USE_KEYS.reduce((o, k) => { o[k] = false; return o; }, {}),
       anvils: [],
@@ -103,9 +105,12 @@
     return { list, readyAt, nextId };
   }
 
+  /** 단계별 정수 배열(gauge/mastery, M1.1): 배열이 아니면 0으로, 길이는 maxes에 맞추고 칸마다 0..maxes[i] */
+  const normPerLevel = (v, maxes) => maxes.map((max, i) => int(Array.isArray(v) ? v[i] : 0, 0, 0, max));
+
   const normCounts = (v, keys, max) => keys.reduce((o, k) => { o[k] = int(obj(v)[k], 0, 0, max); return o; }, {});
 
-  /** 저장 데이터(부분/손상 포함)를 기본값과 병합하고 정합성을 맞춘다 (m1-storage §3 로드 규칙 4) */
+  /** 저장 데이터(부분/손상 포함)를 기본값과 병합하고 정합성을 맞춘다 (m1-storage §3 로드 규칙 4·5) */
   function normalize(d, now) {
     const S = defaultState(now);
     if (!isObj(d)) return S;
@@ -122,6 +127,8 @@
     const active = int(d.active, 0, 0);
     S.active = R.findSword(S, active) ? active : R.bestSword(S).id;
     S.best = Math.max(S.best, R.bestSword(S).lv);
+    S.gauge = normPerLevel(d.gauge, C.GAUGE_N);
+    S.mastery = normPerLevel(d.mastery, C.MASTERY_REC_MAX);
 
     S.inv = normCounts(d.inv, C.CONSUMABLES, C.STACK_MAX);
     const use = obj(d.use);

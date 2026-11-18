@@ -32,6 +32,7 @@
     intact: '수리할 필요가 없습니다.',
     notFound: '대상을 찾을 수 없습니다.',
     maxLv: '더 이상 강화할 수 없습니다.',
+    gaugeFull: '천장 확정: 소모품이 필요 없음',
   };
   const TRAY_REASON = {
     noStock: () => '보유 없음',
@@ -45,6 +46,7 @@
     broken: () => '파손됨 — 대장간에서 수리하세요',
     lowLv: () => `+${C.ANVIL_TOGGLE_MIN_LV}부터 사용할 수 있습니다`,
     maxLv: () => '최대 강화',
+    gaugeFull: () => REASON.gaugeFull,
   };
   const BAD_REASONS = ['needMore', 'protExhausted'];
   const CAP_NOTE = { wasted: '상한 도달 — 효과 없음', partial: '상한 도달 — 일부 효과 없음' };
@@ -179,6 +181,7 @@
 
   function breakdownHTML(c) {
     if (c.sure) return `${ic('sure')} 확정 강화권: 성공 100% · 파괴 0%`;
+    if (c.gaugeFull) return '천장 확정: 성공 100% · 파괴 0%';
     if (c.forced) return 'TEST MODE: 성공 100% · 파괴 0%';
     if (!c.parts) return '';
     const terms = [`기본 ${c.base}%`];
@@ -189,14 +192,22 @@
     if (c.raw > 0) {
       s += ` = +${c.raw}`;
       if (c.raw > c.bonus) s += ` → <s>+${c.raw}</s> +${c.bonus} <span class="badge warn">상한 ${c.cap}</span>`;
-      if (c.succ < c.base + c.bonus) s += ` <span class="badge warn">천장 ${Math.max(c.base, C.SUCC_CEIL)}%</span>`;
     }
+    // 숙련은 상한 밖 항목이라 상한 표시(취소선·뱃지) 뒤에 따로 더한다
+    if (c.mastery) s += ` + <span class="mastery-term">숙련 +${c.mastery}</span> = ${c.succ}%`;
+    if (c.succ < c.base + c.bonus + c.mastery) s += ` <span class="badge warn">천장 ${Math.max(c.base, C.SUCC_CEIL)}%</span>`;
     return s;
+  }
+
+  /** 성공 확률 아래 천장 게이지 줄(+15~+19에서만) */
+  function gaugeHTML(g) {
+    return `천장 ${g.value}/${g.n}${g.full ? ' <span class="badge good">확정!</span>' : ''}`;
   }
 
   function noteText(lv, c, use) {
     if (lv >= C.MAX) return '🏆 더 이상 강화할 수 없습니다. 무한의 검을 완성했습니다!';
     if (c.sure) return '확정 강화권으로 반드시 성공합니다.';
+    if (c.gaugeFull) return '천장 게이지가 가득 찼습니다. 이번 강화는 소모품 없이 반드시 성공합니다.';
     if (lv >= C.DROP_FROM) {
       return use.keepdown
         ? `실패 시 (${c.fail}%) 하락 방지 주문서가 단계를 지켜 줍니다.`
@@ -206,15 +217,10 @@
     return `실패해도 단계가 유지됩니다. (+${C.DESTROY.findIndex(d => d > 0)}부터 파괴 위험)`;
   }
 
-  function currentChances(S) {
-    const use = R.effectiveUse(S);
-    const anvil = use.anvil ? R.equippedAnvil(S) : null;
-    return R.chances(R.activeSword(S), { bless: use.bless, anvilGrade: anvil ? anvil.g : 0, sure: use.sure });
-  }
-
   function renderSwordCard(S, ui) {
     const sw = R.activeSword(S);
-    const view = ui.view || { lv: sw.lv, chances: currentChances(S) };
+    // 강화 연출 중(ui.view)에는 시도 직전 확률·게이지를 보여 준다(결과가 미리 드러나지 않게)
+    const view = ui.view || { lv: sw.lv, chances: R.currentChances(S), gauge: R.gaugeInfo(S, sw.lv) };
     const l = view.lv;
     const c = view.chances;
     const rar = R.rarity(l);
@@ -232,6 +238,9 @@
     }
 
     $('#vSucc').textContent = isMax ? '-' : c.succ + '%';
+    const gaugeLine = $('#gaugeLine');
+    gaugeLine.hidden = !view.gauge;
+    setHTML(gaugeLine, view.gauge ? gaugeHTML(view.gauge) : '');
     $('#vDest').textContent = isMax ? '-' : c.dest + '%';
     $('#vCost').textContent = isMax ? '-' : fmt(R.cost(l));
     $('#vSell').textContent = fmt(R.sell(l));
@@ -483,7 +492,20 @@
       setHTML(body, tabUnlocked(S, t) ? PANEL[t.id](S, ui, now) : lockedHTML(C.UNLOCK[t.unlock], t.desc));
     });
     setHTML($('#statsGrid'), STATS.map(([k, f]) => `<div><span>${k}</span><b>${f(S)}</b></div>`).join(''));
+    setHTML($('#masteryList'), masteryRowsHTML(S));
   }
+
+  /** 기록 탭: 단계별 성공 숙련 `+16 숙련 +6%p (2/4)` */
+  function masteryRowsHTML(S) {
+    return C.MASTERY_REC_MAX.map((max, i) => {
+      const lv = C.MASTERY_FROM + i;
+      const count = S.mastery[i];
+      return `<li>+${lv} 숙련 <b>+${R.masteryBonus(lv, count)}%p</b> <span class="muted">(${count}/${max})</span></li>`;
+    }).join('');
+  }
+
+  /** 새 숙련 기록 토스트 문구(기록 1회당 1번) */
+  const masteryToastText = m => `+${m.lv} 숙련! 이후 +${m.lv} 강화 성공률 +${m.gained}%p`;
 
   // ============================================================ 정적 요소
   /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지) */
@@ -533,6 +555,6 @@
 
   SG.view = {
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
-    swordName, itemLabel, itemText, fmtDuration,
+    swordName, itemLabel, itemText, fmtDuration, masteryToastText,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

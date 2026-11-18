@@ -95,6 +95,22 @@
   const BONUS_CAP = [20, 20, 14, 14];
   const SUCC_CEIL = 90;
 
+  // ---------------------------------------------------------------- 3.1 후반 강화 보정 (M1.1: 천장 게이지 + 성공 숙련)
+  // 배열 인덱스 i = 단계 l - *_FROM (+15..+19). 값만 바꿔 튜닝한다(m1.1-late-correction §7)
+  const GAUGE_FROM = 15;
+  const GAUGE_N = [4, 5, 6, 8, 10];        // 가득 차는 비성공 횟수 → 다음 시도 확정 성공
+  const GAUGE_TO = GAUGE_FROM + GAUGE_N.length - 1;
+  const MASTERY_FROM = 15;
+  const MASTERY_STEP = [3, 3, 3, 4, 5];    // 그 단계 성공 기록 1회당 %p
+  const MASTERY_MAX = [12, 12, 12, 12, 10];
+  const MASTERY_TO = MASTERY_FROM + MASTERY_STEP.length - 1;
+  // 한쪽 배열만 늘리면 숙련 상한이 조용히 undefined(NaN 보너스)가 되므로 로드 시점에 막는다
+  if (MASTERY_MAX.length !== MASTERY_STEP.length) {
+    throw new Error('MASTERY_MAX and MASTERY_STEP must have the same length');
+  }
+  // 저장 기록 상한: 이보다 많은 성공은 보너스를 더 올리지 않는다 → [4, 4, 4, 3, 2]
+  const MASTERY_REC_MAX = MASTERY_MAX.map((max, i) => Math.ceil(max / MASTERY_STEP[i]));
+
   // ---------------------------------------------------------------- 4. 모루 / 광석
   // 인덱스 = 등급 g (1..3). 0번은 "모루 없음"
   const ANVIL_BONUS = [0, 2, 3, 4];
@@ -234,6 +250,7 @@
     SAVE_KEY, SAVE_KEY_V1, SLOT_START, SLOT_MAX, SLOT_EXPAND_COST, NEW_SWORD_PRICE, STACK_MAX, START_GOLD,
     PROTECT_USES, PROTECT_NEED_DIV, SHARD_BASE_PER_LV, SHARD_BAND, SHARD_COST,
     PITY_BAND_WIDTH, PITY_STEP, PITY_MAX, BONUS_CAP, SUCC_CEIL,
+    GAUGE_FROM, GAUGE_TO, GAUGE_N, MASTERY_FROM, MASTERY_TO, MASTERY_STEP, MASTERY_MAX, MASTERY_REC_MAX,
     ANVIL_BONUS, ANVIL_DURA, ANVIL_CRAFT, ANVIL_REPAIR, ANVIL_SHOP_PRICE, ANVIL_OWN_MAX, ANVIL_TOGGLE_MIN_LV,
     ORES, ORE_PER_HUNT, ORE_UNLOCK_LV, ORE_MAX,
     QUEST_UNLOCK_BEST, QUEST_SLOTS, QUEST_TIERS, QUEST_LV_EASY_DIV, QUEST_LV_NORMAL_OFFSET, QUEST_LV_HARD_OFFSET,

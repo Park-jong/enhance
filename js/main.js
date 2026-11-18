@@ -177,7 +177,7 @@
     const outcome = OUTCOME_FX[r.outcome];
     if (r.used.sure) sfx('useSure');
     ui.busy = true;
-    ui.view = { lv: r.from, chances: r.chances };
+    ui.view = { lv: r.from, chances: r.chances, gauge: r.gaugeBefore };
     render();
 
     if (fx.charge) {
@@ -188,6 +188,11 @@
     }
     if (!outcome.holdView) { ui.view = null; render(); }
     await outcome.play(r, fx);
+    if (r.mastery) {
+      const msg = V.masteryToastText(r.mastery);
+      FX.toast(msg, 'special');
+      FX.log(msg, 'good');
+    }
     if (r.anvilBroke) { FX.toast('모루가 파손되었습니다 (수리 필요)', 'bad'); sfx('anvilBreak'); }
     announceUnlocks(prevBest);
 

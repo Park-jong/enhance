@@ -32,20 +32,42 @@
   const rarity = l => C.RARITY.find(r => l >= r.min);
   const isUnlocked = (S, key) => S.best >= C.UNLOCK[key];
 
+  // ============================================================ 천장 게이지 / 성공 숙련 (M1.1, m1.1-late-correction)
+  /** 단계 l의 계정 공통 배열 인덱스(from..to 밖이면 -1) */
+  const levelIndex = (l, from, to) => (l >= from && l <= to ? l - from : -1);
+  const gaugeIndex = l => levelIndex(l, C.GAUGE_FROM, C.GAUGE_TO);
+  const masteryIndex = l => levelIndex(l, C.MASTERY_FROM, C.MASTERY_TO);
+  /** 성공 기록 count회의 숙련 보너스 %p (대상 단계 밖이면 0) */
+  const masteryBonus = (l, count) => {
+    const i = masteryIndex(l);
+    return i < 0 ? 0 : Math.min(C.MASTERY_MAX[i], count * C.MASTERY_STEP[i]);
+  };
+  const masteryCount = (S, l) => { const i = masteryIndex(l); return i < 0 ? 0 : S.mastery[i]; };
+  /** 단계 l의 천장 게이지 표시용 { value, n, full } (대상 단계 밖이면 null) */
+  function gaugeInfo(S, l) {
+    const i = gaugeIndex(l);
+    if (i < 0) return null;
+    return { value: S.gauge[i], n: C.GAUGE_N[i], full: S.gauge[i] >= C.GAUGE_N[i] };
+  }
+  const isGaugeFull = (S, l) => { const g = gaugeInfo(S, l); return !!g && g.full; };
+
+  // 상한·천장·보정을 모두 건너뛰는 확정 결과(테스트 강제 / 확정 강화권 / 천장 게이지). flag: forced|sure|gaugeFull
+  const certain = (l, flag) => ({
+    succ: 100, dest: 0, fail: 0, base: C.RATE[l], parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0, [flag]: true,
+  });
+
   /**
-   * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure } — m1-pity-cap §3
+   * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure, gaugeFull, mastery(성공 기록 횟수) }
+   * — m1-pity-cap §3, m1.1-late-correction §3.3. 규칙 모듈은 S를 모르므로 gaugeFull·mastery는 호출자가 주입한다.
    * config.forceSuccess(테스트 페이지 설정)가 켜져 있으면 모든 단계·옵션에서 성공 100%. 강화 굴림은 모두 이 값을 따른다
    */
   function chances(sword, opts) {
     const l = sword.lv;
     const o = opts || {};
-    if (l >= C.MAX) return { succ: 0, dest: 0, fail: 0, base: 0, parts: null, raw: 0, bonus: 0, cap: 0, capped: false };
-    if (config.forceSuccess) {
-      return { succ: 100, dest: 0, fail: 0, base: C.RATE[l], parts: null, raw: 0, bonus: 0, cap: 0, capped: false, forced: true };
-    }
-    if (o.sure && l < C.SURE_MAX_TARGET) {
-      return { succ: 100, dest: 0, fail: 0, base: C.RATE[l], parts: null, raw: 0, bonus: 0, cap: 0, capped: false, sure: true };
-    }
+    if (l >= C.MAX) return { succ: 0, dest: 0, fail: 0, base: 0, parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0 };
+    if (config.forceSuccess) return certain(l, 'forced');
+    if (o.sure && l < C.SURE_MAX_TARGET) return certain(l, 'sure');
+    if (o.gaugeFull && gaugeIndex(l) >= 0) return certain(l, 'gaugeFull');
     const base = C.RATE[l];
     const band = pityBand(l);
     const parts = {
@@ -56,9 +78,11 @@
     const raw = parts.bless + parts.anvil + parts.pity;
     const cap = C.BONUS_CAP[band];
     const bonus = Math.min(raw, cap);
-    const succ = Math.min(base + bonus, Math.max(base, C.SUCC_CEIL));
+    // 숙련은 BONUS_CAP 밖에서 더하지만 SUCC_CEIL은 적용된다
+    const mastery = masteryBonus(l, o.mastery || 0);
+    const succ = Math.min(base + bonus + mastery, Math.max(base, C.SUCC_CEIL));
     const dest = Math.max(0, Math.min(C.DESTROY[l], 100 - succ));
-    return { succ, dest, fail: 100 - succ - dest, base, parts, raw, bonus, cap, capped: raw > cap || succ < base + bonus };
+    return { succ, dest, fail: 100 - succ - dest, base, parts, raw, bonus, cap, capped: raw > cap || succ < base + bonus + mastery, mastery };
   }
 
   // ============================================================ 검 / 보관함 (F5)
@@ -192,14 +216,20 @@
     },
   };
 
+  /** 모든 토글을 함께 막는 사유: 최대 단계, 또는 천장 확정 시도(소모품이 필요 없어 소모하지 않음) */
+  function trayLock(S, sw) {
+    if (sw.lv >= C.MAX) return 'maxLv';
+    return isGaugeFull(S, sw.lv) ? 'gaugeFull' : null;
+  }
+
   /** 트레이 각 행의 상태: { on(이번 시도에 실제 적용), block(사유 코드|null) } */
   function trayState(S) {
     const sw = activeSword(S);
     const out = {};
-    const atMax = sw.lv >= C.MAX;
-    const sureOn = !atMax && !!S.use.sure && TOGGLE_BLOCK.sure(S, sw) === null;
+    const lock = trayLock(S, sw);
+    const sureOn = !lock && !!S.use.sure && TOGGLE_BLOCK.sure(S, sw) === null;
     C.TRAY_TOGGLES.forEach(id => {
-      let block = atMax ? 'maxLv' : TOGGLE_BLOCK[id](S, sw);
+      let block = lock || TOGGLE_BLOCK[id](S, sw);
       if (!block && sureOn && id !== 'sure') block = 'sureExclusive';
       out[id] = { on: !block && !!S.use[id], block };
     });
@@ -244,18 +274,25 @@
     anvil: opts => Object.assign({}, opts, { anvilGrade: 0 }),
   };
 
-  function bonusOpts(S) {
+  /** 활성 검의 이번 시도 확률 옵션: 실제 적용되는 토글 + 계정 공통 천장 게이지·숙련 기록(m1.1 §3.3) */
+  function enhanceOpts(S) {
+    const lv = activeSword(S).lv;
     const use = effectiveUse(S);
     const anvil = use.anvil ? equippedAnvil(S) : null;
-    return { bless: use.bless, anvilGrade: anvil ? anvil.g : 0 };
+    return {
+      bless: use.bless, anvilGrade: anvil ? anvil.g : 0, sure: use.sure,
+      gaugeFull: isGaugeFull(S, lv), mastery: masteryCount(S, lv),
+    };
   }
+  /** 지금 강화하면 적용될 확률(화면 표시와 실제 굴림이 같은 값을 쓰도록 한 곳에서 계산) */
+  const currentChances = S => chances(activeSword(S), enhanceOpts(S));
   const succWithout = (S, opts, ids) => chances(activeSword(S), ids.reduce((o, id) => WITHOUT_BONUS[id](o), opts)).succ;
 
   /** 켜진 보너스 토글(축복·모루)을 빼도 성공률이 같으면 true(상한 도달로 효과 없음). 보너스가 아닌 토글은 항상 false */
   function bonusWasted(S, id) {
     if (!hasOwn(WITHOUT_BONUS, id)) return false;
     if (!effectiveUse(S)[id]) return false;
-    const opts = bonusOpts(S);
+    const opts = enhanceOpts(S);
     return succWithout(S, opts, []) === succWithout(S, opts, [id]);
   }
 
@@ -267,7 +304,7 @@
     if (!bonusWasted(S, id)) return null;
     const wasted = Object.keys(WITHOUT_BONUS).filter(k => bonusWasted(S, k));
     if (wasted.length < 2) return 'wasted';
-    const opts = bonusOpts(S);
+    const opts = enhanceOpts(S);
     return succWithout(S, opts, []) === succWithout(S, opts, wasted) ? 'wasted' : 'partial';
   }
 
@@ -321,6 +358,23 @@
     },
   };
 
+  /**
+   * 계정 공통 천장 게이지·숙련 기록 갱신(시도 시작 단계 l 기준, m1.1 §2·§3.1).
+   * 성공이 아니면(실패·하락·파괴·보호로 막은 파괴) 게이지 +1, 성공이면 0. 성공은 숙련 기록 +1(REC_MAX까지).
+   * 새 숙련 기록을 얻으면 { lv, gained(%p), bonus(%p), count, max }를 돌려준다
+   */
+  function recordLateProgress(S, l, outcome) {
+    const success = outcome === 'success';
+    const gi = gaugeIndex(l);
+    if (gi >= 0) S.gauge[gi] = success ? 0 : Math.min(C.GAUGE_N[gi], S.gauge[gi] + 1);
+    const mi = masteryIndex(l);
+    if (!success || mi < 0 || S.mastery[mi] >= C.MASTERY_REC_MAX[mi]) return null;
+    const before = masteryBonus(l, S.mastery[mi]);
+    S.mastery[mi]++;
+    const bonus = masteryBonus(l, S.mastery[mi]);
+    return { lv: l, gained: bonus - before, bonus, count: S.mastery[mi], max: C.MASTERY_REC_MAX[mi] };
+  }
+
   /** 강화 1회: 검증 → 시작 시점 소모 → 굴림 → 결과 적용(모두 동기). 연출은 호출 측 몫 */
   function attemptEnhance(S, rng) {
     const sw = activeSword(S);
@@ -329,9 +383,10 @@
     const price = cost(l);
     if (S.gold < price) return fail('noGold');
 
+    // 천장 확정 시도면 트레이가 잠겨 use가 모두 false → 소모품·모루 내구도·보호권을 쓰지 않는다
     const use = effectiveUse(S);
     const anvil = use.anvil ? equippedAnvil(S) : null;
-    const ch = chances(sw, { bless: use.bless, anvilGrade: anvil ? anvil.g : 0, sure: use.sure });
+    const ch = chances(sw, enhanceOpts(S));
 
     S.gold -= price;
     if (use.bless) S.inv.bless--;
@@ -339,12 +394,14 @@
     if (anvil) anvil.dura--;
     S.stats.tries++;
 
-    const r = { ok: true, swordId: sw.id, from: l, price, chances: ch, used: use };
+    const r = { ok: true, swordId: sw.id, from: l, price, chances: ch, used: use, gaugeBefore: gaugeInfo(S, l) };
     const roll = rng() * 100;
     const kind = roll < ch.succ ? 'success' : roll < ch.succ + ch.dest ? 'destroy' : 'fail';
     r.outcome = OUTCOME[kind](S, sw, r, use);
     r.to = r.outcome === 'destroy' ? null : sw.lv;
     r.pity = sw.pity;
+    // 테스트 페이지의 강제 성공은 진행 기록이 아니다(m1.1 §3.1)
+    r.mastery = ch.forced ? null : recordLateProgress(S, l, r.outcome);
     if (anvil && anvil.dura <= 0) r.anvilBroke = true;
     cleanupUse(S);
     return r;
@@ -425,6 +482,8 @@
     // 공식
     cost, sell, protectNeed, huntReward, autoReward, shardGain, boosterPrice, pityBand, pityBonus, rarity,
     isUnlocked, chances, hasOwn, itemDef,
+    // 천장 게이지 / 성공 숙련 (M1.1)
+    gaugeIndex, masteryIndex, masteryBonus, masteryCount, gaugeInfo, isGaugeFull, enhanceOpts, currentChances,
     // 보관함
     findSword, activeSword, bestSword, topLv, createSword, removeSword, buySword, setActive, sellSword,
     expandCost, expandSlots, sealActive, payWithSeal,

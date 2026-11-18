@@ -48,7 +48,7 @@
       </div>
 
       <div class="info">
-        <div><span>성공 확률</span><b id="vSucc" style="color:var(--good)">-</b></div>
+        <div><span>성공 확률</span><b id="vSucc" style="color:var(--good)">-</b><span class="gauge-line" id="gaugeLine" hidden></span></div>
         <div><span>파괴 확률</span><b id="vDest" style="color:var(--bad)">-</b> <span class="badge bad" id="destWarn" hidden>⚠ 보호 불가</span></div>
         <div><span>강화 비용</span><b id="vCost" style="color:var(--gold)">-</b></div>
         <div><span>판매 가격</span><b id="vSell" style="color:var(--gold)">-</b></div>
@@ -79,6 +79,8 @@
     <section class="card tab-panel" data-panel="records" hidden>
       <h2>기록</h2>
       <div class="stats" id="statsGrid"></div>
+      <h2 style="margin-top:16px">숙련 <span class="muted">(+15~+19 단계별 성공 기록)</span></h2>
+      <ul class="mastery-list" id="masteryList"></ul>
       <h2 style="margin-top:16px">로그</h2>
       <ul id="log"></ul>
     </section>
