@@ -26,65 +26,69 @@
 </header>
 
 <main>
-  <div class="main-col">
-    <section class="card">
-      <h2>보관함 <span id="slotCount"></span></h2>
-      <div class="strip" id="strip"></div>
-      <div class="strip-actions" id="stripActions"></div>
-    </section>
+  <!-- 오른쪽 패널의 sticky 범위를 이 묶음으로 한정한다(아래 검 도감 카드를 가리지 않게) -->
+  <div class="play">
+    <div class="main-col">
+      <section class="card">
+        <h2>보관함 <span id="slotCount"></span></h2>
+        <div class="strip" id="strip"></div>
+        <div class="strip-actions" id="stripActions"></div>
+      </section>
 
-    <section class="card">
-      <div class="title-row">
-        <span class="rarity" id="rarity">일반</span>
-        <span class="sword-name" id="swordName">+0 낡은 목검</span>
-      </div>
+      <section class="card">
+        <div class="title-row">
+          <span class="rarity" id="rarity">일반</span>
+          <span class="sword-name" id="swordName">+0 낡은 목검</span>
+        </div>
 
-      <div class="stage" id="stage">
-        <div class="floor"></div>
-        <div class="float"><div id="sword"></div></div>
-        <canvas id="fx"></canvas>
-        <div id="flash"></div>
-        <div id="result"></div>
-      </div>
+        <div class="stage" id="stage">
+          <div class="floor"></div>
+          <div class="float"><div id="sword"></div></div>
+          <canvas id="fx"></canvas>
+          <div id="flash"></div>
+          <div id="result"></div>
+          <div class="stage-empty" id="stageEmpty" hidden>보관함에서 강화할 검을 선택하세요</div>
+        </div>
 
-      <div class="info">
-        <div><span>성공 확률</span><b id="vSucc" style="color:var(--good)">-</b><span class="gauge-line" id="gaugeLine" hidden></span></div>
-        <div><span>파괴 확률</span><b id="vDest" style="color:var(--bad)">-</b> <span class="badge bad" id="destWarn" hidden>⚠ 보호 불가</span></div>
-        <div><span>강화 비용</span><b id="vCost" style="color:var(--gold)">-</b></div>
-        <div><span>판매 가격</span><b id="vSell" style="color:var(--gold)">-</b></div>
-      </div>
-      <div class="breakdown" id="breakdown"></div>
-      <div class="pity-gauge" id="pityLine"></div>
-      <p class="note" id="note"></p>
-      <p class="income-note" id="incomeNote"></p>
+        <div class="info">
+          <div><span>성공 확률</span><b id="vSucc" style="color:var(--good)">-</b><span class="gauge-line" id="gaugeLine" hidden></span></div>
+          <div><span>파괴 확률</span><b id="vDest" style="color:var(--bad)">-</b> <span class="badge bad" id="destWarn" hidden>⚠ 보호 불가</span></div>
+          <div><span>강화 비용</span><b id="vCost" style="color:var(--gold)">-</b></div>
+          <div><span>판매 가격</span><b id="vSell" style="color:var(--gold)">-</b></div>
+        </div>
+        <div class="breakdown" id="breakdown"></div>
+        <div class="pity-gauge" id="pityLine"></div>
+        <p class="note" id="note"></p>
+        <p class="income-note" id="incomeNote"></p>
 
-      <h3 class="tray-title">소모품</h3>
-      <div class="tray" id="tray"></div>
+        <h3 class="tray-title">소모품</h3>
+        <div class="tray" id="tray"></div>
 
-      <div class="actions">
-        <button class="btn btn-enhance" id="btnEnhance">강화하기<kbd id="enhanceSub">Space</kbd></button>
-        <button class="btn btn-sell" id="btnSell">판매<kbd>S</kbd></button>
-        <button class="btn btn-hunt" id="btnHunt">사냥<kbd>H</kbd></button>
-      </div>
-      <div class="auto-row" id="autoRow"></div>
-    </section>
+        <div class="actions">
+          <button class="btn btn-enhance" id="btnEnhance">강화하기<kbd id="enhanceSub">Space</kbd></button>
+          <button class="btn btn-sell" id="btnSell">판매<kbd>S</kbd></button>
+          <button class="btn btn-hunt" id="btnHunt">사냥<kbd>H</kbd></button>
+        </div>
+        <div class="auto-row" id="autoRow"></div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <nav class="tabbar" id="tabbar"></nav>
+      <section class="card tab-panel" data-panel="shop"><h2>상점</h2><div class="panel-body"></div></section>
+      <section class="card tab-panel" data-panel="forge" hidden><h2>대장간</h2><div class="panel-body"></div></section>
+      <section class="card tab-panel" data-panel="quests" hidden><h2>납품 의뢰</h2><div class="panel-body"></div></section>
+      <section class="card tab-panel" data-panel="idle" hidden><h2>방치</h2><div class="panel-body"></div></section>
+      <section class="card tab-panel" data-panel="records" hidden>
+        <h2>기록</h2>
+        <div class="stats" id="statsGrid"></div>
+        <h2 style="margin-top:16px">숙련 <span class="muted">(+15~+19 단계별 성공 기록)</span></h2>
+        <ul class="mastery-list" id="masteryList"></ul>
+        <h2 style="margin-top:16px">로그</h2>
+        <ul id="log"></ul>
+      </section>
+    </aside>
   </div>
-
-  <aside class="side">
-    <nav class="tabbar" id="tabbar"></nav>
-    <section class="card tab-panel" data-panel="shop"><h2>상점</h2><div class="panel-body"></div></section>
-    <section class="card tab-panel" data-panel="forge" hidden><h2>대장간</h2><div class="panel-body"></div></section>
-    <section class="card tab-panel" data-panel="quests" hidden><h2>납품 의뢰</h2><div class="panel-body"></div></section>
-    <section class="card tab-panel" data-panel="idle" hidden><h2>방치</h2><div class="panel-body"></div></section>
-    <section class="card tab-panel" data-panel="records" hidden>
-      <h2>기록</h2>
-      <div class="stats" id="statsGrid"></div>
-      <h2 style="margin-top:16px">숙련 <span class="muted">(+15~+19 단계별 성공 기록)</span></h2>
-      <ul class="mastery-list" id="masteryList"></ul>
-      <h2 style="margin-top:16px">로그</h2>
-      <ul id="log"></ul>
-    </section>
-  </aside>
 
   <section class="card full">
     <h2>검 도감 <span id="foundCount"></span></h2>
@@ -116,6 +120,7 @@
 <script src="js/audio.js"></script>
 <script src="js/fx.js"></script>
 <script src="js/view.js"></script>
+<script src="js/strip-drag.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

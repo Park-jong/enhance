@@ -147,7 +147,7 @@ describe('protect counter, destroy, pity', () => {
     const r = R.attemptEnhance(S, rollDestroy(R.chances(S.swords[0], {})));
     assert.strictEqual(r.outcome, 'destroy');
     assert.deepStrictEqual(S.swords, [{ id: 2, lv: 6, prot: 2, pity: 3 }]);
-    assert.strictEqual(S.active, 2);
+    assert.strictEqual(S.active, C.NO_ACTIVE_SWORD, 'destroy leaves no active sword (3-6 rule)');
     assert.strictEqual(r.freeSword, null);
   });
   test('destroy grants shardGain(l) and stats.shardsGained equals it', () => {
@@ -291,7 +291,11 @@ describe('economy regression vs m1-balance expected values', () => {
         const before = S.gold;
         const r = R.attemptEnhance(S, rng);
         gold += before - S.gold; tries++;
-        if (r.outcome === 'destroy') gold += C.NEW_SWORD_PRICE;
+        if (r.outcome === 'destroy') {
+          gold += C.NEW_SWORD_PRICE;
+          // destroy no longer auto-picks: the player picks the replacement (free +0 or a bought one)
+          R.setActive(S, R.bestSword(S).id);
+        }
       }
     }
     return { gold: gold / runs, tries: tries / runs };

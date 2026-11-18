@@ -196,7 +196,7 @@ describe('attemptEnhance', () => {
     const S = stateWith({ sword: { lv: 3 }, inv: { protect: 5 } });
     assert.strictEqual(R.trayState(S).protect.block, 'noDestroy');
   });
-  test('destroy +10 unprotected: shards +30, stats, slot emptied, free +0', () => {
+  test('destroy +10 unprotected: shards +30, stats, slot emptied, free +0 (not activated)', () => {
     const S = stateWith({ sword: { lv: 10, pity: 4 }, top: { gold: 1e6 } });
     const r = R.attemptEnhance(S, rollDestroy(R.chances(S.swords[0], {})));
     assert.strictEqual(r.outcome, 'destroy');
@@ -204,13 +204,13 @@ describe('attemptEnhance', () => {
     assert.strictEqual(S.swords.length, 1);
     assert.strictEqual(S.swords[0].lv, 0);
     assert.strictEqual(S.swords[0].pity, 0);
-    assert.ok(r.freeSword && S.active === r.freeSword.id);
+    assert.ok(r.freeSword && S.active === C.NO_ACTIVE_SWORD && R.activeSword(S) === null);
   });
-  test('destroy active with others: best remaining becomes active, no free sword', () => {
+  test('destroy active with others: no sword becomes active (3-6), no free sword', () => {
     const S = stateWith({ swords: [{ id: 1, lv: 10, prot: 2, pity: 4 }, { id: 2, lv: 3, prot: 2, pity: 3 }, { id: 3, lv: 6, prot: 2, pity: 0 }], active: 1, top: { gold: 1e6 } });
     const r = R.attemptEnhance(S, rollDestroy(R.chances(S.swords[0], {})));
     assert.strictEqual(r.freeSword, null);
-    assert.strictEqual(S.active, 3);
+    assert.strictEqual(S.active, C.NO_ACTIVE_SWORD);
     assert.strictEqual(S.swords.length, 2);
     assert.strictEqual(R.findSword(S, 2).pity, 3);
   });
@@ -990,14 +990,14 @@ describe('fix round 1: own-property checks and save clamps', () => {
     assert.strictEqual(S.stats.tries, Number.MAX_SAFE_INTEGER);
     assert.strictEqual(S.idle.boostUntil, NOW + C.BOOSTER_MAX_MIN * MIN);
   });
-  test('active and anvilEq are coerced to integers', () => {
+  test('anvilEq is coerced to an integer; a string active is malformed and falls back to the best sword', () => {
     const d = fresh();
     d.swords = [{ id: 1, lv: 9 }, { id: 2, lv: 3 }];
     d.active = '2';
     d.anvils = [{ id: 1, g: 1, dura: 10 }, { id: 4, g: 2, dura: 10 }];
     d.anvilEq = '4';
     const S = SV.normalize(JSON.parse(JSON.stringify(d)), NOW);
-    assert.strictEqual(S.active, 2);
+    assert.strictEqual(S.active, 1);   // 3-6 S5: '2' is not an integer -> best sword (id 1, lv 9)
     assert.strictEqual(S.anvilEq, 4);
     d.anvilEq = { id: 4 };
     assert.strictEqual(SV.normalize(JSON.parse(JSON.stringify(d)), NOW).anvilEq, null);
@@ -1318,6 +1318,7 @@ describe('M1.1 ceiling gauge and stage mastery', () => {
     S.gauge[1] = 5;
     assert.deepStrictEqual(triple(R.chances({ lv: 16, pity: 0 }, { gaugeFull: true })), [100, 0, 0]);
     S.swords[0].lv = 16;
+    assert.ok(R.setActive(S, S.swords[0].id).ok);                   // destroy leaves no active sword (3-6)
     const c = R.currentChances(S);
     assert.deepStrictEqual(triple(c), [100, 0, 0]);
     assert.strictEqual(c.gaugeFull, true);
@@ -1382,6 +1383,8 @@ describe('M1.1 ceiling gauge and stage mastery', () => {
     const T = SV.load(st, NOW).state;
     assert.deepStrictEqual(T.gauge, [0, 5, 6, 0, 0]);
     T.swords[0].lv = 16;                                              // the next sword reaching +16 inherits the full gauge
+    assert.strictEqual(T.active, C.NO_ACTIVE_SWORD);                  // destroy leaves no active sword, also after reload (3-6)
+    assert.ok(R.setActive(T, T.swords[0].id).ok);
     assert.strictEqual(R.attemptEnhance(T, ROLL_HIGH).outcome, 'success');
     assert.deepStrictEqual(T.gauge, [0, 0, 6, 0, 0]);
   });
@@ -1559,6 +1562,215 @@ describe('M1.1 ceiling gauge and stage mastery', () => {
       const legacy = R.chances(S.swords[0], { bless: use.bless, anvilGrade: use.anvil ? 3 : 0, sure: use.sure });
       assert.deepStrictEqual(R.currentChances(S), legacy, `+${lv} p${p} bless ${bless}`);
     }
+  });
+});
+
+// ============================================================ 3-6 보관함 사용성: 활성 없음 상태 / 칸 순서 이동
+describe('3-6 no active sword after destroy', () => {
+  const NONE = C.NO_ACTIVE_SWORD;
+  const two = () => stateWith({ swords: [{ id: 1, lv: 12, prot: 2, pity: 3 }, { id: 2, lv: 7, prot: 2, pity: 0 }], active: 1, top: { gold: 1e7 } });
+  const destroyed = () => {
+    const S = two();
+    assert.strictEqual(R.attemptEnhance(S, rollDestroy(R.currentChances(S))).outcome, 'destroy');
+    return S;
+  };
+  const snap = S => JSON.stringify(S);
+
+  test('activeSword is null when S.active is NO_ACTIVE_SWORD (no fallback to swords[0])', () => {
+    const S = two();
+    S.active = NONE;
+    assert.strictEqual(R.activeSword(S), null);
+    assert.strictEqual(NONE, 0);
+  });
+  test('destroy result reports no new active sword', () => {
+    const S = two();
+    const r = R.attemptEnhance(S, rollDestroy(R.currentChances(S)));
+    assert.deepStrictEqual([r.outcome, r.newActiveId, S.active], ['destroy', NONE, NONE]);
+  });
+  test('attemptEnhance with no active sword fails noActive and changes nothing (Space spam is harmless)', () => {
+    const S = destroyed();
+    const before = snap(S);
+    for (let i = 0; i < 5; i++) assert.strictEqual(R.attemptEnhance(S, ROLL_SUCCESS).reason, 'noActive');
+    assert.strictEqual(snap(S), before);
+  });
+  test('currentChances and enhanceOpts are null with no active sword', () => {
+    const S = destroyed();
+    assert.strictEqual(R.currentChances(S), null);
+    assert.strictEqual(R.enhanceOpts(S), null);
+  });
+  test('tray: every toggle blocked with noActive, nothing applied; setUse refuses tray toggles but seal still works', () => {
+    const S = destroyed();
+    Object.assign(S.inv, { bless: 3, protect: 9, keepdown: 2, sure: 1, seal: 1 });
+    S.use.bless = true;
+    const t = R.trayState(S);
+    C.TRAY_TOGGLES.forEach(id => assert.deepStrictEqual(t[id], { on: false, block: 'noActive' }, id));
+    assert.ok(C.TRAY_TOGGLES.every(id => R.effectiveUse(S)[id] === false));
+    assert.strictEqual(R.setUse(S, 'protect', true).reason, 'noActive');
+    assert.ok(R.setUse(S, 'seal', true).ok);
+    assert.ok(C.TRAY_TOGGLES.every(id => R.bonusWasted(S, id) === false && R.bonusCapNote(S, id) === null));
+  });
+  test('income stays on topLv: hunt / auto / offline unaffected by having no active sword', () => {
+    const S = two();
+    const hunt = I.manualHuntGold(S, NOW);
+    const auto = I.autoRunGold(S, NOW);
+    S.active = NONE;
+    assert.deepStrictEqual([R.topLv(S), I.manualHuntGold(S, NOW), I.autoRunGold(S, NOW)], [12, hunt, auto]);
+  });
+  test('destroying the last sword grants the free +0 but does not activate it', () => {
+    const S = stateWith({ sword: { lv: 9 }, top: { gold: 1e6 } });
+    const r = R.attemptEnhance(S, rollDestroy(R.currentChances(S)));
+    assert.ok(r.freeSword);
+    assert.deepStrictEqual([S.swords.length, S.swords[0].lv, S.active], [1, 0, NONE]);
+  });
+  test('setActive picks a sword from the none state; id 0 is not a sword', () => {
+    const S = destroyed();
+    assert.strictEqual(R.setActive(S, NONE).reason, 'notFound');
+    assert.ok(R.setActive(S, 2).ok);
+    assert.strictEqual(R.activeSword(S).id, 2);
+  });
+  test('selling / delivering the active sword still auto-picks the best sword (unchanged)', () => {
+    const S = stateWith({ swords: [{ id: 1, lv: 5, prot: 2, pity: 0 }, { id: 2, lv: 9, prot: 2, pity: 0 }, { id: 3, lv: 3, prot: 2, pity: 0 }], active: 1 });
+    assert.ok(R.sellSword(S, 1).ok);
+    assert.strictEqual(S.active, 2);
+    assert.deepStrictEqual(R.removeSword(S, 2), { freeSword: null, activeId: 3 });
+  });
+  test('removing a non-active sword while none is active keeps none (no surprise activation)', () => {
+    const S = destroyed();
+    assert.ok(R.sellSword(S, 2).ok);
+    assert.strictEqual(S.active, NONE);
+    assert.strictEqual(S.swords.length, 1);                       // last sword sold → free +0, still not active
+  });
+  test('removeSword with pickNext:false leaves none; default picks the best', () => {
+    const S = two();
+    assert.deepStrictEqual(R.removeSword(S, 1, { pickNext: false }), { freeSword: null, activeId: NONE });
+    const T = two();
+    assert.deepStrictEqual(R.removeSword(T, 1), { freeSword: null, activeId: 2 });
+  });
+  test('quests with no active sword: candidate needs no confirm, delivery keeps none', () => {
+    const S = destroyed();
+    S.best = 12;
+    S.quests.list[1] = { id: 1, tier: 'normal', lv: 7, gold: 100, item: null };
+    assert.strictEqual(Q.candidate(S, S.quests.list[1]).id, 2);
+    const r = Q.deliver(S, 1, NOW);
+    assert.ok(r.ok && r.freeSword);
+    assert.strictEqual(S.active, NONE);
+  });
+  test('save: active 0 persists through save/load and normalize is idempotent', () => {
+    const S = destroyed();
+    const st = memStorage();
+    SV.save(st, S, NOW);
+    const T = SV.load(st, NOW).state;
+    assert.strictEqual(T.active, NONE);
+    assert.deepStrictEqual(SV.normalize(JSON.parse(JSON.stringify(T)), NOW), T);
+  });
+  test('save: a missing / dangling / malformed active still falls back to the best sword', () => {
+    const swords = [{ id: 3, lv: 2, prot: 2, pity: 0 }, { id: 5, lv: 8, prot: 2, pity: 0 }];
+    for (const active of [99, -1, '0', null, undefined, 'x', 1e20]) {
+      assert.strictEqual(SV.normalize({ swords, active }, NOW).active, 5, String(active));
+    }
+    assert.strictEqual(SV.normalize({ swords, active: 3 }, NOW).active, 3);
+    assert.strictEqual(SV.normalize({ swords, active: 0 }, NOW).active, NONE);
+  });
+});
+
+describe('3-6 storage slot reorder (moveSword)', () => {
+  const ids = S => S.swords.map(s => s.id);
+  const four = () => stateWith({
+    swords: [1, 2, 3, 4].map(id => ({ id, lv: id, prot: 2, pity: id })), active: 2,
+  });
+  test('moves a sword forward and backward; toIndex is the slot among the other swords', () => {
+    const S = four();
+    assert.deepStrictEqual(R.moveSword(S, 1, 2), { ok: true, from: 0, to: 2, moved: true });
+    assert.deepStrictEqual(ids(S), [2, 3, 1, 4]);
+    assert.deepStrictEqual(R.moveSword(S, 4, 0), { ok: true, from: 3, to: 0, moved: true });
+    assert.deepStrictEqual(ids(S), [4, 2, 3, 1]);
+  });
+  test('out-of-range indexes clamp to the ends; same slot is ok but not moved', () => {
+    const S = four();
+    R.moveSword(S, 2, 99);
+    assert.deepStrictEqual(ids(S), [1, 3, 4, 2]);
+    R.moveSword(S, 4, -5);
+    assert.deepStrictEqual(ids(S), [4, 1, 3, 2]);
+    assert.deepStrictEqual(R.moveSword(S, 3, 2), { ok: true, from: 2, to: 2, moved: false });
+    assert.deepStrictEqual(ids(S), [4, 1, 3, 2]);
+  });
+  test('unknown id / bad index fail without changing the order', () => {
+    const S = four();
+    assert.strictEqual(R.moveSword(S, 99, 0).reason, 'notFound');
+    assert.strictEqual(R.moveSword(S, 1, NaN).reason, 'badIndex');
+    assert.deepStrictEqual(ids(S), [1, 2, 3, 4]);
+  });
+  test('reorder keeps the active sword, sword data and next id unchanged', () => {
+    const S = four();
+    const before = JSON.stringify(S.swords.slice().sort((a, b) => a.id - b.id));
+    R.moveSword(S, 2, 3);
+    assert.strictEqual(S.active, 2);
+    assert.strictEqual(R.activeSword(S).lv, 2);
+    assert.strictEqual(JSON.stringify(S.swords.slice().sort((a, b) => a.id - b.id)), before);
+    assert.strictEqual(S.nextSwordId, 100);
+  });
+  test('the new order persists through save/load', () => {
+    const S = four();
+    R.moveSword(S, 1, 3);
+    const st = memStorage();
+    SV.save(st, S, NOW);
+    assert.deepStrictEqual(ids(SV.load(st, NOW).state), [2, 3, 4, 1]);
+  });
+});
+
+// ------------------------------------------------------------ 3-6 QA: array order now matters for tie-breaks
+describe('3-6 QA: slot order effects on ties', () => {
+  const tied = order => { const S = stateWith({ swords: order.map(id => ({ id, lv: 8, prot: 2, pity: 0 })) }); S.active = C.NO_ACTIVE_SWORD; return S; };
+  test('bestSword on equal stages is the first slot, so reordering changes the winner', () => {
+    const S = tied([1, 2, 3]);
+    assert.strictEqual(R.bestSword(S).id, 1);
+    R.moveSword(S, 3, 0);
+    assert.strictEqual(R.bestSword(S).id, 3);
+  });
+  test('selling the active sword auto-picks the first-slot sword among tied bests', () => {
+    const S = tied([1, 2, 3]);
+    S.swords.push({ id: 4, lv: 3, prot: 2, pity: 0 });
+    S.nextSwordId = 5; S.active = 4;
+    R.moveSword(S, 3, 0);
+    assert.ok(R.sellSword(S, 4).ok);
+    assert.strictEqual(S.active, 3);
+  });
+  test('quest candidate among same-stage swords ignores slot order (inactive first, then smaller id)', () => {
+    const S = tied([3, 1, 2]);
+    S.active = 1; S.best = C.UNLOCK.quests;
+    const quest = { id: 1, tier: 'normal', lv: 8, gold: 10, item: null };
+    const before = Q.candidate(S, quest).id;
+    R.moveSword(S, 2, 0);
+    const after = Q.candidate(S, quest).id;
+    assert.strictEqual(before, after);
+    assert.strictEqual(after, 2);
+  });
+  test('sell and bestSword with no active sword do not throw; selling a non-active sword keeps none', () => {
+    const S = tied([1, 2]);
+    assert.strictEqual(R.activeSword(S), null);
+    assert.ok(R.sellSword(S, 2).ok);
+    assert.strictEqual(S.active, C.NO_ACTIVE_SWORD);
+  });
+});
+
+describe('3-6 QA: save normalization of active', () => {
+  const loadActive = v => {
+    const d = JSON.parse(JSON.stringify(SV.defaultState(NOW)));
+    d.swords = [{ id: 1, lv: 2, prot: 2, pity: 0 }, { id: 2, lv: 5, prot: 2, pity: 0 }];
+    d.nextSwordId = 3; d.active = v;
+    const st = memStorage({ [C.SAVE_KEY]: JSON.stringify(d) });
+    return SV.load(st, NOW).state.active;
+  };
+  test('0 stays none; negative, fractional, string, null, NaN-like and dangling ids fall back to the best sword (id 2)', () => {
+    assert.strictEqual(loadActive(0), C.NO_ACTIVE_SWORD);
+    for (const v of [-1, 1.5, '0', '2', null, undefined, {}, [], 99, true]) {
+      const a = loadActive(v);
+      assert.strictEqual(a, 2, 'value ' + JSON.stringify(v) + ' -> ' + a);
+    }
+  });
+  test('a valid id is kept; the key stays sword-enhance-v2', () => {
+    assert.strictEqual(loadActive(1), 1);
+    assert.strictEqual(C.SAVE_KEY, 'sword-enhance-v2');
   });
 });
 

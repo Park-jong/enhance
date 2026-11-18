@@ -124,8 +124,10 @@
     S.nextSwordId = Math.max(int(d.nextSwordId, 1, 1), maxId(S.swords) + 1);
     if (S.swords.length === 0) R.createSword(S);
     S.slots = Math.max(int(d.slots, C.SLOT_START, C.SLOT_START, C.SLOT_MAX), S.swords.length);
-    const active = int(d.active, 0, 0);
-    S.active = R.findSword(S, active) ? active : R.bestSword(S).id;
+    // 저장된 숫자 0만 '활성 없음'으로 유지. 없는 id·손상 값은 예전처럼 최고 단계 검으로
+    const active = int(d.active, null, 0);
+    if (d.active === C.NO_ACTIVE_SWORD) S.active = C.NO_ACTIVE_SWORD;
+    else S.active = Number.isInteger(d.active) && R.findSword(S, active) ? active : R.bestSword(S).id;
     S.best = Math.max(S.best, R.bestSword(S).lv);
     S.gauge = normPerLevel(d.gauge, C.GAUGE_N);
     S.mastery = normPerLevel(d.mastery, C.MASTERY_REC_MAX);

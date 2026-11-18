@@ -547,7 +547,9 @@ describe('AC10 mastery survives destroy and sale', () => {
     const S = lateState(16, { mastery: withGauge(1, 2) });
     const before = R.currentChances(S).succ;
     attempt(S, 'destroy');
+    assert.strictEqual(R.currentChances(S), null, 'no active sword right after destroy');
     S.swords[0].lv = 16;
+    R.setActive(S, S.swords[0].id);
     assert.strictEqual(R.currentChances(S).succ, before);
     assert.strictEqual(R.currentChances(S).succ, 15 + 6);
   });

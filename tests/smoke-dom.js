@@ -70,6 +70,7 @@ function makeEnv(initialStorage, opts = {}) {
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
     requestAnimationFrame: () => 0,
     setTimeout: (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),   // 연출 대기를 짧게
+    clearTimeout,
     setInterval: f => { timers.push(f); return timers.length; },
     confirm: () => true,
     addEventListener: (t, f) => { (winListeners[t] = winListeners[t] || []).push(f); },
@@ -119,7 +120,7 @@ async function main() {
 
   // 1) 새 게임: 로드·렌더·저장
   let env = makeEnv({});
-  ok(env.scripts.length === 12, 'all scripts loaded');
+  ok(env.scripts.length === 13, 'all scripts loaded');
   ok(!!env.ctx.M1_ICONS && !!env.ctx.M1_SFX_PLAY, 'content assets loaded');
   ok(env.byId['#tabbar']._html.includes('<svg'), 'content SVG icons used in tabs');
   ok(saved(env).v === 2, 'v2 saved on start');
@@ -127,25 +128,33 @@ async function main() {
   ok(env.byId['#tabbar']._html.includes(env.ctx.M1_ICONS.lock), 'locked tabs show lock icon');
   ok(env.byId['#btnSettings']._html === '<span class="ic">' + env.ctx.M1_ICONS.settings + '</span>', 'settings button uses content icon');
 
-  // 2) 사냥, 새 검 구매, 칸 선택/활성 전환, 상점, 탭 전환
+  // 2) 사냥, 새 검 구매, 칸 한 번 클릭으로 활성 전환(3-6), 상점, 탭 전환
   env.byId['#btnHunt'].listeners.click[0]();
   ok(saved(env).gold > 300, 'hunt adds gold');
   click(env, 'buySword');
   ok(saved(env).swords.length === 2, 'buy sword');
-  click(env, 'select', 2);
+  ok(env.byId['#strip']._html.includes('data-act="activate" data-id="2"') && !env.byId['#strip']._html.includes('data-act="select"'),
+    'strip cards activate on click (no select step)');
+  ok(!env.byId['#stripActions']._html.includes('활성으로'), 'no separate 활성으로 button');
   click(env, 'activate', 2);
-  ok(saved(env).active === 2, 'activate');
+  ok(saved(env).active === 2, 'one click activates');
+  const logCount = env.byId['#log'].children.length;
+  click(env, 'activate', 2);
+  ok(saved(env).active === 2 && env.byId['#log'].children.length === logCount, 'clicking the already-active sword does nothing');
+  ok(env.byId['#stripActions']._html.includes('data-act="sellSel" data-id="2"'), 'strip actions follow the active sword');
   ['shop', 'forge', 'quests', 'idle', 'records'].forEach(t => click(env, 'tab', t));
   scanRendered();
 
   // 3) 강화 반복(연출 포함 / 스킵) — 예외 없이 진행
   env.ctx.SG.save.save(env.ctx.localStorage, Object.assign(saved(env), { gold: 5e6 }), Date.now());
   env = makeEnv(env.store);
-  for (let i = 0; i < 30; i++) { env.byId['#btnEnhance'].listeners.click[0](); await sleep(25); }
+  // 파괴되면 활성 검이 없어지므로(3-6) 반복 강화 점검은 다음 검을 직접 고른다
+  const pickIfNone = () => { const st0 = saved(env); if (st0.active === 0) click(env, 'activate', st0.swords[0].id); };
+  for (let i = 0; i < 30; i++) { pickIfNone(); env.byId['#btnEnhance'].listeners.click[0](); await sleep(25); }
   ok(saved(env).stats.tries >= 25, 'enhance attempts recorded: ' + saved(env).stats.tries);
   env.byId['#setSkip'].checked = true;
   env.byId['#setSkip'].listeners.change[0]({ target: env.byId['#setSkip'] });
-  for (let i = 0; i < 30; i++) { key(env, 'Space'); await sleep(260); }
+  for (let i = 0; i < 30; i++) { pickIfNone(); key(env, 'Space'); await sleep(260); }
   ok(saved(env).settings.skipFx === true, 'skip setting saved');
   env.tick();
   scanRendered();
@@ -207,10 +216,12 @@ async function main() {
   ok(rewardLog.includes('✨ 축복 주문서 ×2') && !/[<>]/.test(rewardLog), 'quest reward log is plain text (#2): ' + rewardLog);
   ok(rewardToast.includes('축복 주문서 ×2') && !/[<>]/.test(rewardToast), 'quest reward toast is plain text (#2)');
   click(env, 'reroll', 1);
+  click(env, 'activate', 2);
   click(env, 'sellSel', 2);   // +9 → 확인 필요
   ok(saved(env).swords.some(s => s.id === 2), 'sell +9 needs second click');
   click(env, 'sellSel', 2);
   ok(!saved(env).swords.some(s => s.id === 2), 'sold after confirm');
+  ok(saved(env).active === 1, 'selling the active sword still auto-picks the best sword');
   for (let i = 0; i < 20; i++) { key(env, 'Space'); await sleep(30); }
   env.tick();
   scanRendered();
@@ -371,6 +382,10 @@ async function main() {
   // 7) M1.1 천장 게이지 + 성공 숙련 화면 (m1.1-late-correction §11, AC 13)
   await lateCorrection(ok);
 
+  // 7b) 3-6: 파괴 뒤 활성 검 없음, 칸 드래그
+  await noActiveAfterDestroy(ok);
+  await stripDrag(ok);
+
   // 8) 테스트 페이지(test.html): 같은 스크립트 + 테스트 설정. 강화 100%, 별도 저장 키, 실제 저장 불가침
   await testPage(ok);
 
@@ -454,6 +469,143 @@ async function lateCorrection(ok) {
     && !texts(env.byId['#toasts']).some(t => t.includes('숙련!')), 'no mastery toast once the record is maxed');
 }
 
+/** 3-6: 파괴 뒤에는 어떤 검도 활성이 되지 않고, 연타(Space/S)가 다른 검에 닿지 않는다 */
+async function noActiveAfterDestroy(ok) {
+  const st = Object.assign(SG_default(), { gold: 1e9, best: 19 });
+  st.swords = [{ id: 1, lv: 19, prot: 0, pity: 0 }, { id: 2, lv: 9, prot: 2, pity: 0 }];
+  st.nextSwordId = 3;
+  st.active = 1;
+  // +19: 성공 5% · 파괴 35% → 굴림 20은 파괴. main.js가 로드 시점의 Math.random을 잡으므로 로드 전에 바꾼다
+  const realRandom = Math.random;
+  Math.random = () => 0.2;
+  let env;
+  try {
+    env = makeEnv({ 'sword-enhance-v2': JSON.stringify(st) });
+    await env.byId['#btnEnhance'].listeners.click[0]();
+  } finally {
+    Math.random = realRandom;
+  }
+  const after = saved(env);
+  ok(after.stats.destroy === 1 && after.active === 0 && after.swords.map(s => s.id).join() === '2', 'destroy leaves no active sword (saved active 0)');
+  for (let i = 0; i < 5; i++) { key(env, 'Space'); key(env, 'KeyS'); env.byId['#btnEnhance'].listeners.click[0](); env.byId['#btnSell'].listeners.click[0](); }
+  await sleep(20);
+  ok(saved(env).stats.tries === 1 && saved(env).swords[0].lv === 9 && saved(env).swords.length === 1, 'Space / S / buttons spam does not touch the other sword');
+  const assertEmpty = label => {
+    ok(env.byId['#stageEmpty'].hidden === false, label + ': stage shows the choose-a-sword prompt');
+    ok(['#vSucc', '#vDest', '#vCost', '#vSell'].every(id => env.byId[id].textContent === '-'), label + ': odds / cost / sell show -');
+    ok(env.byId['#btnEnhance'].disabled && env.byId['#btnSell'].disabled, label + ': enhance and sell disabled');
+    ok(env.byId['#gaugeLine'].hidden === true && (!env.byId['#sword'] || env.byId['#sword']._html === ''), label + ': no gauge line, no sword drawn');
+    ok(env.byId['#stripActions']._html.includes('활성 검 없음') && !env.byId['#stripActions']._html.includes('sellSel'), label + ': strip says no active sword');
+    ok(!/class="slot-card active/.test(env.byId['#strip']._html), label + ': no card marked active');
+  };
+  assertEmpty('after destroy');
+  ['shop', 'forge', 'quests', 'idle', 'records'].forEach(t => click(env, 'tab', t));
+  env.tick();
+  scanRendered();
+  ok(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').includes('보관함에서 강화할 검을 선택하세요'), 'prompt text in the stage markup');
+
+  // 저장된 active 0은 다시 불러와도 '없음'
+  env = makeEnv(env.store);
+  assertEmpty('after reload');
+  scanRendered();
+  click(env, 'activate', 2);
+  ok(saved(env).active === 2 && env.byId['#stageEmpty'].hidden === true && env.byId['#vCost'].textContent !== '-', 'one click picks the next sword');
+  ok(!env.byId['#btnEnhance'].disabled && !env.byId['#btnSell'].disabled, 'enhance / sell enabled again');
+  scanRendered();
+}
+
+/** 3-6: 칸 드래그(Pointer Events 스텁). 카드 3장을 x=0/100/200에 둔다 */
+async function stripDrag(ok) {
+  const st = Object.assign(SG_default(), { gold: 1e6, best: 5 });
+  st.swords = [1, 2, 3].map(id => ({ id, lv: id, prot: 2, pity: 0 }));
+  st.nextSwordId = 4;
+  st.active = 1;
+  const CARD_W = 86;
+  const setup = order => {
+    const env = makeEnv({ 'sword-enhance-v2': JSON.stringify(Object.assign({}, st, { swords: order.map(id => st.swords.find(x => x.id === id)) })) });
+    const strip = env.byId['#strip'];
+    const cards = order.map((id, i) => {
+      const el = new El('card' + id);
+      el.dataset.sword = String(id);
+      el.getBoundingClientRect = () => ({ left: i * 100, width: CARD_W, right: i * 100 + CARD_W });
+      el.setPointerCapture = () => {};
+      return el;
+    });
+    strip.querySelectorAll = () => cards;
+    strip.getBoundingClientRect = () => ({ left: 0, right: 1000, width: 1000 });
+    strip.scrollLeft = 0;
+    const card = id => cards.find(c => c.dataset.sword === String(id));
+    strip.setPointerCapture = () => {};
+    const pointer = (type, id, x, kind = 'mouse', buttons = 1) => (strip.listeners[type] || []).forEach(f => f({
+      target: { closest: () => card(id) }, isPrimary: true, button: 0, buttons, pointerId: 7, pointerType: kind, clientX: x, clientY: 50,
+    }));
+    /** 실제 브라우저 순서: 스트립 캡처 리스너(드래그 뒤 click 삼킴) → 문서의 data-act 처리 */
+    const clickCard = id => {
+      const ev = { stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} };
+      strip.listeners.click.forEach(f => f(ev));
+      if (!ev.stopped) click(env, 'activate', id);
+    };
+    return { env, card, pointer, clickCard, order: () => saved(env).swords.map(x => x.id).join() };
+  };
+
+  // 마우스: 임계값(6px) 미만 이동은 클릭 → 활성 전환
+  let d = setup([1, 2, 3]);
+  d.pointer('pointerdown', 2, 143); d.pointer('pointermove', 2, 147); d.pointer('pointerup', 2, 147);
+  d.clickCard(2);
+  ok(!d.card(2).classList.contains('dragging') && d.order() === '1,2,3' && saved(d.env).active === 2, 'mouse move under 6px is a click (activates, no reorder)');
+
+  // 마우스 드래그: 1번을 끝으로 → 표시선은 마지막 카드 뒤, 놓으면 순서 저장, 뒤따르는 click은 삼켜 활성 그대로
+  d = setup([1, 2, 3]);
+  d.pointer('pointerdown', 2, 143); d.pointer('pointermove', 2, 260);
+  ok(d.card(2).classList.contains('dragging') && d.card(3).classList.contains('drop-after'), 'drag shows the lifted card and the drop marker');
+  d.pointer('pointerup', 2, 260);
+  d.clickCard(2);
+  ok(d.order() === '1,3,2' && saved(d.env).active === 1, 'mouse drag reorders and persists; the click after a drag does not activate');
+  ok(!d.card(2).classList.contains('dragging') && !d.card(3).classList.contains('drop-after'), 'drag visuals cleared on drop');
+  d.clickCard(3);
+  ok(saved(d.env).active === 3, 'the next real click activates again');
+  scanRendered();
+
+  // 터치: 길게 누르기 전에 움직이면 스크롤로 양보(드래그 아님)
+  d = setup([1, 2, 3]);
+  d.pointer('pointerdown', 3, 243, 'touch'); d.pointer('pointermove', 3, 220, 'touch');
+  await sleep(20);
+  d.pointer('pointermove', 3, 10, 'touch'); d.pointer('pointerup', 3, 10, 'touch');
+  ok(!d.card(3).classList.contains('dragging') && d.order() === '1,2,3', 'touch swipe before the long-press scrolls, does not drag');
+  // 터치: 길게 누르면(타이머) 드래그 시작 → 맨 앞으로
+  d.pointer('pointerdown', 3, 243, 'touch');
+  await sleep(20);
+  ok(d.card(3).classList.contains('dragging'), 'touch long-press starts the drag');
+  d.pointer('pointermove', 3, 10, 'touch');
+  ok(d.card(1).classList.contains('drop-before'), 'drop marker before the first card');
+  d.pointer('pointerup', 3, 10, 'touch');
+  ok(d.order() === '3,1,2' && saved(d.env).active === 1, 'touch drag reorders, active unchanged');
+
+  // 취소(pointercancel)는 순서를 바꾸지 않는다
+  d = setup([1, 2, 3]);
+  d.pointer('pointerdown', 1, 43); d.pointer('pointermove', 1, 260); d.pointer('pointercancel', 1, 260);
+  ok(d.order() === '1,2,3' && !d.card(1).classList.contains('dragging'), 'pointercancel aborts the drag');
+
+  // 버튼 없이 들어온 move(바깥에서 뗀 뒤 돌아옴)는 제스처를 취소한다
+  d = setup([1, 2, 3]);
+  d.pointer('pointerdown', 2, 143); d.pointer('pointermove', 2, 260);
+  d.pointer('pointermove', 2, 270, 'mouse', 0);
+  ok(!d.card(2).classList.contains('dragging') && d.order() === '1,2,3', 'move with no button held cancels the drag');
+  d.pointer('pointermove', 2, 280);
+  ok(!d.card(2).classList.contains('dragging'), 'later moves no longer follow the pointer');
+  d = setup([1, 2, 3]);
+  d.pointer('pointerdown', 2, 143); d.pointer('pointermove', 2, 150, 'mouse', 0);
+  ok(!d.card(2).classList.contains('dragging'), 'button-less move before the threshold also ends the gesture');
+
+  // 강화 연출 중(ui.busy)에는 드래그를 시작하지 않는다
+  d = setup([1, 2, 3]);
+  const pending = d.env.byId['#btnEnhance'].listeners.click[0]();
+  d.pointer('pointerdown', 2, 143); d.pointer('pointermove', 2, 260); d.pointer('pointerup', 2, 260);
+  ok(!d.card(2).classList.contains('dragging') && d.order() === '1,2,3', 'no drag while the enhance animation runs');
+  await pending;
+  scanRendered();
+}
+
 const TEST_KEY = 'sword-enhance-test';
 const REAL_KEYS = ['sword-enhance-v2', 'sword-enhance-v1', 'sword-enhance-v2-corrupt'];
 // 잠금 화면은 setLocked가 처음 호출될 때 스텁 요소가 생긴다
@@ -483,7 +635,7 @@ async function testPage(ok) {
   const realUntouched = env => REAL_KEYS.every(k => env.store[k] === realStore[k]);
 
   let env = makeEnv(realStore, { page: 'test.html' });
-  ok(env.scripts.length === 14, 'test page loads all scripts');
+  ok(env.scripts.length === 15, 'test page loads all scripts');
   ok(env.ctx.SG.C.SAVE_KEY === TEST_KEY && env.ctx.SG.config.forceSuccess === true, 'test config applied');
   ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'test page starts its own new game (no v1 migration, no real save)');
   ok(realUntouched(env), 'real v2 / v1 / corrupt-backup keys untouched on test page start');

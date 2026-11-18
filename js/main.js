@@ -41,7 +41,7 @@
   const sfx = cue => audio.play(cue);
 
   const ui = {
-    tab: 'shop', selectedId: S.active, armed: {}, busy: false, view: null,
+    tab: 'shop', dragId: null, armed: {}, busy: false, view: null,
     huntUntil: 0, nextAutoAt: now() + I.autoInterval(S), nextEnhanceAt: 0,
   };
   let lastSaveAt = 0;
@@ -130,10 +130,10 @@
       FX.log(`+${r.from} ${sw.n}이(가) 산산조각 났습니다... 파편 ${r.shards}개 획득`, 'bad');
       if (fx.shatter) await wait(fx.shatter);
       if (r.shards > 0) sfx('shardGain');
+      // 다른 검을 자동으로 고르지 않는다(규칙: 활성 없음). 연타가 다른 검의 강화로 이어지지 않게 한다
       ui.view = null;
-      ui.selectedId = S.active;
       render();
-      if (fx.particles) FX.setSwordAnim('appear');
+      FX.setSwordAnim(null);
       if (r.freeSword) FX.log('보유 검이 없어 +0 검 1자루를 무료로 받았습니다.', 'info');
     } },
     fail: { play(r, fx) {
@@ -252,7 +252,6 @@
     sfx('coin');
     if (r.sealed) sfx('useSeal');
     if (r.freeSword) FX.log('보유 검이 없어 +0 검 1자루를 무료로 받았습니다.', 'info');
-    ui.selectedId = S.active;
     afterChange();
     if (wasActive) FX.setSwordAnim('appear');
   }
@@ -282,7 +281,6 @@
     if (r.sealed) sfx('useSeal');
     if (rewardGaveShards(r.reward)) sfx('shardGain');
     if (r.freeSword) FX.log('보유 검이 없어 +0 검 1자루를 무료로 받았습니다.', 'info');
-    ui.selectedId = S.active;
     afterChange();
   }
 
@@ -299,10 +297,12 @@
 
   const ACTIONS = {
     tab: id => { ui.tab = id; sfx('tabSwitch'); render(); },
-    select: id => { ui.selectedId = +id; render(); },
+    // 보관함 칸 한 번 클릭 = 활성 검. 강화 연출 중이거나 이미 활성인 검이면 무시
     activate: id => {
-      if (ui.busy) return;
-      settle(R.setActive(S, +id), () => `${V.swordName(R.activeSword(S).lv)}을(를) 활성 검으로 정했습니다.`, 'buy');
+      if (ui.busy || +id === S.active) return;
+      const r = R.setActive(S, +id);
+      settle(r, () => `${V.swordName(R.activeSword(S).lv)}을(를) 활성 검으로 정했습니다.`, 'buy');
+      if (r.ok) FX.setSwordAnim('appear');
     },
     sellSel: id => sellSword(+id),
     deliverSel: id => {
@@ -352,15 +352,17 @@
    * 오래된 탭이 옛 lastSeen으로 오프라인 보상을 다시 받고 최신 저장을 덮어쓰는 것을 막는다.
    * 이 탭의 저장이 실패해 저장소 쪽이 더 오래된 경우에는 메모리 상태를 유지한다.
    */
+  let stripDrag = null;
+  const cancelDrag = () => { if (stripDrag) stripDrag.cancel(); };
   function adoptStoredSave(t, force) {
     const latest = SV.peek(storage, t);
     if (!latest || (!force && latest.idle.lastSeen <= S.idle.lastSeen)) return;
+    cancelDrag();
     S = latest;
     // 이 탭의 옛 자동 사냥 시각을 두면, 다른 탭이 이미 지급한 몫을 catch-up으로 다시 지급한다
     ui.nextAutoAt = t + I.autoInterval(S);
     ui.view = null;
     ui.busy = false;
-    ui.selectedId = S.active;
     ui.armed = {};
   }
   function resume(forceAdopt = false) {
@@ -398,6 +400,7 @@
   function suspendForOtherTab() {
     if (suspended) return;
     suspended = true;
+    cancelDrag();
     ui.armed = {};
     $('#modal').hidden = true;
     $('#settingsPop').hidden = true;
@@ -441,8 +444,9 @@
   }));
   /** 현재 저장 키(C.SAVE_KEY)의 진행을 새 게임으로 덮어쓴다 */
   function startNewGame() {
+    cancelDrag();
     S = SV.defaultState(now());
-    Object.assign(ui, { selectedId: S.active, armed: {}, view: null, nextEnhanceAt: 0, nextAutoAt: now() + I.autoInterval(S) });
+    Object.assign(ui, { armed: {}, view: null, nextEnhanceAt: 0, nextAutoAt: now() + I.autoInterval(S) });
     $('#log').innerHTML = '';
     $('#settingsPop').hidden = true;
     persist();
@@ -455,8 +459,22 @@
   }));
   $('#banner').addEventListener('click', () => $('#banner').classList.remove('show'));
 
+  // 보관함 칸 드래그: 놓은 자리로 순서만 바꾼다(활성 검은 그대로). 강화 연출 중·탭 잠금 중에는 시작하지 않는다
+  stripDrag = SG.createStripDrag($('#strip'), {
+    item: '[data-sword]',
+    canStart: () => !suspended && !ui.busy,
+    onStart: id => { ui.dragId = id; },
+    onEnd: (id, toIndex) => {
+      ui.dragId = null;
+      const r = toIndex === null || suspended || ui.busy ? null : R.moveSword(S, id, toIndex);
+      if (r && r.ok && r.moved) afterChange();
+      else render();
+    },
+  });
+
   document.addEventListener('keydown', whenActive(e => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (ui.dragId !== null && (e.code === 'Space' || e.code === 'KeyS')) { e.preventDefault(); return; }   // 드래그 중에는 강화·판매 금지
     if (e.code === 'Space') {
       e.preventDefault();
       if (!e.repeat) enhance();

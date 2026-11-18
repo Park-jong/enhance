@@ -80,6 +80,12 @@
   const NEW_SWORD_PRICE = 100;
   const STACK_MAX = 99;
   const START_GOLD = 300;
+  const NO_ACTIVE_SWORD = 0;               // S.active 값: 활성 검 없음(파괴 직후). 검 id는 1부터라 겹치지 않는다
+  // 보관함 칸 드래그(Pointer Events): 마우스는 이동 거리로 클릭과 구분, 터치는 길게 눌러야 시작(가로 스와이프 스크롤 유지)
+  const DRAG_THRESHOLD_PX = 6;
+  const DRAG_LONG_PRESS_MS = 300;
+  const DRAG_EDGE_PX = 32;                 // 끄는 중 포인터가 스트립 가장자리 이 거리 안이면 그쪽으로 자동 스크롤
+  const DRAG_SCROLL_STEP_PX = 12;
 
   // ---------------------------------------------------------------- 2. 보호권 / 파편
   const PROTECT_USES = 2;
@@ -248,6 +254,7 @@
     COST_BASE, COST_GROWTH, COST_MIN, SELL_BASE, SELL_GROWTH, HUNT_SELL_RATIO, HUNT_MIN, GOLD_ROUND,
     SELL_CONFIRM_LV, SELL_CONFIRM_MS,
     SAVE_KEY, SAVE_KEY_V1, SLOT_START, SLOT_MAX, SLOT_EXPAND_COST, NEW_SWORD_PRICE, STACK_MAX, START_GOLD,
+    NO_ACTIVE_SWORD, DRAG_THRESHOLD_PX, DRAG_LONG_PRESS_MS, DRAG_EDGE_PX, DRAG_SCROLL_STEP_PX,
     PROTECT_USES, PROTECT_NEED_DIV, SHARD_BASE_PER_LV, SHARD_BAND, SHARD_COST,
     PITY_BAND_WIDTH, PITY_STEP, PITY_MAX, BONUS_CAP, SUCC_CEIL,
     GAUGE_FROM, GAUGE_TO, GAUGE_N, MASTERY_FROM, MASTERY_TO, MASTERY_STEP, MASTERY_MAX, MASTERY_REC_MAX,

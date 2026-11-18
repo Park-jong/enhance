@@ -87,7 +87,8 @@
 
   // ============================================================ 검 / 보관함 (F5)
   const findSword = (S, id) => S.swords.find(s => s.id === id) || null;
-  const activeSword = S => findSword(S, S.active) || S.swords[0];
+  /** 활성 검, 없으면 null(파괴 직후 '활성 없음' 상태 — 플레이어가 보관함에서 직접 고른다) */
+  const activeSword = S => findSword(S, S.active);
   const bestSword = S => S.swords.reduce((b, s) => (s.lv > b.lv ? s : b), S.swords[0]);
   /** 사냥·자동·오프라인 수입 기준 단계: 보관함 최고 단계 검(사용자 결정) */
   const topLv = S => bestSword(S).lv;
@@ -98,13 +99,28 @@
     return sw;
   }
 
-  /** 검을 칸에서 뺀다. 활성이었다면 최고 단계 검을 활성으로, 0자루면 무료 +0 지급 */
-  function removeSword(S, id) {
+  /**
+   * 검을 칸에서 뺀다. 0자루면 무료 +0 지급. 뺀 검이 활성이었다면 opts.pickNext(기본 true: 판매·납품)일 때
+   * 최고 단계 검을 활성으로, false(파괴)면 '활성 없음' — 연타한 강화가 다른 검에 이어지지 않게 한다
+   */
+  function removeSword(S, id, opts) {
+    const wasActive = S.active === id;
+    const pickNext = !opts || opts.pickNext !== false;
     S.swords = S.swords.filter(s => s.id !== id);
-    let freeSword = null;
-    if (S.swords.length === 0) freeSword = createSword(S);
-    if (!findSword(S, S.active)) S.active = bestSword(S).id;
+    const freeSword = S.swords.length === 0 ? createSword(S) : null;
+    if (wasActive) S.active = pickNext ? bestSword(S).id : C.NO_ACTIVE_SWORD;
     return { freeSword, activeId: S.active };
+  }
+
+  /** 칸 순서 이동: id 검을 빼서 나머지 검 사이 toIndex 자리에 넣는다(범위 밖이면 양 끝). 배열 순서가 곧 저장되는 칸 순서 */
+  function moveSword(S, id, toIndex) {
+    const from = S.swords.findIndex(s => s.id === id);
+    if (from < 0) return fail('notFound');
+    if (!Number.isFinite(toIndex)) return fail('badIndex');
+    const to = Math.max(0, Math.min(S.swords.length - 1, Math.floor(toIndex)));
+    const [sw] = S.swords.splice(from, 1);
+    S.swords.splice(to, 0, sw);
+    return { ok: true, from, to, moved: from !== to };
   }
 
   function buySword(S) {
@@ -216,8 +232,9 @@
     },
   };
 
-  /** 모든 토글을 함께 막는 사유: 최대 단계, 또는 천장 확정 시도(소모품이 필요 없어 소모하지 않음) */
+  /** 모든 토글을 함께 막는 사유: 활성 검 없음, 최대 단계, 또는 천장 확정 시도(소모품이 필요 없어 소모하지 않음) */
   function trayLock(S, sw) {
+    if (!sw) return 'noActive';
     if (sw.lv >= C.MAX) return 'maxLv';
     return isGaugeFull(S, sw.lv) ? 'gaugeFull' : null;
   }
@@ -274,9 +291,11 @@
     anvil: opts => Object.assign({}, opts, { anvilGrade: 0 }),
   };
 
-  /** 활성 검의 이번 시도 확률 옵션: 실제 적용되는 토글 + 계정 공통 천장 게이지·숙련 기록(m1.1 §3.3) */
+  /** 활성 검의 이번 시도 확률 옵션: 실제 적용되는 토글 + 계정 공통 천장 게이지·숙련 기록(m1.1 §3.3). 활성 검 없으면 null */
   function enhanceOpts(S) {
-    const lv = activeSword(S).lv;
+    const sw = activeSword(S);
+    if (!sw) return null;
+    const lv = sw.lv;
     const use = effectiveUse(S);
     const anvil = use.anvil ? equippedAnvil(S) : null;
     return {
@@ -284,8 +303,11 @@
       gaugeFull: isGaugeFull(S, lv), mastery: masteryCount(S, lv),
     };
   }
-  /** 지금 강화하면 적용될 확률(화면 표시와 실제 굴림이 같은 값을 쓰도록 한 곳에서 계산) */
-  const currentChances = S => chances(activeSword(S), enhanceOpts(S));
+  /** 지금 강화하면 적용될 확률(화면 표시와 실제 굴림이 같은 값을 쓰도록 한 곳에서 계산). 활성 검 없으면 null */
+  function currentChances(S) {
+    const sw = activeSword(S);
+    return sw ? chances(sw, enhanceOpts(S)) : null;
+  }
   const succWithout = (S, opts, ids) => chances(activeSword(S), ids.reduce((o, id) => WITHOUT_BONUS[id](o), opts)).succ;
 
   /** 켜진 보너스 토글(축복·모루)을 빼도 성공률이 같으면 true(상한 도달로 효과 없음). 보너스가 아닌 토글은 항상 false */
@@ -339,7 +361,7 @@
       S.shards += r.shards;
       S.stats.shardsGained += r.shards;
       S.stats.destroy++;
-      const removed = removeSword(S, sw.id);
+      const removed = removeSword(S, sw.id, { pickNext: false });
       r.freeSword = removed.freeSword;
       r.newActiveId = removed.activeId;
       return 'destroy';
@@ -378,6 +400,7 @@
   /** 강화 1회: 검증 → 시작 시점 소모 → 굴림 → 결과 적용(모두 동기). 연출은 호출 측 몫 */
   function attemptEnhance(S, rng) {
     const sw = activeSword(S);
+    if (!sw) return fail('noActive');
     const l = sw.lv;
     if (l >= C.MAX) return fail('maxLv');
     const price = cost(l);
@@ -485,7 +508,7 @@
     // 천장 게이지 / 성공 숙련 (M1.1)
     gaugeIndex, masteryIndex, masteryBonus, masteryCount, gaugeInfo, isGaugeFull, enhanceOpts, currentChances,
     // 보관함
-    findSword, activeSword, bestSword, topLv, createSword, removeSword, buySword, setActive, sellSword,
+    findSword, activeSword, bestSword, topLv, createSword, removeSword, moveSword, buySword, setActive, sellSword,
     expandCost, expandSlots, sealActive, payWithSeal,
     // 아이템
     findAnvil, equippedAnvil, addAnvil, capacityFor, grantItem,

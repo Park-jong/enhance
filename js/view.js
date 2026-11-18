@@ -33,6 +33,7 @@
     notFound: '대상을 찾을 수 없습니다.',
     maxLv: '더 이상 강화할 수 없습니다.',
     gaugeFull: '천장 확정: 소모품이 필요 없음',
+    noActive: '보관함에서 강화할 검을 먼저 선택하세요.',
   };
   const TRAY_REASON = {
     noStock: () => '보유 없음',
@@ -47,6 +48,7 @@
     lowLv: () => `+${C.ANVIL_TOGGLE_MIN_LV}부터 사용할 수 있습니다`,
     maxLv: () => '최대 강화',
     gaugeFull: () => REASON.gaugeFull,
+    noActive: () => '활성 검 없음',
   };
   const BAD_REASONS = ['needMore', 'protExhausted'];
   const CAP_NOTE = { wasted: '상한 도달 — 효과 없음', partial: '상한 도달 — 일부 효과 없음' };
@@ -76,6 +78,7 @@
   ];
 
   const swordName = lv => `+${lv} ${C.SWORDS[lv].n}`;
+  const NO_ACTIVE_TEXT = '보관함에서 강화할 검을 선택하세요';
   const itemName = id => (R.itemDef(id) ? R.itemDef(id).name : C.ORE_NAMES[id]);
   const qtySuffix = n => (n > 1 ? ' ×' + fmt(n) : '');
   /** innerHTML 전용(SVG 아이콘 포함) */
@@ -128,21 +131,22 @@
   }
 
   // ============================================================ 보관함 스트립 (F5)
-  function slotCardHTML(S, sw, ui) {
+  function slotCardHTML(S, sw) {
     const badges = [];
     if (C.DESTROY[sw.lv] > 0) badges.push(`<span class="${sw.prot > 0 ? '' : 'off'}">🛡${sw.prot}</span>`);
     const pb = R.pityBonus(sw.lv, sw.pity);
     if (sw.lv < C.MAX && pb > 0) badges.push(`<span>${ic('pity')}+${pb}%p</span>`);
     if (Q.slotForSword(S, sw) >= 0) badges.push(`<span>${ic('deliver')}</span>`);
     const active = sw.id === S.active;
-    const cls = ['slot-card', active ? 'active' : '', sw.id === ui.selectedId ? 'selected' : ''].join(' ');
-    return `<button class="${cls}" data-act="select" data-id="${sw.id}" title="${swordName(sw.lv)}">
+    // 클릭 한 번이면 활성 검(data-act), data-sword는 칸 드래그 대상 표시
+    return `<button class="slot-card ${active ? 'active' : ''}" data-act="activate" data-id="${sw.id}" data-sword="${sw.id}"
+      title="${swordName(sw.lv)} · 클릭: 활성 검으로 · 끌기: 칸 이동">
       ${active ? '<span class="star">★ 활성</span>' : ''}${FX.swordSVG(sw.lv, 's' + sw.id)}
       <b>+${sw.lv}</b><span class="badges">${badges.join('')}</span></button>`;
   }
 
-  function renderStrip(S, ui, now) {
-    const cards = S.swords.map(sw => slotCardHTML(S, sw, ui));
+  function stripCardsHTML(S) {
+    const cards = S.swords.map(sw => slotCardHTML(S, sw));
     for (let i = S.swords.length; i < S.slots; i++) {
       cards.push(`<button class="slot-card empty ${S.gold < C.NEW_SWORD_PRICE ? 'poor' : ''}" data-act="buySword">
         + 새 검<br>${fmt(C.NEW_SWORD_PRICE)}G</button>`);
@@ -152,32 +156,41 @@
       cards.push(`<button class="slot-card locked" data-act="expand" ${S.gold < expand ? 'disabled' : ''}>
         ${ic('lock')} 확장<br>${fmt(expand)}G</button>`);
     }
-    setHTML($('#strip'), cards.join(''));
-    $('#slotCount').textContent = `(${S.swords.length} / ${S.slots})`;
+    return cards.join('');
+  }
 
-    const sel = R.findSword(S, ui.selectedId) || R.activeSword(S);
-    const isActive = sel.id === S.active;
-    const sealOn = R.sealActive(S);
-    const price = sealOn ? Math.floor(R.sell(sel.lv) * C.SEAL_MULT) : R.sell(sel.lv);
-    const qSlot = Q.slotForSword(S, sel);
-    const sellArmed = isArmed(ui, 'sell:' + sel.id, now);
-    const delArmed = isArmed(ui, 'deliverSword:' + sel.id, now);
+  /** 스트립 아래 동작: 활성 검 판매·납품 + 감정 인장 */
+  function stripActionsHTML(S, ui, now) {
     const seal = S.inv.seal > 0
       ? `<label class="seal-opt"><input type="checkbox" data-change="seal" ${S.use.seal ? 'checked' : ''}>
          ${ic('seal')} 감정 인장 (보유 ${S.inv.seal}) · 다음 판매/납품 ×${C.SEAL_MULT}</label>`
       : '';
-    setHTML($('#stripActions'), `
-      <div class="sel-name">선택: ${swordName(sel.lv)}${isActive ? ' (활성)' : ''}</div>
-      <button class="small-btn" data-act="activate" data-id="${sel.id}" ${isActive || ui.busy ? 'disabled' : ''}>활성으로</button>
-      <button class="small-btn gold ${sellArmed ? 'armed' : ''}" data-act="sellSel" data-id="${sel.id}" ${sel.lv === 0 || ui.busy ? 'disabled' : ''}>
+    const sw = R.activeSword(S);
+    if (!sw) return `<div class="sel-name">활성 검 없음 · ${NO_ACTIVE_TEXT}</div>${seal}`;
+    const price = R.sealActive(S) ? Math.floor(R.sell(sw.lv) * C.SEAL_MULT) : R.sell(sw.lv);
+    const qSlot = Q.slotForSword(S, sw);
+    const sellArmed = isArmed(ui, 'sell:' + sw.id, now);
+    const delArmed = isArmed(ui, 'deliverSword:' + sw.id, now);
+    return `
+      <div class="sel-name">활성: ${swordName(sw.lv)} <span class="muted">· 클릭: 활성 검 바꾸기 · 끌기: 칸 이동</span></div>
+      <button class="small-btn gold ${sellArmed ? 'armed' : ''}" data-act="sellSel" data-id="${sw.id}" ${sw.lv === 0 || ui.busy ? 'disabled' : ''}>
         ${sellArmed ? '정말 판매?' : `판매 ${fmt(price)}G`}</button>
-      <button class="small-btn ${delArmed ? 'armed' : ''}" data-act="deliverSel" data-id="${sel.id}" ${qSlot < 0 || ui.busy ? 'disabled' : ''}>
+      <button class="small-btn ${delArmed ? 'armed' : ''}" data-act="deliverSel" data-id="${sw.id}" ${qSlot < 0 || ui.busy ? 'disabled' : ''}>
         ${delArmed ? '정말 납품? (활성 검)' : `${ic('deliver')} 납품`}</button>
-      ${seal}`);
+      ${seal}`;
+  }
+
+  function renderStrip(S, ui, now) {
+    // 끄는 중에는 칸 DOM을 다시 그리지 않는다(잡고 있는 카드가 사라짐). 놓은 뒤 렌더에서 새 순서로 그린다
+    if (!ui.dragId) setHTML($('#strip'), stripCardsHTML(S));
+    $('#slotCount').textContent = `(${S.swords.length} / ${S.slots})`;
+    setHTML($('#stripActions'), stripActionsHTML(S, ui, now));
   }
 
   // ============================================================ 검 카드 / 확률
-  let renderedLevel = -1;
+  const NO_SWORD = -1;
+  const DEFAULT_TIER = '#3a4060';
+  let renderedLevel = NO_SWORD;
 
   function breakdownHTML(c) {
     if (c.sure) return `${ic('sure')} 확정 강화권: 성공 100% · 파괴 0%`;
@@ -217,20 +230,49 @@
     return `실패해도 단계가 유지됩니다. (+${C.DESTROY.findIndex(d => d > 0)}부터 파괴 위험)`;
   }
 
+  function renderIncomeNote(S) {
+    $('#incomeNote').textContent = `사냥·자동 수입 기준: 보관함 최고 검 +${R.topLv(S)}`;
+  }
+
+  /** 활성 검 없음(파괴 직후): 검 대신 선택 안내, 수치는 모두 '-' */
+  function renderNoSwordCard(S) {
+    $('#rarity').hidden = true;
+    $('#swordName').textContent = '활성 검 없음';
+    $('#swordName').style.color = '';
+    document.documentElement.style.setProperty('--tier', DEFAULT_TIER);
+    if (renderedLevel !== NO_SWORD) {
+      $('#sword').innerHTML = '';
+      $('#sword').classList.remove('mythic');
+      renderedLevel = NO_SWORD;
+    }
+    ['#vSucc', '#vDest', '#vCost', '#vSell'].forEach(sel => { $(sel).textContent = '-'; });
+    $('#gaugeLine').hidden = true;
+    setHTML($('#gaugeLine'), '');
+    $('#destWarn').hidden = true;
+    setHTML($('#breakdown'), '');
+    setHTML($('#pityLine'), '');
+    $('#note').textContent = '보관함의 검을 한 번 클릭하면 바로 활성 검이 됩니다.';
+    renderIncomeNote(S);
+  }
+
   function renderSwordCard(S, ui) {
     const sw = R.activeSword(S);
-    // 강화 연출 중(ui.view)에는 시도 직전 확률·게이지를 보여 준다(결과가 미리 드러나지 않게)
+    const noSword = !ui.view && !sw;
+    $('#stageEmpty').hidden = !noSword;
+    if (noSword) return renderNoSwordCard(S);
+    // 강화 연출 중(ui.view)에는 시도 직전 확률·게이지를 보여 준다(결과가 미리 드러나지 않게). 파괴 연출 중엔 sw가 null이다
     const view = ui.view || { lv: sw.lv, chances: R.currentChances(S), gauge: R.gaugeInfo(S, sw.lv) };
     const l = view.lv;
     const c = view.chances;
     const rar = R.rarity(l);
     const isMax = l >= C.MAX;
 
+    $('#rarity').hidden = false;
     $('#rarity').textContent = rar.name;
     $('#rarity').style.color = rar.color;
     $('#swordName').textContent = swordName(l);
     $('#swordName').style.color = l >= C.DROP_FROM ? rar.color : '';
-    document.documentElement.style.setProperty('--tier', C.SWORDS[l].g || '#3a4060');
+    document.documentElement.style.setProperty('--tier', C.SWORDS[l].g || DEFAULT_TIER);
     if (renderedLevel !== l) {
       $('#sword').innerHTML = FX.swordSVG(l, 'main');
       $('#sword').classList.toggle('mythic', isMax);
@@ -254,8 +296,7 @@
       ? `<span>보정 +${pity}%p (최대 ${pityMax})</span><span class="bar"><i style="width:${Math.round(pity / pityMax * 100)}%"></i></span>`
       : '');
     $('#note').textContent = noteText(l, c, R.effectiveUse(S));
-    const income = R.topLv(S);
-    $('#incomeNote').textContent = `사냥·자동 수입 기준: 보관함 최고 검 +${income}`;
+    renderIncomeNote(S);
   }
 
   // ============================================================ 소모품 트레이
@@ -290,7 +331,7 @@
   };
   // 행을 아예 숨기는 조건(그 외 무효 행은 회색 + 사유)
   const TRAY_HIDE = {
-    protect: (S, sw) => C.DESTROY[sw.lv] <= 0 || sw.lv >= C.MAX,
+    protect: (S, sw) => !sw || C.DESTROY[sw.lv] <= 0 || sw.lv >= C.MAX,
     anvil: S => !R.isUnlocked(S, 'forge'),
   };
 
@@ -311,19 +352,31 @@
   }
 
   // ============================================================ 액션 버튼 / 자동 토글
-  function renderActions(S, ui, now) {
+  /** 강화·판매 버튼: 활성 검이 없으면 둘 다 막는다(단축키는 규칙·컨트롤러에서 무시) */
+  function renderEnhanceSell(S, ui, now) {
     const sw = R.activeSword(S);
+    const enh = $('#btnEnhance');
+    const sellBtn = $('#btnSell');
+    if (!sw) {
+      enh.disabled = true;
+      enh.firstChild.textContent = '강화할 검을 선택하세요';
+      $('#enhanceSub').textContent = 'Space';
+      sellBtn.disabled = true;
+      sellBtn.firstChild.textContent = '판매';
+      return;
+    }
     const l = sw.lv;
     const isMax = l >= C.MAX;
-    const enh = $('#btnEnhance');
     enh.disabled = ui.busy || isMax || now < ui.nextEnhanceAt;
     enh.firstChild.textContent = isMax ? '최대 강화' : `강화하기 (${fmt(R.cost(l))})`;
     const noProtect = !isMax && C.DESTROY[l] > 0 && sw.prot <= 0;
     $('#enhanceSub').textContent = noProtect ? 'Space · 보호 없음' : 'Space';
-
-    const sellBtn = $('#btnSell');
     sellBtn.disabled = ui.busy || l === 0;
     sellBtn.firstChild.textContent = isArmed(ui, 'sell:' + sw.id, now) ? '정말 판매?' : '판매';
+  }
+
+  function renderActions(S, ui, now) {
+    renderEnhanceSell(S, ui, now);
 
     const huntBtn = $('#btnHunt');
     huntBtn.disabled = now < ui.huntUntil;
@@ -522,12 +575,12 @@
       </div>`).join('');
   }
   function renderCollection(S) {
-    const cur = R.activeSword(S).lv;
+    const sw = R.activeSword(S);
     document.querySelectorAll('.cell').forEach(cell => {
       const i = +cell.dataset.i;
       const f = S.found[i];
       cell.classList.toggle('found', f);
-      cell.classList.toggle('current', i === cur);
+      cell.classList.toggle('current', !!sw && i === sw.lv);
       cell.querySelector('.nm').textContent = f ? C.SWORDS[i].n : '???';
     });
     $('#foundCount').textContent = `(${S.found.filter(Boolean).length} / ${C.MAX + 1})`;
