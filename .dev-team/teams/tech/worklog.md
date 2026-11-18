@@ -43,3 +43,24 @@
 - 산출물: js/view.js(REASON.gaugeFull 추가, TRAY_REASON이 재사용, #gaugeLine 중복 조회 제거), js/constants.js(GAUGE_TO/MASTERY_TO를 배열 길이에서 유도 + 길이 불일치 시 throw), css/style.css(중복 color 제거, 520px 이하 .actions 버튼 줄바꿈/축소)
 - 결정 사항: 모바일 breakpoint는 420px가 아니라 520px(421px에서 극단값 넘침 확인, .info 2열 전환폭과 동일). 320/360/390/520/521/720/1280px 헤드리스 Chrome에서 넘침 0. rules.js 이름 변경은 위험 대비 이득이 적어 생략. tools/ 미변경(REQ-021 제외). 테스트 5종 통과: 164 / 116 / 29 / 36 / 189.
 - 남은 문제: 320px에서 사냥 보상 8자리 이상이면 숫자 중간에서 줄바꿈(실제 값 ~10만 수준이라 안전망으로 둠). 커밋 안 함.
+
+## 2026-11-19 — 보관함·화면 사용성 수정 (TODO 3-6)
+- 지시: 디렉터(사용자 요청) / 관련 단계: 3단계 3-6 / 처리한 요청: 없음
+- 참여 팀원: client-programmer
+- 산출물: js/constants.js, rules.js(activeSword null, removeSword pickNext, moveSword), save.js, view.js, main.js, js/strip-drag.js(신규), index.html, test.html, css/style.css, tests/run-tests.js(183), tests/smoke-dom.js(149)
+- 결정 사항: 파괴 시에만 활성 검 없음(S.active=0), 판매/납품은 기존대로 최고 검 자동 선택. 드래그는 Pointer Events(마우스 6px, 터치 롱프레스 300ms, 가장자리 자동 스크롤). .play 래퍼로 sticky 범위 제한. Q.candidate는 id 정렬이라 배열 순서와 무관(bestSword 동률만 영향).
+- 남은 문제: QA 테스트 4건이 구 규칙 기대로 실패(run-m1-qa-tests.js:145,301,305, run-m1.1-qa-tests.js:546), 수정하지 않음. m1-storage/constants-index/overview 문서 갱신 필요. 커밋 안 함.
+
+## 2026-11-19 — 보관함·화면 사용성 수정 2차 (TODO 3-6, QA 수정 지시)
+- 지시: 디렉터(QA 수정 지시 M1, S1~S5) / 관련 단계: 3단계 3-6 / 처리한 요청: 없음
+- 참여 팀원: 기술 팀장이 직접 수정(소규모 수정이라 팀원 호출 생략)
+- 산출물: js/strip-drag.js, js/main.js, js/save.js, tests/run-tests.js(189), tests/smoke-dom.js(152)
+- 결정 사항: M1 마우스/펜은 pointerdown에서 strip 포인터 캡처 + move에서 buttons 미눌림이면 취소(cancel). S1 드래그 중 Space/S 무시, onEnd는 busy면 드롭 취소. S2 begin()에서 카드가 분리되면 data-sword로 재조회, 없으면 중단. S3 pointerup 후 setTimeout(0)으로 swallowClick 해제. S4 createStripDrag가 {cancel} 반환, 이어받기/탭 정지/새 게임에서 호출. S5 Number.isInteger(d.active) 요구. 기존 테스트 'active and anvilEq are coerced'는 active '2'를 2로 기대했으나 S5와 충돌해 최고 검(1) 기대로 변경.
+- 남은 문제: S6, S7, 문서, tools/sim-late는 제외(타 팀). 커밋 안 함.
+
+## 2026-11-19 — 3-6 3차 수정 (H1: 마우스 클릭 활성화 복구)
+- 지시: 디렉터(QA 수정 지시 H1, V3) / 관련 단계: 3단계 3-6 / 처리한 요청: 없음
+- 참여 팀원: client-programmer
+- 산출물: js/strip-drag.js (pointerdown의 마우스·펜 setPointerCapture 제거, begin()의 캡처만 유지)
+- 결정 사항: 포인터 캡처 시 Chrome이 click을 #strip으로 재지정해 data-act 위임이 죽던 문제 해결. 실제 Chrome CDP(cdp2.js)로 확인: 3번째 카드 클릭 시 활성 1→3, 1번 카드를 3번 뒤로 드래그하면 순서 2,3,1,... 및 활성 유지, 스트립 밖 릴리스 후 .dragging/.drag-on 없음. 테스트 run-tests 189, smoke-dom 152, m1-qa 29, round2 36, m1.1-qa 189 통과. stub로 클릭 재지정을 볼 수 없어 smoke-dom 검사는 추가하지 않음.
+- 남은 문제: 임계값 전에 스트립 밖에서 버튼을 떼면 제스처가 대기 상태로 남으나 무해(다음 pointermove/pointerdown에서 정리). 커밋 안 함.

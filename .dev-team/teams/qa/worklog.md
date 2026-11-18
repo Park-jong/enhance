@@ -29,3 +29,24 @@
 - 산출물: tests/run-m1.1-qa-tests.js (189개), docs/qa/m1.1-playtest-checklist.md (AC 15 템플릿), 헤드리스 Chrome 스크린샷(scratchpad shot_*_320/390/720.png)
 - 결정 사항: 필수 수정 없음 → APPROVED. 기존 스위트 164/116/29/36 통과, 신규 188 통과 + 1 실패. 실패는 should-fix(V.REASON.gaugeFull 누락으로 잠긴 토글 클릭 토스트가 일반 문구). 변이 8종 모두 검출. 320/390/720 모바일 레이아웃 시각 확인 완료.
 - 남은 문제: AC 15 플레이테스트(사용자), Tech P2: gaugeFull 문구, *_TO와 배열 길이 연동, mastery 이름 중복, 사냥 버튼 라벨 320~390px 잘림(기존 이슈).
+
+## 2026-11-19 — 3단계 3-6 보관함·화면 사용성 수정 검증 (1차)
+- 지시: 디렉터 / 관련 단계: 3단계 / 처리한 요청: 없음
+- 참여 팀원: tester, code-reviewer
+- 산출물: tests/run-tests.js(+6), tests/run-m1-qa-tests.js, tests/run-m1.1-qa-tests.js 갱신(새 파괴 규칙 반영), docs/verification-issues.md V1, V2 추가
+- 결정 사항: CHANGES REQUESTED. 테스트 189/149/29/36/189 통과. 실패했던 QA 테스트 4건은 의도된 규칙 변경으로 판단해 갱신. 브라우저 확인은 도구 부재로 미실행.
+- 남은 문제: strip-drag 제스처 정리(M1), 드래그 중 단축키(S1), 재렌더 시 분리된 카드(S2), tools/sim-late 크래시, docs/design/m1-storage.md 옛 규칙 서술, 브라우저 수동 확인.
+
+## 2026-11-19 — 3단계 3-6 보관함·화면 사용성 수정 검증 (2차)
+- 지시: 디렉터 / 관련 단계: 3단계 / 처리한 요청: 없음
+- 참여 팀원: 없음 (좁은 재검증, 직접 수행)
+- 산출물: docs/verification-issues.md (V1 규칙 수정, V3 추가)
+- 결정 사항: CHANGES REQUESTED. 스위트 5종 통과(189/152/29/36/189). headless Chrome CDP 확인 결과 마우스 단순 클릭이 활성 전환을 못 한다(pointerdown capture가 click target을 #strip으로 바꿈). 드래그 재정렬, 밖에서 놓기 정리, 스크롤바 테마, 모바일 탭바 여백은 정상.
+- 남은 문제: strip-drag capture 시점을 begin()으로 이동, 파괴 후 활성 없음 안내 브라우저 확인, 실제 터치 롱프레스.
+
+## 2026-11-19 — 3단계 3-6 보관함·화면 사용성 수정 검증 (3차, 최종)
+- 지시: 디렉터 / 관련 단계: 3단계 / 처리한 요청: 없음
+- 참여 팀원: 없음 (좁은 재검증, 직접 수행)
+- 산출물: docs/verification-issues.md (V3 해소 확인 문구)
+- 결정 사항: APPROVED. 스위트 5종 통과(189/152/29/36/189). CDP: 3번째 카드 클릭 활성 전환, 1번 카드를 3번 뒤로 드래그 시 순서 2,3,1이고 활성 검 유지, 밖에서 놓기 후 .dragging/.drag-on 없음. active:0 저장 로드 시 안내 표시, 강화 버튼 비활성, Space 무반응. 임계값 전 밖에서 놓은 대기 제스처는 다음 move(buttons 없음)나 pointerdown에서 정리되어 허용.
+- 남은 문제: 실제 터치 롱프레스와 스크롤 양보는 실기기 미검증.
