@@ -3,6 +3,7 @@
  *  (a) 활성 아닌 카드를 한 번 클릭하면 활성 검이 된다
  *  (b) 임계값을 넘겨 끌면 칸이 옮겨지고 순서가 localStorage에 저장된다(새로고침 후에도 유지)
  *  (c) 끌다가 스트립 밖에서 놓아도 드래그 상태가 남지 않고, 다음 클릭이 활성 전환을 한다
+ *  (d) 우측 탭 패널(상점·대장간·의뢰·방치·기록)이 내용보다 작게 줄어들지 않는다(1280x800, 1280x600)
  * 실행: node tests/browser-strip.js  (브라우저 경로 직접 지정: BROWSER_PATH=...)
  * Chrome/Edge가 없으면 "SKIP: no Chrome/Edge"를 출력하고 0으로 끝난다. 외부 패키지 없음(Node 22 전역 WebSocket·fetch).
  */
@@ -31,6 +32,9 @@ const EXIT_TIMEOUT_MS = 5000;
 const DRAG_STEPS = 12;            // 끄는 동안 보낼 mouseMoved 수(실제 손 움직임처럼 여러 번)
 const OUTSIDE_GAP_PX = 80;        // (c) 스트립 위쪽 바깥으로 벗어나는 거리
 const SWORD_IDS = [1, 2, 3];
+const TAB_IDS = ['shop', 'forge', 'quests', 'idle', 'records'];
+const PANEL_VIEWPORTS = [{ width: 1280, height: 800 }, { width: 1280, height: 600 }];   // (d) 데스크톱 레이아웃 높이 두 가지
+const PANEL_TOLERANCE_PX = 1;     // (d) 소수점 반올림 오차 허용
 
 // ------------------------------------------------------------ 결과
 const results = { pass: 0, fail: 0 };
@@ -197,7 +201,7 @@ function seedSave() {
   st.swords = SWORD_IDS.map(id => ({ id, lv: id, prot: C.PROTECT_USES, pity: 0 }));
   st.nextSwordId = SWORD_IDS.length + 1;
   st.active = SWORD_IDS[0];
-  st.best = SWORD_IDS.length;
+  st.best = Math.max(SWORD_IDS.length, C.FORGE_UNLOCK_BEST);   // 모든 탭(대장간 포함)이 열린 상태
   return JSON.stringify(st);
 }
 
@@ -256,6 +260,34 @@ async function releaseOutside(page) {
   check('(c) the next click still activates', await page.waitFor(isActive(3)), await page.evaluate(JS.savedActive));
 }
 
+/** 탭을 눌러 패널을 연 뒤 높이를 잰다. 카드 바닥이 마지막 자식 바닥보다 위면 내용이 카드 밖으로 넘친 것 */
+async function measurePanel(page, id) {
+  await page.click(await page.evaluate(`(() => { const r = document.querySelector('[data-act="tab"][data-id="${id}"]').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`));
+  const shown = await page.waitFor(`(() => { const p = document.querySelector('[data-panel="${id}"]'); return p && !p.hidden && p.offsetHeight > 0; })()`);
+  const m = await page.evaluate(`(() => { const p = document.querySelector('[data-panel="${id}"]'); const last = p.lastElementChild;
+    return { scrollHeight: p.scrollHeight, clientHeight: p.clientHeight, bottom: p.getBoundingClientRect().bottom,
+      lastBottom: last ? last.getBoundingClientRect().bottom : 0,
+      sideHeight: document.querySelector('.side').getBoundingClientRect().height }; })()`);
+  return { shown, ...m };
+}
+
+async function panelsContainContent(cdp, page) {
+  for (const vp of PANEL_VIEWPORTS) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { ...vp, deviceScaleFactor: 1, mobile: false });
+    for (const id of TAB_IDS) {
+      const m = await measurePanel(page, id);
+      const label = `(d) ${vp.width}x${vp.height} ${id} panel`;
+      const detail = JSON.stringify(m);
+      check(`${label} is shown`, m.shown, detail);
+      check(`${label} is not shorter than its content (scrollHeight <= clientHeight)`,
+        m.scrollHeight <= m.clientHeight + PANEL_TOLERANCE_PX, detail);
+      check(`${label} card bottom is not above its last child`, m.bottom + PANEL_TOLERANCE_PX >= m.lastBottom, detail);
+    }
+  }
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
 // ------------------------------------------------------------ 실행
 async function main() {
   const exe = findBrowser();
@@ -276,6 +308,7 @@ async function main() {
     await clickActivates(page);
     await dragReorders(cdp, page);
     await releaseOutside(page);
+    await panelsContainContent(cdp, page);
     check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('\n      '));
   } catch (e) {
     check('browser run completed', false, e.stack || e.message);

@@ -32,6 +32,13 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 - 확인 방법: DOM 스텁이 아닌 브라우저 단계(CDP 스크립트)로 단순 클릭 활성 전환을 검증한다. 사전 리뷰에서 setPointerCapture 호출 위치와 click 위임(closest)의 상호작용을 확인한다.
 - 발생: 2026-11-19 3단계 3-6 2차 (js/strip-drag.js pointerdown 핸들러). 3차에서 pointerdown capture 제거 후 CDP 클릭·드래그·밖에서 놓기 통과로 해소 확인
 
+### V4. flex 컨테이너(max-height + overflow)의 자식이 줄어들어 카드 배경이 내용보다 짧아진다 (1회)
+- **예방 규칙**: max-height와 overflow로 스크롤되는 flex 컨테이너의 직계 자식(카드·탭 줄)에는 flex-shrink:0을 주고, min-height를 가진 카드는 자동 최소 높이가 사라진다는 점을 확인하라. 레이아웃 변경은 가장 내용이 긴 탭과 낮은 뷰포트(1280x600)에서 scrollHeight <= clientHeight 와 패널 하단 >= 마지막 자식 하단을 실제 브라우저(tests/browser-strip.js)로 검증하라.
+- 증상: 제작 탭에서 카드 배경이 조각 교환 첫 줄 근처에서 끝나고 나머지 내용이 카드 밖으로 그려진다.
+- 근본 원인: .side의 자식이 flex-shrink:1로 줄어들었고 .tab-panel의 min-height:120px가 자동 최소 높이를 없앴다. Node/DOM 스텁 테스트는 레이아웃을 계산하지 못하고, 기본 미리보기 창이 좁아 내용 길이가 늘기 전까지 드러나지 않았다.
+- 확인 방법: 탭 내용·행 수를 늘리는 변경은 브라우저 테스트 시나리오 (d)(5탭 x 1280x800/1280x600)를 실행한다. 사전 리뷰에 스크롤 컨테이너 안 flex 자식의 shrink와 min-height 상호작용 항목을 넣는다.
+- 발생: 2026-11-19 4단계 전 버그 수정 (css/style.css .side > *, 수정 및 tests/browser-strip.js 시나리오 d로 해소)
+
 <!--
 항목 형식 (발생 횟수가 많은 순서로 정렬):
 

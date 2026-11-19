@@ -115,3 +115,10 @@
 - 산출물: tools/sim-late/lib/mechanics.js, lib/profiles.js, lib/engine.js, selfcheck.js
 - 결정 사항: 확률 계산을 R.enhanceOpts(S) 기반(토글만 덮어씀)으로 바꿔 게임과 옵션이 어긋나지 않게 함. 파괴 후 활성 검이 없으면 profile.manage 전에 최고 검을 활성화. selfcheck에 게임 옵션 일치 검사(G) 추가. selfcheck 13건, 테스트 6개 파일 모두 통과.
 - 남은 문제: 도구의 자체 게이지/숙련 상태(S._gauge, S._mastery)는 게임 S.gauge/S.mastery와 별개라, 게임 상태 동기화가 필요하면 별도 작업.
+
+## 2026-11-19 — 우측 탭 패널 카드 넘침 수정
+- 지시: 디렉터 / 관련 단계: 4단계 전 버그 수정 / 처리한 요청: 없음
+- 참여 팀원: tools-engineer
+- 산출물: css/style.css (`.side > * { flex-shrink: 0; }`), tests/browser-strip.js (시나리오 d 추가, 14 -> 44건)
+- 결정 사항: min-height:120px로 자동 최소 높이가 빠져 카드만 눌리던 것이 원인. 자식이 줄지 않게 하고 .side가 스크롤하도록 함. 모바일/보호 모드 규칙은 그대로. 수정 전 12건 실패, 수정 후 전부 통과. 6개 테스트 파일 모두 통과.
+- 남은 문제: 없음
