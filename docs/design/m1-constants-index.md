@@ -16,6 +16,11 @@
 | `NEW_SWORD_PRICE` | 새 +0 검 구매가 | 100 | storage |
 | `STACK_MAX` | 소모품 스택 상한 | 99 | storage |
 | `START_GOLD` | 시작 골드 | 300 (M0) | storage |
+| `NO_ACTIVE_SWORD` | `S.active` 값: 활성 검 없음(활성 검 파괴 직후). 검 id는 1부터라 겹치지 않음. 저장·로드에서 0 유지 (3-6) | 0 | storage |
+| `DRAG_THRESHOLD_PX` | 보관함 카드 드래그(칸 순서 변경) 시작 이동 거리. 마우스·펜: 이 거리 이상 움직이면 시작(그 전에 떼면 클릭=활성 전환). 터치: 길게 누르기 전에 이 거리 이상 움직이면 스트립 가로 스크롤에 양보 (3-6) | 6 | storage/ov |
+| `DRAG_LONG_PRESS_MS` | 터치 드래그 시작에 필요한 길게 누르기 시간(ms) (3-6) | 300 | storage/ov |
+| `DRAG_EDGE_PX` | 끄는 중 포인터가 스트립 가장자리에서 이 거리 안이면 그쪽으로 자동 스크롤 (3-6) | 32 | storage/ov |
+| `DRAG_SCROLL_STEP_PX` | 위 자동 스크롤의 프레임당 이동량(px) (3-6) | 12 | storage/ov |
 
 ## 2. 보호권 / 파편
 | 이름 | 의미 | 확정값 | 문서 |

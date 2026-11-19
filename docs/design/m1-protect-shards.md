@@ -25,7 +25,7 @@ canProtect = use.protect AND DESTROY[l] > 0 AND sword.prot > 0 AND inv.protect >
   if canProtect:
       inv.protect -= protectNeed(l); sword.prot -= 1; stats.protectSaved++
       (검 유지, 단계 유지. 실패 처리와 달리 하락 없음. pity += 1)
-  else: 파괴 (파편 지급, 칸 비움)
+  else: 파괴 (파편 지급, 칸 비움, 파괴된 검이 활성이었다면 활성 검 없음 `active=0` — 최고 검 자동 선택 안 함, 3-6)
 단계가 바뀌는 모든 경우(성공 l→l+1, 하락 l→l-1): sword.prot = PROTECT_USES
 ```
 - 보호로 막은 시도는 **실패 보정(pity) +1로 센다**(m1-pity-cap 참조). 단 통계는 `stats.protectSaved`에만 기록하고 `stats.fail`(실패 횟수)에는 더하지 않는다. 단계는 그대로이므로 `prot`는 초기화되지 않는다.

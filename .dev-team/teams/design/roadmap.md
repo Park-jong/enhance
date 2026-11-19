@@ -12,6 +12,7 @@ M1 콘텐츠 확장: 기획 문서(시스템 + 밸런스)를 개발·콘텐츠 �
 | P2 | REQ-010 M2 기획 (F11~F14) | REQ-010 | 전원 | 미착수 (M1 구현 후) |
 
 ## 완료
+- REQ-023 설계 문서를 3-6 보관함 규칙에 맞춤(활성 검 없음 0, 한 번 클릭 활성, 드래그 순서, DRAG_* 상수) m1-storage/overview/constants-index/protect-shards — 2026-11-19 (QA 확인 대기)
 - F16 최종 기획 (A 천장 게이지 + C' 단계 성공 숙련) `docs/design/m1.1-late-correction.md`, M1 문서 4종 갱신, m1-balance 0.62h 정정. 사용자 지시로 시뮬레이션 없이 설계 판단(수치 미검증, 플레이 테스트로 조정) — 2026-11-18
 - F16 후반 강화 보정 제안서 (옵션 A~F 시뮬레이션, 추천 A 천장 게이지 + C 대장장이 숙련) `docs/design/m1.1-late-correction-proposal.md`, `tools/sim-late/` — 2026-11-18
 - 사용자 결정 9건 반영 (수입 기준 = 보관함 최고 단계 검 `topLv` 포함, 열린 질문 전부 해결 표시, 수치 변경 없음) — 2026-11-17
