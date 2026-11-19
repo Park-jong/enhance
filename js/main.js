@@ -49,8 +49,15 @@
   };
   let lastSaveAt = 0;
   let saveFailNoticed = false;
-  // 다른 탭이 같은 저장을 쓰기 시작하면 이 탭은 저장·틱·입력을 멈춘다(tabGuard: 아래 '다른 탭과의 충돌 방지')
+  // 다른 탭이 같은 저장을 쓰기 시작하면 이 탭은 저장·틱·입력을 멈춘다(멈춤·이어받기 동작: 아래 '다른 탭과의 충돌 방지').
+  // persist·resume 등이 isSuspended를 부를 수 있기 전에 만들어 둔다(const 초기화 전 접근 방지)
+  const tabGuard = SG.createTabGuard({
+    win: root, key: C.SAVE_KEY, storageArea: storage,
+    overlay: $('#tabLock'), takeoverButton: $('#btnTakeover'), inertEls: [$('header'), $('main')],
+    onSuspend: suspendForOtherTab, onTakeOver: takeOver,
+  });
   const isSuspended = () => tabGuard.isSuspended();
+  const whenActive = tabGuard.whenActive;
 
   function persist() {
     if (isSuspended()) return;
@@ -476,7 +483,8 @@
   }
 
   // ============================================================ 다른 탭과의 충돌 방지
-  // 같은 저장 키를 다른 탭이 쓰면 이 탭을 멈추고(잠금 화면은 js/tab-guard.js), 사용자가 고르면 최신 저장을 이어받아 계속한다
+  // 같은 저장 키를 다른 탭이 쓰면 이 탭을 멈추고(잠금 화면은 js/tab-guard.js), 사용자가 고르면 최신 저장을 이어받아 계속한다.
+  // tabGuard는 맨 위에서 만들고 아래 두 함수 선언(호이스팅)을 넘긴다
   function suspendForOtherTab() {
     cancelDrag();
     ui.armed = {};
@@ -488,12 +496,6 @@
     adoptStoredSave(now(), true);
     resume();
   }
-  const tabGuard = SG.createTabGuard({
-    win: root, key: C.SAVE_KEY, storageArea: storage,
-    overlay: $('#tabLock'), takeoverButton: $('#btnTakeover'), inertEls: [$('header'), $('main')],
-    onSuspend: suspendForOtherTab, onTakeOver: takeOver,
-  });
-  const whenActive = tabGuard.whenActive;
 
   // ============================================================ 이벤트
   document.addEventListener('click', whenActive(e => {
@@ -548,8 +550,17 @@
     },
   });
 
+  // 글자를 넣는 칸(원문 칸 등)에서는 단축키를 쓰지 않는다. 체크박스·버튼 등은 칸이 아니므로 기존대로 단축키가 동작한다
+  const NON_TEXT_INPUT_TYPES = ['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image'];
+  function isTextEntry(el) {
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+    return el.tagName === 'INPUT' && !NON_TEXT_INPUT_TYPES.includes(el.type);
+  }
+
   document.addEventListener('keydown', whenActive(e => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || isTextEntry(e.target)) return;
     if (ui.dragId !== null && (e.code === 'Space' || e.code === 'KeyS')) { e.preventDefault(); return; }   // 드래그 중에는 강화·판매 금지
     if (e.code === 'Space') {
       e.preventDefault();
@@ -565,7 +576,7 @@
     }
   }));
   // 포커스된 버튼·체크박스가 Space로 한 번 더 눌리는 것을 막음
-  document.addEventListener('keyup', e => { if (e.code === 'Space') e.preventDefault(); });
+  document.addEventListener('keyup', e => { if (e.code === 'Space' && !isTextEntry(e.target)) e.preventDefault(); });
   document.addEventListener('visibilitychange', () => (document.hidden ? persist() : resume()));
   root.addEventListener('pagehide', persist);
   root.addEventListener('resize', FX.sizeFx);

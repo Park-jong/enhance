@@ -92,3 +92,11 @@
 - 산출물: js/save.js (createSaveKeeper, peek 새 형태), js/main.js, js/view.js, index.html, test.html, css/style.css, tests/run-tests.js (221), tests/smoke-dom.js (257)
 - 결정 사항: 저장 키 쓰기는 keeper.save 단일 관문. 보호 모드/배너/배지 구현. 5개 스위트 중 4개 통과, run-m1.1-qa-tests는 188/1 실패(QA 소유 648-649행이 옛 peek 형태 사용).
 - 남은 문제: QA 테스트 수정 필요(`SV.peek(...).state.gauge/mastery`). 구현자 가정 7건 기획 확인 필요. tools/sim-late/selfcheck.js 기존 크래시(V2 잔존).
+
+## 2026-11-19 — 저장 안전 마무리 (REQ-031) 및 정리 (REQ-027, REQ-030)
+- 지시: 디렉터 / 관련 단계: 3단계 / 처리한 요청: REQ-031, REQ-027, REQ-030 (모두 in_progress 유지, QA 판정 대기)
+- 참여 팀원: client-programmer
+- 산출물: js/main.js, js/save.js, css/style.css, tests/run-tests.js, tests/smoke-dom.js
+- 결정 사항: 읽기 예외 시 checkStored는 아무것도 바꾸지 않고 보호 유지(peek.readFailed). 텍스트 입력 대상(textarea, select, contenteditable, 텍스트류 input)에서는 단축키·Escape 무시. 모바일(720px 이하) 보호 모드는 헤더 비고정 + 원문 칸 120px 제한. 헤더 줄바꿈은 .save-guarded 안에서만. tabGuard는 persist보다 앞서 생성.
+- 테스트: run-tests 226, smoke-dom 285, qa 29, round2 36, m1.1 189 모두 통과. QA 소유 테스트 수정 필요 없음.
+- 남은 문제: tools/sim-late/selfcheck.js는 기존 REQ-024 문제로 실패(이번 변경과 무관). 설계 문서(m1-storage.md)에 readFailed·모바일 헤더 반영 필요(Design).

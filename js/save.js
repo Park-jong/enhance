@@ -183,8 +183,13 @@
   }
 
   // ------------------------------------------------------------ 저장소 입출력
+  /** 읽기 예외를 '저장 없음'(null)과 구분한다: { raw } 또는 { failed: true } */
+  function tryRead(storage, key) {
+    try { return { raw: storage.getItem(key) }; } catch (e) { return { failed: true }; }
+  }
   function read(storage, key) {
-    try { return storage.getItem(key); } catch (e) { return null; }
+    const got = tryRead(storage, key);
+    return got.failed ? null : got.raw;
   }
   function writeRaw(storage, key, raw) {
     try { storage.setItem(key, raw); return true; } catch (e) { return false; }
@@ -230,9 +235,12 @@
   /**
    * 읽기 전용: 저장소의 v2 저장. 백업·마이그레이션 등 어떤 쓰기도 하지 않는다 (m1-storage AC 34).
    * 유효 → { state(정규화), corrupt:false } / 없음·'' → { state:null, corrupt:false } / 손상 → { state:null, corrupt:true, raw }
+   * 읽기 예외 → { state:null, corrupt:false, readFailed:true } (저장 없음으로 보지 않도록 표시만 더한다)
    */
   function peek(storage, now) {
-    const raw = read(storage, C.SAVE_KEY);
+    const got = tryRead(storage, C.SAVE_KEY);
+    if (got.failed) return { state: null, corrupt: false, readFailed: true };
+    const raw = got.raw;
     // 빈 문자열은 손상이 아니라 '저장 없음': 유효한 v1이 손상 처리에 가려지지 않게 한다
     if (isEmpty(raw)) return { state: null, corrupt: false };
     const d = parse(raw);
@@ -278,12 +286,13 @@
     let lastFailed = false;
     const isProtected = () => !!corrupt && corrupt.guarding;
 
-    /** 백업을 시도하고 결과로 보호 모드를 정한다. 결과는 backupCorrupt와 같다 */
-    function guard(raw) {
-      const backup = backupCorrupt(storage, raw);
+    /** 손상 원문과 그 백업 결과를 기억하고 보호 모드를 정한다(백업 실패 = 보호). backup을 그대로 돌려준다 */
+    function remember(raw, backup) {
       corrupt = { raw, guarding: backup === 'failed' };
       return backup;
     }
+    /** 백업을 시도하고 결과로 보호 모드를 정한다. 결과는 backupCorrupt와 같다 */
+    const guard = raw => remember(raw, backupCorrupt(storage, raw));
 
     return {
       isProtected,
@@ -293,15 +302,17 @@
       /** 시작 로드: 손상 v2의 백업이 실패했으면 보호 모드로 시작한다 */
       load(now) {
         const r = load(storage, now);
-        if (r.backup) corrupt = { raw: r.raw, guarding: r.backup === 'failed' };
+        if (r.backup) remember(r.raw, r.backup);
         return r;
       },
       /**
        * 이어받기·복귀 때 저장소 확인. 처음 보는 손상 원문이면 다음 저장 전에 백업한다(backup: 그 결과, 아니면 null).
        * 저장 키에 손상 원문이 더 이상 없으면 지킬 사본도 없으므로 보호 모드를 끝낸다.
+       * 읽기 자체가 실패하면 원문이 사라졌는지 알 수 없으므로 아무것도 바꾸지 않는다(보호 유지, 이어받기 없음).
        */
       checkStored(now) {
         const stored = peek(storage, now);
+        if (stored.readFailed) return { state: null, backup: null };
         if (!stored.corrupt) {
           corrupt = null;
           return { state: stored.state, backup: null };

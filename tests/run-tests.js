@@ -1043,13 +1043,19 @@ describe('AC 34: read-only SV.peek returns { state, corrupt, raw }', () => {
       assert.deepStrictEqual(st.writes, [], raw);
     }
   });
-  test('missing or empty-string v2 → { state:null, corrupt:false }; v1 is not migrated; throwing storage → no save', () => {
+  test('missing or empty-string v2 → { state:null, corrupt:false }; v1 is not migrated', () => {
     const st = countingStorage({ [C.SAVE_KEY_V1]: JSON.stringify({ gold: 5, level: 3 }) });
     assert.deepStrictEqual(SV.peek(st, NOW), NO_SAVE);
     assert.deepStrictEqual(st.writes, []);
     assert.deepStrictEqual(SV.peek(memStorage(), NOW), NO_SAVE);
     assert.deepStrictEqual(SV.peek(memStorage({ [C.SAVE_KEY]: '' }), NOW), NO_SAVE);
-    assert.deepStrictEqual(SV.peek({ getItem() { throw new Error('denied'); } }, NOW), NO_SAVE);
+  });
+  test('REQ-031: a throwing getItem is reported as readFailed, not as "no save"', () => {
+    assert.deepStrictEqual(SV.peek({ getItem() { throw new Error('denied'); } }, NOW), { state: null, corrupt: false, readFailed: true });
+  });
+  test('REQ-031: load still starts a new game when the v2 read throws (start behavior unchanged)', () => {
+    const r = SV.load({ getItem() { throw new Error('denied'); }, setItem() {} }, NOW);
+    assert.strictEqual(r.source, 'new');
   });
 });
 
@@ -2138,6 +2144,56 @@ describe('save keeper: single write gate and protected mode (AC 30~33, 36)', () 
     failing.clear();
     assert.strictEqual(keeper.save(S, NOW + 2), 'saved');
     assert.ok(!keeper.lastSaveFailed());
+  });
+});
+
+describe('REQ-031: a failing read does not end protected mode', () => {
+  /** getItem을 도중에 실패시킬 수 있는 저장소 */
+  function flakyReadStorage(init, failing) {
+    const st = quotaStorage(init, failing);
+    const getItem = st.getItem;
+    st.readFails = false;
+    st.getItem = k => { if (st.readFails) throw new Error('SecurityError'); return getItem(k); };
+    return st;
+  }
+  test('checkStored with a throwing read keeps protection, adopts nothing and backs up nothing', () => {
+    const st = flakyReadStorage({ [C.SAVE_KEY]: BROKEN }, new Set([BACKUP]));
+    const keeper = SV.createSaveKeeper(st);
+    keeper.load(NOW);
+    assert.ok(keeper.isProtected());
+    st.readFails = true;
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: null });
+    assert.ok(keeper.isProtected(), 'protection kept while the save key cannot be read');
+    assert.strictEqual(keeper.guardedRaw(), BROKEN);
+    assert.strictEqual(keeper.save(fresh(), NOW), 'blocked');
+    assert.strictEqual(st.dump[C.SAVE_KEY], BROKEN);
+    // 다시 읽히면 같은 원문이므로 그대로 보호, 유효 저장으로 바뀌었으면 그때 끝낸다
+    st.readFails = false;
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: null });
+    assert.ok(keeper.isProtected());
+    st.dump[C.SAVE_KEY] = JSON.stringify(Object.assign(fresh(), { gold: 777 }));
+    assert.strictEqual(keeper.checkStored(NOW).state.gold, 777);
+    assert.ok(!keeper.isProtected());
+  });
+  test('a throwing read does not forget an already handled corrupt raw (no second backup attempt)', () => {
+    const st = flakyReadStorage({}, new Set());
+    const keeper = SV.createSaveKeeper(st);
+    keeper.load(NOW);
+    st.dump[C.SAVE_KEY] = BROKEN;
+    assert.strictEqual(keeper.checkStored(NOW).backup, 'written');
+    st.readFails = true;
+    keeper.checkStored(NOW);
+    st.readFails = false;
+    st.writes.length = 0;
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: null });
+    assert.deepStrictEqual(st.writes, []);
+  });
+  test('load routes a corrupt start through the same bookkeeping as checkStored (same raw is not handled twice)', () => {
+    const st = quotaStorage({ [C.SAVE_KEY]: BROKEN }, new Set());
+    const keeper = SV.createSaveKeeper(st);
+    assert.strictEqual(keeper.load(NOW).backup, 'written');
+    assert.ok(!keeper.isProtected());
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: null });
   });
 });
 

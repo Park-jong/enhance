@@ -424,6 +424,9 @@ async function main() {
   // 10) 3-4 저장 안전: 보호 모드·손상 저장 이어받기·빈 v1·저장 실패 배지·잠금 문구 (m1-storage AC 15/17/18, 30~36)
   await saveSafety(ok);
 
+  // 11) REQ-031 저장 안전 마무리
+  await req031(ok);
+
   console.log(`smoke-dom: ${checks} checks passed`);
 }
 
@@ -765,7 +768,7 @@ function particleCap(ok) {
   ok(layoutReads === 1, '#11: bursts and frames use the cached canvas size (no layout read)');
 }
 
-/** 3-3 REQ-012 */
+/** 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다(사용자 요청) */
 function forgeShardExchange(ok) {
   const KEY = 'sword-enhance-v2';
   const NOTE = '검이 파괴되면 파편을 얻습니다.';
@@ -793,6 +796,7 @@ function forgeShardExchange(ok) {
   ok(exchangeButtons(html).some(b => !b.includes('disabled')), 'forge: exchange buttons enabled with shards');
 }
 
+/** 3-3 REQ-012 */
 async function req012(ok) {
   const KEY = 'sword-enhance-v2';
   const plainSave = (fields, swords) => {
@@ -1113,6 +1117,98 @@ async function saveSafety(ok) {
     ok(header.includes('id="saveGuard"') && header.includes('id="saveBadge"'), `${page}: banner and badge live in the sticky header (inert while locked, away from the bottom tab bar)`);
   }
   ok(T.SAVE_KEY === KEY, 'real save key unchanged');
+}
+
+/** REQ-031 저장 안전 마무리: 입력 칸 단축키, 보호 모드 한정 헤더 줄바꿈·모바일 헤더, 읽기 실패 시 보호 유지 */
+async function req031(ok) {
+  const KEY = 'sword-enhance-v2';
+  const BACKUP = 'sword-enhance-v2-corrupt';
+  const RAW = '{"gold": 1, "swords": [';
+  /** keydown/keyup을 target과 함께 보내고 preventDefault 호출 여부를 돌려준다 */
+  const press = (env, type, code, target) => {
+    let prevented = false;
+    env.docListeners[type].forEach(f => f({ code, repeat: false, target, preventDefault() { prevented = true; } }));
+    return prevented;
+  };
+  const startSave = () => {
+    const s = Object.assign(SG_default(), { gold: 1e6, best: 5 });
+    s.swords = [{ id: 1, lv: 3, prot: 2, pity: 0 }, { id: 2, lv: 0, prot: 2, pity: 0 }]; s.nextSwordId = 3; s.active = 1;
+    return JSON.stringify(s);
+  };
+
+  // 1) 글자 입력 칸에서는 Space·S·H·Escape 단축키가 아무것도 하지 않고 기본 동작(공백 입력)도 막지 않는다
+  const textTargets = {
+    textarea: { tagName: 'TEXTAREA' },
+    'input text': { tagName: 'INPUT', type: 'text' },
+    'input number': { tagName: 'INPUT', type: 'number' },
+    select: { tagName: 'SELECT' },
+    contenteditable: { tagName: 'DIV', isContentEditable: true },
+  };
+  for (const [name, target] of Object.entries(textTargets)) {
+    const env = makeEnv({ [KEY]: startSave() });
+    const before = saved(env);
+    env.ctx.document.querySelector('#settingsPop').hidden = false;
+    const prevented = ['Space', 'KeyS', 'KeyH', 'Escape'].map(code => press(env, 'keydown', code, target));
+    const after = saved(env);
+    ok(after.stats.tries === before.stats.tries && after.gold === before.gold && after.swords.length === 2,
+      `REQ-031 ${name}: Space/S/H do not enhance, sell or hunt`);
+    ok(env.ctx.document.querySelector('#settingsPop').hidden === false, `REQ-031 ${name}: Escape keeps the popover (key belongs to the field)`);
+    ok(prevented.every(p => !p) && !press(env, 'keyup', 'Space', target), `REQ-031 ${name}: keydown/keyup Space not prevented (a space can be typed)`);
+  }
+
+  // 체크박스·버튼·문서 본문은 입력 칸이 아니므로 기존대로 단축키가 동작한다
+  {
+    const env = makeEnv({ [KEY]: startSave() });
+    const tries = saved(env).stats.tries;
+    ok(press(env, 'keydown', 'Space', { tagName: 'INPUT', type: 'checkbox' }) && saved(env).stats.tries === tries + 1,
+      'REQ-031: Space on a focused checkbox still enhances (prevented)');
+    ok(press(env, 'keyup', 'Space', { tagName: 'INPUT', type: 'checkbox' }), 'REQ-031: keyup Space on a checkbox is still prevented (no double toggle)');
+    const gold = saved(env).gold;
+    press(env, 'keydown', 'KeyH', { tagName: 'BUTTON' });
+    ok(saved(env).gold > gold, 'REQ-031: H on a focused button still hunts');
+    env.ctx.document.querySelector('#settingsPop').hidden = false;
+    press(env, 'keydown', 'Escape', { tagName: 'BODY' });
+    ok(env.ctx.document.querySelector('#settingsPop').hidden === true, 'REQ-031: Escape outside fields still closes the popover');
+  }
+
+  // 2·3) CSS: 헤더 줄바꿈은 보호 모드에서만, 좁은 화면 보호 모드에서는 헤더가 sticky가 아니고 원문 칸 높이 제한
+  {
+    const css = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
+    const rule = (src, sel) => (src.match(new RegExp('(?:^|\\n)\\s*' + sel.replace(/[.#]/g, '\\$&') + '\\s*\\{([^}]*)\\}')) || [])[1];
+    const topLevel = css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, '');
+    const mobile = (css.match(/@media \(max-width: 720px\) \{((?:[^{}]*\{[^}]*\})*[^{}]*)\}/) || [])[1] || '';
+    ok(/position:\s*sticky/.test(rule(topLevel, 'header')) && !/flex-wrap/.test(rule(topLevel, 'header')), 'REQ-031: the normal header does not wrap (721~1000px layout unchanged)');
+    ok(/flex-wrap:\s*wrap/.test(rule(topLevel, '.save-guarded header') || ''), 'REQ-031: the header wraps only under .save-guarded');
+    ok(/position:\s*static/.test(rule(mobile, '.save-guarded header') || ''), 'REQ-031: on mobile (<= 720px) the protected header is not sticky');
+    const raw = rule(topLevel, '.save-guard-raw') || '';
+    const maxH = Number((raw.match(/max-height:\s*(\d+)px/) || [])[1]);
+    ok(maxH > 0 && maxH <= 120 && /overflow:\s*auto/.test(raw), 'REQ-031: the raw box height is capped (<= 120px) and scrolls: ' + maxH);
+    // 보호 모드 표시(html.save-guarded)는 배너와 함께 켜지고 꺼진다
+    const env = makeEnv({ [KEY]: RAW }, { failKeys: [BACKUP] });
+    const marked = () => env.ctx.document.documentElement.classList.contains('save-guarded');
+    ok(marked(), 'REQ-031: html.save-guarded set in protected mode');
+    env.failKeys.clear();
+    click(env, 'retryBackup');
+    ok(!marked(), 'REQ-031: html.save-guarded cleared when protected mode ends (normal header layout)');
+  }
+
+  // 4) 저장 키 읽기가 예외를 던져도 보호 모드를 끝내지 않는다(복귀·이어받기)
+  {
+    const env = makeEnv({ [KEY]: RAW }, { failKeys: [BACKUP] });
+    const bannerShown = () => env.byId['#saveGuard'].hidden === false;
+    ok(bannerShown(), 'REQ-031: protected at start');
+    const getItem = env.ctx.localStorage.getItem;
+    env.ctx.localStorage.getItem = () => { throw new Error('SecurityError'); };
+    setVisible(env, false);
+    setVisible(env, true);
+    fire(env, 'storage', { key: KEY });
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(bannerShown() && env.store[KEY] === RAW, 'REQ-031: a throwing read on resume/take over keeps protected mode and the raw');
+    env.ctx.localStorage.getItem = getItem;
+    setVisible(env, false);
+    setVisible(env, true);
+    ok(bannerShown() && env.store[KEY] === RAW, 'REQ-031: once readable again, the same raw is still protected');
+  }
 }
 
 main().catch(e => { console.error('smoke-dom FAILED:', e.stack || e.message); process.exit(1); });

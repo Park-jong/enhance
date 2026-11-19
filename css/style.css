@@ -42,7 +42,7 @@ html::-webkit-scrollbar-track { background: var(--bg); }
 /* ---------- 헤더 ---------- */
 header {
   position: sticky; top: 0; z-index: 20;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px;
   padding: 12px 20px;
   background: rgba(14, 16, 22, .85);
   backdrop-filter: blur(8px);
@@ -71,7 +71,9 @@ header {
 .icon-btn:hover { border-color: #3c4358; }
 
 /* ---------- 저장 안전: 보호 모드 배너 / 저장 실패 배지 ----------
- * 배너는 sticky 헤더의 마지막 줄(z 20)이라 항상 보이고, 하단 탭바(z 40)·토스트(z 50)와 겹치지 않으며 잠금 화면(z 90) 아래에 있다 */
+ * 배너는 sticky 헤더의 마지막 줄(z 20)이라 항상 보이고(720px 이하에서는 보호 모드 동안 헤더가 흐름 배치), 하단 탭바(z 40)·토스트(z 50)와 겹치지 않으며 잠금 화면(z 90) 아래에 있다 */
+/* 배너를 헤더 아래 줄로 내리는 줄바꿈은 보호 모드에서만: 평소 헤더(721~1000px 포함) 배치는 그대로 */
+.save-guarded header { flex-wrap: wrap; }
 .save-guard {
   flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   padding: 10px 12px; border: 1px solid var(--bad); border-radius: 10px;
@@ -80,7 +82,7 @@ header {
 .save-guard-text { flex: 1 1 260px; margin: 0; font-size: 13px; font-weight: 700; line-height: 1.5; }
 .save-guard-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .save-guard-raw {
-  flex: 1 1 100%; height: 96px; resize: vertical; padding: 8px;
+  flex: 1 1 100%; height: 96px; max-height: 120px; overflow: auto; resize: vertical; padding: 8px;
   background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
   font: 12px/1.4 ui-monospace, monospace;
 }
@@ -109,6 +111,8 @@ main {
   .main-col { gap: 12px; }
   .side { position: static; max-height: none; overflow: visible; }
   header { padding: 8px 12px; flex-wrap: wrap; }
+  /* 좁은 화면에서는 배너·원문 칸으로 높아진 sticky 헤더가 화면을 덮으므로 보호 모드 동안 헤더를 흐름 배치로 둔다 */
+  .save-guarded header { position: static; }
 }
 
 /* ---------- 검 무대 ---------- */
