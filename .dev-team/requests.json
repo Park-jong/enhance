@@ -757,7 +757,7 @@
     "priority": "P3",
     "priorityReason": "현재 동작에는 문제가 없고 재발 방지와 정리 목적의 개선",
     "milestone": "3단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-18",
     "history": [
       {
@@ -765,6 +765,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "tests/browser-strip.js 추가(14 통과), S6 안내 문구 단일화, S7 자동 스크롤 루프 구현. 검증 대기 중이라 완료 처리는 보류."
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "tests/browser-strip.js(헤드리스 Chrome/Edge 실제 클릭·드래그·밖에서 놓기 14개), 빈 강화 영역 문구 단일화(S6), 가장자리 자동 스크롤 rAF 반복(S7). QA 승인 2026-11-19"
       }
     ]
   },

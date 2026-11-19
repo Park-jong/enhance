@@ -100,3 +100,11 @@
 - 결정 사항: 읽기 예외 시 checkStored는 아무것도 바꾸지 않고 보호 유지(peek.readFailed). 텍스트 입력 대상(textarea, select, contenteditable, 텍스트류 input)에서는 단축키·Escape 무시. 모바일(720px 이하) 보호 모드는 헤더 비고정 + 원문 칸 120px 제한. 헤더 줄바꿈은 .save-guarded 안에서만. tabGuard는 persist보다 앞서 생성.
 - 테스트: run-tests 226, smoke-dom 285, qa 29, round2 36, m1.1 189 모두 통과. QA 소유 테스트 수정 필요 없음.
 - 남은 문제: tools/sim-late/selfcheck.js는 기존 REQ-024 문제로 실패(이번 변경과 무관). 설계 문서(m1-storage.md)에 readFailed·모바일 헤더 반영 필요(Design).
+
+## 2026-11-19 — 보관함 브라우저 테스트와 S6/S7 정리 (REQ-025)
+- 지시: 디렉터 / 관련 단계: 3단계 잔여 / 처리한 요청: REQ-025 (in_progress 유지, QA 판정 대기)
+- 참여 팀원: client-programmer
+- 산출물: tests/browser-strip.js (신규, 14 통과), js/strip-drag.js (S7 rAF 자동 스크롤, lostpointercapture), js/view.js (S6 NO_ACTIVE_TEXT 단일화), index.html, test.html, tests/smoke-dom.js (299)
+- 결정 사항: 브라우저 없으면 SKIP 후 exit 0, 잘못된 BROWSER_PATH는 exit 1. 자동 스크롤은 프레임당 12px(설계 문서 서술과 일치). REASON.noActive 문구에서 "먼저" 삭제(공통 상수 사용).
+- 테스트: run-tests 226, smoke-dom 299, qa 29, round2 36, m1.1 189, browser-strip 14 모두 통과. Chrome과 Edge 모두 확인.
+- 남은 문제: tools/sim-late/selfcheck.js는 기존 REQ-024 문제로 실패. 이전 QA가 남긴 헤드리스 Edge 프로세스(약 8개, 포트 9333)가 실행 중일 수 있음.

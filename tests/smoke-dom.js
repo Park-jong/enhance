@@ -410,6 +410,7 @@ async function main() {
   // 7b) 3-6: 파괴 뒤 활성 검 없음, 칸 드래그
   await noActiveAfterDestroy(ok);
   await stripDrag(ok);
+  stripAutoScroll(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -540,7 +541,11 @@ async function noActiveAfterDestroy(ok) {
   ['shop', 'forge', 'quests', 'idle', 'records'].forEach(t => click(env, 'tab', t));
   env.tick();
   scanRendered();
-  ok(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').includes('보관함에서 강화할 검을 선택하세요'), 'prompt text in the stage markup');
+  // S6: 안내 문구는 view.js의 NO_ACTIVE_TEXT 하나에서 나온다(마크업에는 적지 않는다)
+  const PROMPT = env.ctx.SG.view.NO_ACTIVE_TEXT;
+  ok(PROMPT === '보관함에서 강화할 검을 선택하세요' && env.byId['#stageEmpty'].textContent === PROMPT, 'stage prompt text set from view.NO_ACTIVE_TEXT');
+  ok(env.byId['#stripActions']._html.includes(PROMPT) && env.ctx.SG.view.REASON.noActive.startsWith(PROMPT), 'strip note and noActive reason use the same text');
+  ok(['index.html', 'test.html'].every(page => !fs.readFileSync(path.join(ROOT, page), 'utf8').includes(PROMPT)), 'prompt text not duplicated in the page markup');
 
   // 저장된 active 0은 다시 불러와도 '없음'
   env = makeEnv(env.store);
@@ -551,6 +556,8 @@ async function noActiveAfterDestroy(ok) {
   ok(!env.byId['#btnEnhance'].disabled && !env.byId['#btnSell'].disabled, 'enhance / sell enabled again');
   scanRendered();
 }
+
+let stripSetup = null;   // stripDrag가 채우는 카드 3장 환경 생성기(stripAutoScroll이 재사용)
 
 /** 3-6: 칸 드래그(Pointer Events 스텁). 카드 3장을 x=0/100/200에 둔다 */
 async function stripDrag(ok) {
@@ -583,8 +590,10 @@ async function stripDrag(ok) {
       strip.listeners.click.forEach(f => f(ev));
       if (!ev.stopped) click(env, 'activate', id);
     };
-    return { env, card, pointer, clickCard, order: () => saved(env).swords.map(x => x.id).join() };
+    return { env, strip, card, pointer, clickCard, order: () => saved(env).swords.map(x => x.id).join() };
   };
+
+  stripSetup = setup;
 
   // 마우스: 임계값(6px) 미만 이동은 클릭 → 활성 전환
   let d = setup([1, 2, 3]);
@@ -657,6 +666,64 @@ async function stripDrag(ok) {
   ok(!d.card(2).classList.contains('dragging') && saved(d.env).gold === 300, 'new game cancels a drag in progress');
   key(d.env, 'Space');
   ok(saved(d.env).stats.tries === 1, 'Space works again after the drag was cancelled by new game');
+}
+
+/** S7: 가장자리에 멈춘 포인터에도 자동 스크롤이 프레임마다 이어지고, 제스처가 끝나는 모든 경로에서 멈춘다(V1). 스트립은 x=0~1000 */
+function stripAutoScroll(ok) {
+  const STEP = 12;   // C.DRAG_SCROLL_STEP_PX
+  const setup = () => {
+    const d = stripSetup([1, 2, 3]);
+    const frames = new Map();
+    let nextId = 0;
+    d.env.ctx.requestAnimationFrame = fn => { frames.set(++nextId, fn); return nextId; };
+    d.env.ctx.cancelAnimationFrame = id => frames.delete(id);
+    d.frames = frames;
+    d.runFrame = () => { const due = [...frames.values()]; frames.clear(); due.forEach(f => f()); };
+    d.lift = () => { d.pointer('pointerdown', 3, 243); d.pointer('pointermove', 3, 990); };   // 오른쪽 가장자리(32px) 안에서 멈춤
+    return d;
+  };
+
+  let d = setup();
+  d.lift();
+  ok(d.frames.size === 1 && d.strip.scrollLeft === 0, 'S7: entering the edge zone schedules an autoscroll frame');
+  d.runFrame(); d.runFrame(); d.runFrame();
+  ok(d.strip.scrollLeft === 3 * STEP && d.frames.size === 1, 'S7: autoscroll keeps going each frame with no further pointermove');
+  ok(d.card(3).style.transform === `translateX(${990 - 243 + 3 * STEP}px)`, 'S7: the lifted card follows the scrolled content');
+  d.pointer('pointermove', 3, 500);
+  d.runFrame();
+  ok(d.frames.size === 0 && d.strip.scrollLeft === 3 * STEP, 'S7: leaving the edge zone stops the loop');
+  d.pointer('pointermove', 3, 5);
+  d.runFrame();
+  ok(d.strip.scrollLeft === 2 * STEP && d.frames.size === 1, 'S7: the left edge scrolls back');
+  d.pointer('pointerup', 3, 5);
+  ok(d.frames.size === 0, 'S7: drop stops the loop');
+
+  // 더 스크롤할 수 없으면(브라우저가 scrollLeft를 0으로 묶음) 루프를 멈춘다
+  d = setup();
+  let scroll = 0;
+  Object.defineProperty(d.strip, 'scrollLeft', { get: () => scroll, set: v => { scroll = Math.max(0, v); } });
+  d.pointer('pointerdown', 1, 43); d.pointer('pointermove', 1, 5);
+  d.runFrame();
+  ok(scroll === 0 && d.frames.size === 0, 'S7: loop stops when the strip cannot scroll further');
+  d.pointer('pointerup', 1, 5);
+
+  // 드롭 외의 모든 종료 경로: 순서는 그대로, 프레임은 남지 않는다
+  const endings = {
+    pointercancel: x => x.pointer('pointercancel', 3, 990),
+    lostpointercapture: x => x.pointer('lostpointercapture', 3, 990),
+    'button-less move': x => x.pointer('pointermove', 3, 990, 'mouse', 0),
+    'cancelDrag (other-tab lock)': x => fire(x.env, 'storage', { key: 'sword-enhance-v2' }),
+    'cancelDrag (new game)': x => x.env.byId['#btnReset'].listeners.click[0](),
+  };
+  Object.keys(endings).forEach(name => {
+    const x = setup();
+    x.lift();
+    x.runFrame();
+    endings[name](x);
+    const scrolled = x.strip.scrollLeft;
+    x.runFrame();
+    ok(x.frames.size === 0 && x.strip.scrollLeft === scrolled && !x.card(3).classList.contains('dragging'), 'S7: ' + name + ' stops the autoscroll loop');
+  });
 }
 
 const TEST_KEY = 'sword-enhance-test';

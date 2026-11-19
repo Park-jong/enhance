@@ -3,6 +3,7 @@
  * 터치: DRAG_LONG_PRESS_MS 동안 누르고 있어야 시작. 그 전에 움직이면 스트립 가로 스크롤에 양보한다.
  * 순서 변경 자체는 하지 않고 onEnd(id, toIndex)로 알린다. toIndex는 끌던 검을 뺀 나머지 검 사이 자리(R.moveSword와 같은 뜻),
  * 취소되면 null. 드래그 뒤에 따라오는 click은 삼켜서 활성 전환이 일어나지 않게 한다.
+ * 가장자리 자동 스크롤은 포인터가 멈춰 있어도 이어지도록 requestAnimationFrame으로 돌리고, finish()에서 멈춘다.
  */
 (function (root) {
   'use strict';
@@ -51,17 +52,36 @@
       return true;
     }
 
-    function autoScroll(x) {
+    /** 포인터가 스트립 가장자리 영역에 있으면 그쪽 방향(-1·1), 아니면 0 */
+    function edgeDir(x) {
       const r = strip.getBoundingClientRect();
-      if (x < r.left + C.DRAG_EDGE_PX) strip.scrollLeft -= C.DRAG_SCROLL_STEP_PX;
-      else if (x > r.right - C.DRAG_EDGE_PX) strip.scrollLeft += C.DRAG_SCROLL_STEP_PX;
+      if (x < r.left + C.DRAG_EDGE_PX) return -1;
+      if (x > r.right - C.DRAG_EDGE_PX) return 1;
+      return 0;
     }
 
-    function follow(x) {
-      autoScroll(x);
+    function place(x) {
       g.el.style.transform = `translateX(${x - g.x0 + strip.scrollLeft - g.scroll0}px)`;
       g.index = dropIndex(others().map(centerX), x);
       showMarker();
+    }
+
+    /** 한 프레임 자동 스크롤. 가장자리를 벗어났거나 더 스크롤할 수 없으면 멈추고, 다음 pointermove가 다시 시작한다 */
+    function scrollFrame() {
+      g.frame = 0;
+      const dir = edgeDir(g.x);
+      if (!dir) return;
+      const before = strip.scrollLeft;
+      strip.scrollLeft += dir * C.DRAG_SCROLL_STEP_PX;
+      if (strip.scrollLeft === before) return;
+      place(g.x);
+      g.frame = requestAnimationFrame(scrollFrame);
+    }
+
+    function follow(x) {
+      g.x = x;
+      place(x);
+      if (!g.frame && edgeDir(x)) g.frame = requestAnimationFrame(scrollFrame);
     }
 
     /** 제스처를 정리하고, 드래그였다면 { id, index } 를 돌려준다 */
@@ -69,6 +89,7 @@
       if (!g) return null;
       const done = g.dragging ? { id: g.id, index: g.index } : null;
       clearTimeout(g.timer);
+      if (g.frame) cancelAnimationFrame(g.frame);
       if (g.dragging) {
         g.el.classList.remove('dragging');
         g.el.style.transform = '';
@@ -96,7 +117,7 @@
       if (!el || !e.isPrimary || e.button !== 0 || !opts.canStart()) return;
       g = {
         id: +el.dataset.sword, el, pointerId: e.pointerId, touch: e.pointerType === 'touch',
-        x0: e.clientX, y0: e.clientY, scroll0: strip.scrollLeft, dragging: false, from: -1, index: -1, timer: 0,
+        x0: e.clientX, y0: e.clientY, scroll0: strip.scrollLeft, dragging: false, from: -1, index: -1, timer: 0, x: e.clientX, frame: 0,
       };
       // 여기서 capture하면 click 대상이 #strip으로 바뀌어 카드 클릭 위임이 죽는다(V3). capture는 begin()에서만 한다
       if (g.touch) g.timer = setTimeout(() => { if (g && opts.canStart()) begin(); }, C.DRAG_LONG_PRESS_MS);
@@ -125,6 +146,12 @@
 
     strip.addEventListener('pointercancel', e => {
       if (!own(e)) return;
+      cancel();
+    });
+
+    // 드래그 중 capture를 잃으면(카드가 DOM에서 빠지는 등) 놓을 자리를 믿을 수 없어 취소한다. 정상 pointerup 뒤에는 g가 이미 비어 있다
+    strip.addEventListener('lostpointercapture', e => {
+      if (!own(e) || !g.dragging) return;
       cancel();
     });
 

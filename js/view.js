@@ -14,6 +14,8 @@
   const $ = sel => document.querySelector(sel);
 
   // ============================================================ 문구
+  // 빈 강화 영역 안내(#stageEmpty)·보관함 아래 안내·활성 검 없음 실패 문구의 단일 출처
+  const NO_ACTIVE_TEXT = '보관함에서 강화할 검을 선택하세요';
   const REASON = {
     noGold: '골드가 부족합니다. 사냥하거나 검을 판매하세요.',
     slotsFull: '빈 칸이 없습니다. 칸을 확장하거나 검을 정리하세요.',
@@ -33,7 +35,7 @@
     notFound: '대상을 찾을 수 없습니다.',
     maxLv: '더 이상 강화할 수 없습니다.',
     gaugeFull: '천장 확정: 소모품이 필요 없음',
-    noActive: '보관함에서 강화할 검을 먼저 선택하세요.',
+    noActive: NO_ACTIVE_TEXT + '.',
   };
   const TRAY_REASON = {
     noStock: () => '보유 없음',
@@ -97,7 +99,6 @@
   const corruptKeptText = key => `손상된 저장을 ${key}에 보관했습니다`;
 
   const swordName = lv => `+${lv} ${C.SWORDS[lv].n}`;
-  const NO_ACTIVE_TEXT = '보관함에서 강화할 검을 선택하세요';
   const itemName = id => (R.itemDef(id) ? R.itemDef(id).name : C.ORE_NAMES[id]);
   const qtySuffix = n => (n > 1 ? ' ×' + fmt(n) : '');
   /** innerHTML 전용(SVG 아이콘 포함) */
@@ -593,6 +594,7 @@
     $('#btnSettings').innerHTML = ic('settings');
     $('#saveGuard').innerHTML = saveGuardHTML();
     $('#saveBadge').textContent = SAVE_SAFETY_TEXT.badge;
+    $('#stageEmpty').textContent = NO_ACTIVE_TEXT;
   }
 
   // ============================================================ 저장 안전 (배너·배지)
@@ -669,7 +671,7 @@
 
   SG.view = {
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
-    swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, SAVE_FAILED_TEXT,
+    NO_ACTIVE_TEXT, swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, SAVE_FAILED_TEXT,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
