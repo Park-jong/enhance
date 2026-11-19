@@ -471,7 +471,7 @@ describe('storage slots', () => {
   });
   test('seal on sell: floor(sell×1.3), consumed, toggle off; off → normal', () => {
     const S = stateWith({ sword: { lv: 9 }, inv: { seal: 1 } });
-    R.setUse(S, 'seal', true);
+    R.setSeal(S, true);
     const r = R.sellSword(S, 1);
     assert.strictEqual(r.gold, Math.floor(R.sell(9) * C.SEAL_MULT));
     assert.deepStrictEqual([S.inv.seal, S.use.seal], [0, false]);
@@ -749,7 +749,7 @@ describe('quests', () => {
   });
   test('seal ON on delivery: gold ×1.3 only, seal consumed', () => {
     const S = stateWith({ swords: [{ id: 1, lv: 12, prot: 2, pity: 0 }, { id: 2, lv: 7, prot: 2, pity: 0 }], active: 1, inv: { seal: 1 } });
-    R.setUse(S, 'seal', true);
+    R.setSeal(S, true);
     S.quests.list[2] = { id: 1, tier: 'hard', lv: 7, gold: 1000, item: { id: 'sure', n: 2 } };
     const g0 = S.gold;
     const r = Q.deliver(S, 2, NOW);
@@ -1598,7 +1598,7 @@ describe('3-6 no active sword after destroy', () => {
     assert.strictEqual(R.currentChances(S), null);
     assert.strictEqual(R.enhanceOpts(S), null);
   });
-  test('tray: every toggle blocked with noActive, nothing applied; setUse refuses tray toggles but seal still works', () => {
+  test('tray: every toggle blocked with noActive, nothing applied; setUse refuses tray toggles but setSeal still works', () => {
     const S = destroyed();
     Object.assign(S.inv, { bless: 3, protect: 9, keepdown: 2, sure: 1, seal: 1 });
     S.use.bless = true;
@@ -1606,7 +1606,7 @@ describe('3-6 no active sword after destroy', () => {
     C.TRAY_TOGGLES.forEach(id => assert.deepStrictEqual(t[id], { on: false, block: 'noActive' }, id));
     assert.ok(C.TRAY_TOGGLES.every(id => R.effectiveUse(S)[id] === false));
     assert.strictEqual(R.setUse(S, 'protect', true).reason, 'noActive');
-    assert.ok(R.setUse(S, 'seal', true).ok);
+    assert.ok(R.setSeal(S, true).ok);
     assert.ok(C.TRAY_TOGGLES.every(id => R.bonusWasted(S, id) === false && R.bonusCapNote(S, id) === null));
   });
   test('income stays on topLv: hunt / auto / offline unaffected by having no active sword', () => {
@@ -1771,6 +1771,188 @@ describe('3-6 QA: save normalization of active', () => {
   test('a valid id is kept; the key stays sword-enhance-v2', () => {
     assert.strictEqual(loadActive(1), 1);
     assert.strictEqual(C.SAVE_KEY, 'sword-enhance-v2');
+  });
+});
+
+// ============================================================ 3-3 REQ-012 M1 잔여 개선
+describe('REQ-012 #3: empty-string v2 counts as no v2', () => {
+  const v1 = { gold: 5000, level: 7, best: 8 };
+  test('empty v2 + valid v1 → v1 migrates (not masked as corrupt), no backup written', () => {
+    const st = memStorage({ [C.SAVE_KEY]: '', [C.SAVE_KEY_V1]: JSON.stringify(v1) });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(r.source, 'v1');
+    assert.strictEqual(r.state.swords[0].lv, 7);
+    assert.strictEqual(SV.CORRUPT_BACKUP_KEY in st.dump, false);
+    assert.strictEqual(JSON.parse(st.dump[C.SAVE_KEY]).gold, 5000);
+  });
+  test('empty v2 alone → new game, no backup', () => {
+    const st = memStorage({ [C.SAVE_KEY]: '' });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(r.source, 'new');
+    assert.strictEqual(SV.CORRUPT_BACKUP_KEY in st.dump, false);
+  });
+  test('whitespace-only v2 is still unreadable → corrupt with backup', () => {
+    const st = memStorage({ [C.SAVE_KEY]: ' ' });
+    assert.strictEqual(SV.load(st, NOW).source, 'corrupt');
+    assert.strictEqual(st.dump[SV.CORRUPT_BACKUP_KEY], ' ');
+  });
+});
+
+describe('REQ-012 #8: corrupt result keeps one source of truth', () => {
+  test('backedUp is true exactly when keptAt is the backup key (written / same / occupied / failed / corrupt v1)', () => {
+    const failing = { getItem: k => (k === C.SAVE_KEY ? '{bad' : null), setItem: () => { throw new Error('quota'); } };
+    const cases = [
+      SV.load(memStorage({ [C.SAVE_KEY]: '{bad' }), NOW),
+      SV.load(memStorage({ [C.SAVE_KEY]: '{bad', [SV.CORRUPT_BACKUP_KEY]: '{bad' }), NOW),
+      SV.load(memStorage({ [C.SAVE_KEY]: '{bad', [SV.CORRUPT_BACKUP_KEY]: '{old' }), NOW),
+      SV.load(failing, NOW),
+      SV.load(memStorage({ [C.SAVE_KEY_V1]: '{bad' }), NOW),
+    ];
+    assert.deepStrictEqual(cases.map(r => [r.backedUp, r.keptAt, r.earlierBackupAt]), [
+      [true, SV.CORRUPT_BACKUP_KEY, null],
+      [true, SV.CORRUPT_BACKUP_KEY, null],
+      [false, null, SV.CORRUPT_BACKUP_KEY],
+      [false, null, null],
+      [false, C.SAVE_KEY_V1, null],
+    ]);
+    cases.forEach(r => assert.deepStrictEqual(Object.keys(r).sort(), ['backedUp', 'earlierBackupAt', 'keptAt', 'source', 'state']));
+  });
+  test('non-corrupt results are { state, source } only', () => {
+    assert.deepStrictEqual(Object.keys(SV.load(memStorage(), NOW)).sort(), ['source', 'state']);
+  });
+});
+
+describe('REQ-012 #6a: consumables that ran out switch their toggle off', () => {
+  test('last bless used → r.ranOut = [bless], toggle off', () => {
+    const S = stateWith({ sword: { lv: 3 }, inv: { bless: 1 }, use: { bless: true } });
+    const r = R.attemptEnhance(S, ROLL_HIGH);
+    assert.deepStrictEqual(r.ranOut, ['bless']);
+    assert.strictEqual(S.use.bless, false);
+  });
+  test('stock left, toggle off, or anvil broke → not reported as ran out', () => {
+    const S = stateWith({ sword: { lv: 3 }, inv: { bless: 2 }, use: { bless: true } });
+    assert.deepStrictEqual(R.attemptEnhance(S, ROLL_HIGH).ranOut, []);
+    const T = stateWith({ sword: { lv: 3 }, inv: { bless: 0 } });
+    assert.deepStrictEqual(R.attemptEnhance(T, ROLL_HIGH).ranOut, []);
+    const A = stateWith({ sword: { lv: 6 } });
+    A.anvils = [{ id: 1, g: 1, dura: 1 }]; A.anvilEq = 1; A.use.anvil = true;
+    const ra = R.attemptEnhance(A, ROLL_HIGH);
+    assert.ok(ra.anvilBroke && A.use.anvil === false);
+    assert.deepStrictEqual(ra.ranOut, []);
+  });
+  test('the last protects spent on a save → [protect]; seal is never reported (not a tray toggle)', () => {
+    const S = stateWith({ sword: { lv: 6 }, inv: { protect: R.protectNeed(6), seal: 0 }, use: { protect: true, seal: true } });
+    const r = R.attemptEnhance(S, rollDestroy(R.currentChances(S)));
+    assert.strictEqual(r.outcome, 'protected');
+    assert.deepStrictEqual(r.ranOut, ['protect']);
+  });
+  test('cleanupUse returns the ids it switched off for lack of stock', () => {
+    const S = stateWith({ inv: { bless: 0, keepdown: 1 }, use: { bless: true, keepdown: true } });
+    assert.deepStrictEqual(R.cleanupUse(S), ['bless']);
+    assert.deepStrictEqual(R.cleanupUse(S), []);
+  });
+});
+
+describe('REQ-012 #12-13: derived numbers and setSeal', () => {
+  test('setSeal: on needs stock, off always allowed; setUse no longer takes seal', () => {
+    const S = fresh();
+    assert.strictEqual(R.setSeal(S, true).reason, 'noStock');
+    S.inv.seal = 1;
+    assert.ok(R.setSeal(S, true).ok && S.use.seal === true);
+    assert.ok(R.setSeal(S, false).ok && S.use.seal === false);
+    assert.strictEqual(R.setUse(S, 'seal', true).reason, 'notFound');
+  });
+  test('payoutPreview matches what payWithSeal pays', () => {
+    const S = fresh();
+    S.inv.seal = 1;
+    assert.strictEqual(R.payoutPreview(S, 1001), 1001);
+    S.use.seal = true;
+    const preview = R.payoutPreview(S, 1001);
+    assert.strictEqual(preview, Math.floor(1001 * C.SEAL_MULT));
+    assert.strictEqual(R.payWithSeal(S, 1001).gold, preview);
+  });
+  test('saved use keys = tray toggles + seal', () => {
+    assert.deepStrictEqual(Object.keys(fresh().use).sort(), C.TRAY_TOGGLES.concat('seal').sort());
+  });
+  test('item descriptions are built from the constants', () => {
+    assert.ok(C.ITEMS.bless.desc.includes(`+${C.BLESS_BONUS}%p`));
+    assert.ok(C.ITEMS.protect.desc.includes(`최대 ${C.PROTECT_USES}회`));
+    assert.ok(C.ITEMS.keepdown.desc.startsWith(`+${C.DROP_FROM}~+${C.KEEPDOWN_MAX_LV - 1}`));
+    assert.ok(C.ITEMS.sure.desc.startsWith(`+${C.SURE_MAX_TARGET - 1} 이하`));
+    assert.strictEqual(C.ITEMS.booster.desc, `${C.BOOSTER_DURATION_MIN}분간 사냥·자동·오프라인 골드 ×${C.BOOSTER_MULT}`);
+    assert.ok(C.ITEMS.seal.desc.endsWith(`×${C.SEAL_MULT}`));
+  });
+  test('upgradeValue is the single source for interval / gold factor / offline cap', () => {
+    const S = fresh();
+    for (let n = 0; n <= C.UP_MAX; n++) {
+      S.idle.up = { speed: n, gold: n, offline: n };
+      assert.strictEqual(I.autoInterval(S), I.upgradeValue('speed', n));
+      assert.strictEqual(I.goldUpFactor(S), I.upgradeValue('gold', n));
+      assert.strictEqual(I.offlineCapH(S), I.upgradeValue('offline', n));
+    }
+    assert.strictEqual(I.upgradeValue('speed', 0), C.AUTO_CD_MS);
+    assert.strictEqual(I.upgradeValue('offline', 0), C.OFFLINE_CAP_H);
+  });
+  test('MAX_PARTICLES covers the largest single burst (+20 success)', () => {
+    assert.ok(C.MAX_PARTICLES >= 40 + C.MAX * 5);
+  });
+});
+
+describe('REQ-012 #4 #5 #10: tab guard (js/tab-guard.js)', () => {
+  const createTabGuard = require(js('tab-guard.js'));
+  const KEY = 'save-key';
+  const makeGuard = () => {
+    const listeners = {};
+    const el = () => ({ hidden: true, inert: false, focused: 0, clicks: [], focus() { this.focused++; }, addEventListener(t, f) { this.clicks.push(f); } });
+    const area = {};
+    const env = { overlay: el(), button: el(), header: el(), main: el(), area, suspends: 0, takeovers: 0 };
+    env.guard = createTabGuard({
+      win: { addEventListener: (t, f) => { listeners[t] = f; } }, key: KEY, storageArea: area,
+      overlay: env.overlay, takeoverButton: env.button, inertEls: [env.header, env.main],
+      onSuspend: () => { env.suspends++; }, onTakeOver: () => { env.takeovers++; env.lockedAtTakeover = !env.overlay.hidden || env.guard.isSuspended(); },
+    });
+    env.storage = e => listeners.storage(e);
+    env.locked = () => env.guard.isSuspended() && !env.overlay.hidden && env.header.inert && env.main.inert;
+    return env;
+  };
+  test('starts unlocked; the save key locks, focuses the takeover button and runs onSuspend once', () => {
+    const g = makeGuard();
+    assert.ok(!g.guard.isSuspended() && g.overlay.hidden && !g.header.inert);
+    g.storage({ key: KEY });
+    g.storage({ key: KEY });
+    assert.ok(g.locked());
+    assert.strictEqual(g.suspends, 1);
+    assert.strictEqual(g.button.focused, 1);
+  });
+  test('other keys never lock', () => {
+    const g = makeGuard();
+    g.storage({ key: 'other', storageArea: g.area });
+    assert.ok(!g.guard.isSuspended() && g.overlay.hidden);
+  });
+  test('clear (key null): locks for our storage or a missing storageArea, ignored for another storage area', () => {
+    const other = makeGuard();
+    other.storage({ key: null, storageArea: {} });
+    assert.ok(!other.guard.isSuspended(), 'sessionStorage.clear() in another tab does not lock');
+    const ours = makeGuard();
+    ours.storage({ key: null, storageArea: ours.area });
+    assert.ok(ours.locked());
+    const legacy = makeGuard();
+    legacy.storage({ key: null });
+    assert.ok(legacy.locked(), 'event without storageArea keeps the old behavior (lock)');
+  });
+  test('whenActive drops input while suspended; takeover unlocks then calls onTakeOver', () => {
+    const g = makeGuard();
+    let calls = 0;
+    const act = g.guard.whenActive(x => { calls += x; return 'done'; });
+    assert.strictEqual(act(2), 'done');
+    g.storage({ key: KEY });
+    assert.strictEqual(act(5), undefined);
+    g.button.clicks[0]();
+    assert.ok(!g.guard.isSuspended() && g.overlay.hidden && !g.header.inert && !g.main.inert);
+    assert.strictEqual(g.takeovers, 1);
+    assert.strictEqual(g.lockedAtTakeover, false, 'onTakeOver runs after the lock is released');
+    assert.strictEqual(act(1), 'done');
+    assert.strictEqual(calls, 3);
   });
 });
 

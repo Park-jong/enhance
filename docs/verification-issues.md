@@ -17,12 +17,12 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 - 확인 방법: smoke-dom에 buttons 없는 move, strip 밖 pointerup, 드래그 시작 전 재렌더, 드래그 중 keydown 시나리오를 추가한다. 수동으로는 카드 윗부분을 누른 채 위로 튕겨 밖에서 놓은 뒤 다시 strip 위로 이동한다. 사전 리뷰에서는 제스처 종료 경로 전부(밖에서 놓기, 포커스 상실, 재렌더, 모달/suspend)를 확인한다.
 - 발생: 2026-11-19 3단계 3-6 (js/strip-drag.js, js/main.js)
 
-### V2. 항상 존재하던 값(활성 검)이 null이 될 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (1회)
-- **예방 규칙**: 불변식(항상 존재, 항상 유효)을 깨는 규칙 변경은 grep으로 js/ 밖(tools/, tests/, docs/design)의 같은 API 사용처와 문서 서술까지 찾아 같은 변경에서 함께 고쳐라.
+### ⚠️ V2. 규칙·코드 위치를 바꿀 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (2회)
+- **예방 규칙**: 불변식(항상 존재, 항상 유효)을 깨는 규칙 변경은 grep으로 js/ 밖(tools/, tests/, docs/design)의 같은 API 사용처와 문서 서술까지 찾아 같은 변경에서 함께 고쳐라. 코드를 옮기거나 지우는 리팩터링도 같다: 소스 문자열을 정규식으로 보는 정적 테스트(tests/run-m1-round2-tests.js 등)를 grep으로 찾아 함께 고쳐라.
 - 증상: tools/sim-late가 파괴 후 R.activeSword(S).lv에서 TypeError로 중단. QA 테스트 4건 실패. docs/design/m1-storage.md 16행과 154행이 옛 자동 활성 규칙을 그대로 서술.
 - 근본 원인: 변경 범위를 js/와 화면 호출처로만 잡았다.
-- 확인 방법: grep -rn "activeSword|S.active" tools tests docs 와 node tools/sim-late/selfcheck.js 를 실행한다. 사전 리뷰에 도구·문서 소비자 목록 항목을 넣는다.
-- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md)
+- 확인 방법: grep -rn "activeSword|S.active" tools tests docs, 그리고 옮기는 함수·식별자 이름(예: setLocked, resume(true))을 grep -rn 으로 tests/ 에서 찾는다 와 node tools/sim-late/selfcheck.js 를 실행한다. 사전 리뷰에 도구·문서 소비자 목록 항목을 넣는다.
+- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정)
 
 
 ### V3. pointerdown에서 포인터를 capture하면 click 대상이 capture 요소로 바뀌어 위임 클릭이 죽는다 (1회)

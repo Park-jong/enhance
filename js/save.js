@@ -16,7 +16,7 @@
   const STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned',
     'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold'];
   const V1_STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned'];
-  const USE_KEYS = ['bless', 'protect', 'keepdown', 'sure', 'anvil', 'seal'];
+  const USE_KEYS = C.TRAY_TOGGLES.concat('seal');
 
   const zeros = keys => keys.reduce((o, k) => { o[k] = 0; return o; }, {});
   const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -208,20 +208,24 @@
     return writeRaw(storage, CORRUPT_BACKUP_KEY, raw) ? 'written' : 'failed';
   }
 
+  const loadResult = (state, source) => ({ state, source });
+  /** 손상 결과: backedUp은 keptAt에서 파생해 두 값이 어긋나지 않게 한다 */
+  const corruptResult = (now, keptAt, earlierBackupAt) => ({
+    state: defaultState(now),
+    source: 'corrupt',
+    backedUp: keptAt === CORRUPT_BACKUP_KEY,
+    keptAt,
+    earlierBackupAt,
+  });
+
   function corruptV2Result(storage, raw, now) {
     const outcome = backupCorrupt(storage, raw);
-    const backedUp = outcome === 'written' || outcome === 'same';
-    return {
-      state: defaultState(now),
-      source: 'corrupt',
-      backedUp,
-      keptAt: backedUp ? CORRUPT_BACKUP_KEY : null,
-      earlierBackupAt: outcome === 'occupied' ? CORRUPT_BACKUP_KEY : null,
-    };
+    const kept = outcome === 'written' || outcome === 'same';
+    return corruptResult(now, kept ? CORRUPT_BACKUP_KEY : null, outcome === 'occupied' ? CORRUPT_BACKUP_KEY : null);
   }
 
   /**
-   * 로드 규칙: v2 → (없으면) v1 마이그레이션 후 v2로 저장(v1 키는 남김) → 기본 상태.
+   * 로드 규칙: v2 → (없거나 빈 문자열이면) v1 마이그레이션 후 v2로 저장(v1 키는 남김) → 기본 상태.
    * source: 'v2' | 'v1' | 'new' | 'corrupt'
    * 읽을 수 없는 v2는 곧 새 게임으로 덮어쓰이므로 먼저 CORRUPT_BACKUP_KEY에 원문을 남긴다(backedUp).
    * keptAt: 이번 손상 원문이 남아 있는 키(v2 백업 키, 또는 덮어쓰지 않는 v1 키). 남지 않았으면 null
@@ -229,23 +233,23 @@
    */
   function load(storage, now) {
     const raw2 = read(storage, C.SAVE_KEY);
-    if (raw2 !== null && raw2 !== undefined) {
+    // 빈 문자열은 손상이 아니라 '저장 없음': 유효한 v1이 손상 처리에 가려지지 않게 한다
+    if (!isEmpty(raw2)) {
       const d = parse(raw2);
-      if (isObj(d)) return { state: normalize(d, now), source: 'v2' };
+      if (isObj(d)) return loadResult(normalize(d, now), 'v2');
       return corruptV2Result(storage, raw2, now);
     }
     // legacy 키가 없으면(null — 테스트 페이지) v1을 아예 읽지 않는다
     const raw1 = C.SAVE_KEY_V1 ? read(storage, C.SAVE_KEY_V1) : null;
     if (raw1 !== null && raw1 !== undefined) {
       const d = parse(raw1);
-      if (!isObj(d)) {
-        return { state: defaultState(now), source: 'corrupt', backedUp: false, keptAt: C.SAVE_KEY_V1, earlierBackupAt: null };
-      }
+      // 손상된 v1은 덮어쓰지 않으므로 원문은 v1 키에 그대로 남는다
+      if (!isObj(d)) return corruptResult(now, C.SAVE_KEY_V1, null);
       const state = migrateV1(d, now);
       write(storage, C.SAVE_KEY, state);
-      return { state, source: 'v1' };
+      return loadResult(state, 'v1');
     }
-    return { state: defaultState(now), source: 'new' };
+    return loadResult(defaultState(now), 'new');
   }
 
   /** 읽기 전용: 저장소의 유효한 v2 상태(정규화) 또는 null. 백업·마이그레이션 등 어떤 쓰기도 하지 않는다 */

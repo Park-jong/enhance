@@ -40,18 +40,26 @@
   const audio = SG.createAudio(() => S.settings.muted);
   const sfx = cue => audio.play(cue);
 
+  // epoch: 상태를 통째로 바꿀 때(resetUiFor)마다 증가. 진행 중인 강화 연출이 바뀐 상태에 결과를 적용하지 않게 한다
   const ui = {
-    tab: 'shop', dragId: null, armed: {}, busy: false, view: null,
+    tab: 'shop', dragId: null, armed: {}, busy: false, view: null, epoch: 0,
     huntUntil: 0, nextAutoAt: now() + I.autoInterval(S), nextEnhanceAt: 0,
   };
   let lastSaveAt = 0;
-  // 다른 탭이 같은 저장을 쓰기 시작하면 true: 이 탭은 저장·틱·입력을 멈춘다
-  let suspended = false;
+  let saveFailNoticed = false;
+  // 다른 탭이 같은 저장을 쓰기 시작하면 이 탭은 저장·틱·입력을 멈춘다(tabGuard: 아래 '다른 탭과의 충돌 방지')
+  const isSuspended = () => tabGuard.isSuspended();
 
   function persist() {
-    if (suspended) return;
-    SV.save(storage, S, now());
+    if (isSuspended()) return;
+    if (!SV.save(storage, S, now())) noticeSaveFailedOnce();
     lastSaveAt = now();
+  }
+  // 저장 실패는 틱마다 반복되므로 이번 세션에 한 번만 알린다
+  function noticeSaveFailedOnce() {
+    if (saveFailNoticed) return;
+    saveFailNoticed = true;
+    FX.toast(V.SAVE_FAILED_TEXT, 'bad');
   }
   function render() { V.render(S, ui, now()); }
   function afterChange() {
@@ -97,6 +105,7 @@
   }
 
   // 결과별 연출. holdView: 연출이 끝날 때까지 이전 검을 화면에 유지(파괴)
+  // play(r, fx, current): 기다림이 있는 연출은 기다린 뒤 current()가 false면(상태가 바뀜) 멈춘다
   const OUTCOME_FX = {
     success: { play(r, fx) {
       const nsw = C.SWORDS[r.to];
@@ -117,7 +126,7 @@
       sfx('protect');
       FX.log(`파괴될 뻔했지만 보호권 ${r.protectUsed}장으로 +${r.from}을 지켜냈습니다. 이 단계 남은 횟수 ${r.protLeft}`, 'info');
     } },
-    destroy: { holdView: true, async play(r, fx) {
+    destroy: { holdView: true, async play(r, fx, current) {
       const sw = C.SWORDS[r.from];
       if (fx.particles) {
         FX.shake();
@@ -129,6 +138,7 @@
       sfx(resultCue('destroy', fx, 'destroy'));
       FX.log(`+${r.from} ${sw.n}이(가) 산산조각 났습니다... 파편 ${r.shards}개 획득`, 'bad');
       if (fx.shatter) await wait(fx.shatter);
+      if (!current()) return;
       if (r.shards > 0) sfx('shardGain');
       // 다른 검을 자동으로 고르지 않는다(규칙: 활성 없음). 연타가 다른 검의 강화로 이어지지 않게 한다
       ui.view = null;
@@ -179,21 +189,27 @@
     ui.busy = true;
     ui.view = { lv: r.from, chances: r.chances, gauge: r.gaugeBefore };
     render();
+    // 연출 도중 이어받기·새 게임으로 상태가 바뀌면 이 시도의 표시를 버리고, 새 상태의 busy·view도 건드리지 않는다
+    const epoch = ui.epoch;
+    const current = () => ui.epoch === epoch;
 
     if (fx.charge) {
       FX.setSwordAnim('charging');
       sfx('charge');
       await wait(fx.charge);
+      if (!current()) return;
       FX.setSwordAnim(null);
     }
     if (!outcome.holdView) { ui.view = null; render(); }
-    await outcome.play(r, fx);
+    await outcome.play(r, fx, current);
+    if (!current()) return;
     if (r.mastery) {
       const msg = V.masteryToastText(r.mastery);
       FX.toast(msg, 'special');
       FX.log(msg, 'good');
     }
     if (r.anvilBroke) { FX.toast('모루가 파손되었습니다 (수리 필요)', 'bad'); sfx('anvilBreak'); }
+    if (r.ranOut.length) FX.toast(V.ranOutToastText(r.ranOut));
     announceUnlocks(prevBest);
 
     ui.view = null;
@@ -337,7 +353,7 @@
       if (!r.ok) return reject(r.reason);
       afterChange();
     },
-    seal: el => { R.setUse(S, 'seal', el.checked); afterChange(); },
+    seal: el => { R.setSeal(S, el.checked); afterChange(); },
     auto: el => setAuto(el.checked),
   };
 
@@ -347,28 +363,35 @@
     $('#modal').hidden = false;
     FX.log(`자리 비운 동안 ${fmt(r.gold)}G를 벌었습니다.`, 'gold');
   }
+  let stripDrag = null;
+  const cancelDrag = () => { if (stripDrag) stripDrag.cancel(); };
+  /**
+   * 상태를 통째로 바꿀 때(이어받기·새 게임) 이전 상태에 묶인 UI 상태를 모두 버린다:
+   * 드래그 제스처(V1), 진행 중인 강화 연출(epoch·busy·view·검 애니메이션), 2회 클릭 확인, 강화·자동 사냥 시각
+   */
+  function resetUiFor(state, t) {
+    cancelDrag();
+    S = state;
+    ui.epoch++;
+    FX.setSwordAnim(null);
+    // 이 탭의 옛 자동 사냥 시각을 두면, 다른 탭이 이미 지급한 몫을 catch-up으로 다시 지급한다
+    Object.assign(ui, { view: null, busy: false, armed: {}, nextEnhanceAt: 0, nextAutoAt: t + I.autoInterval(state) });
+  }
   /**
    * 저장소의 유효한 v2 상태를 이어받는다. force가 아니면 다른 탭이 더 나중에 저장했을 때(lastSeen이 더 최근)만.
    * 오래된 탭이 옛 lastSeen으로 오프라인 보상을 다시 받고 최신 저장을 덮어쓰는 것을 막는다.
    * 이 탭의 저장이 실패해 저장소 쪽이 더 오래된 경우에는 메모리 상태를 유지한다.
    */
-  let stripDrag = null;
-  const cancelDrag = () => { if (stripDrag) stripDrag.cancel(); };
   function adoptStoredSave(t, force) {
     const latest = SV.peek(storage, t);
     if (!latest || (!force && latest.idle.lastSeen <= S.idle.lastSeen)) return;
-    cancelDrag();
-    S = latest;
-    // 이 탭의 옛 자동 사냥 시각을 두면, 다른 탭이 이미 지급한 몫을 catch-up으로 다시 지급한다
-    ui.nextAutoAt = t + I.autoInterval(S);
-    ui.view = null;
-    ui.busy = false;
-    ui.armed = {};
+    resetUiFor(latest, t);
   }
-  function resume(forceAdopt = false) {
-    if (suspended) return;
+  /** 복귀 정산: 다른 탭의 더 최근 저장을 이어받고, 오프라인 수입을 한 번 정산한다 */
+  function resume() {
+    if (isSuspended()) return;
     const t = now();
-    adoptStoredSave(t, forceAdopt);
+    adoptStoredSave(t, false);
     const off = I.settleOffline(S, t);
     if (off) ui.nextAutoAt = t + I.autoInterval(S);
     Q.refreshQuests(S, t, rng);
@@ -377,7 +400,7 @@
     if (off && off.gold > 0) showOffline(off);
   }
   function tick() {
-    if (suspended || document.hidden) return;   // 숨김 동안은 복귀 정산(resume)이 처리
+    if (isSuspended() || document.hidden) return;   // 숨김 동안은 복귀 정산(resume)이 처리
     const t = now();
     // 탭 동결 등으로 visibilitychange 없이 오래 멈췄다 깨어난 경우도 복귀 정산으로 처리
     if (t - S.idle.lastSeen >= C.OFFLINE_MIN_SEC * 1000) return resume();
@@ -390,33 +413,24 @@
   }
 
   // ============================================================ 다른 탭과의 충돌 방지
-  // 같은 저장 키를 다른 탭이 쓰면(storage 이벤트) 이 탭을 멈추고, 사용자가 고르면 최신 저장을 이어받아 계속한다.
-  // 잠금 화면 뒤의 조작부에 키보드 포커스가 닿지 않게 한다
-  function setLocked(locked) {
-    $('#tabLock').hidden = !locked;
-    $('header').inert = locked;
-    $('main').inert = locked;
-  }
+  // 같은 저장 키를 다른 탭이 쓰면 이 탭을 멈추고(잠금 화면은 js/tab-guard.js), 사용자가 고르면 최신 저장을 이어받아 계속한다
   function suspendForOtherTab() {
-    if (suspended) return;
-    suspended = true;
     cancelDrag();
     ui.armed = {};
     $('#modal').hidden = true;
     $('#settingsPop').hidden = true;
-    setLocked(true);
   }
   /** 사용자가 이 탭을 고르면 저장소의 유효한 저장을 무조건 이어받는다(없으면 메모리 상태로 계속) */
   function takeOver() {
-    suspended = false;
-    setLocked(false);
-    resume(true);
+    adoptStoredSave(now(), true);
+    resume();
   }
-  // key === null: 다른 탭의 localStorage.clear()도 저장 변경으로 본다
-  root.addEventListener('storage', e => { if (e.key === C.SAVE_KEY || e.key === null) suspendForOtherTab(); });
-  $('#btnTakeover').addEventListener('click', takeOver);
-  /** 멈춘 동안에는 입력을 무시 */
-  const whenActive = fn => (...args) => (suspended ? undefined : fn(...args));
+  const tabGuard = SG.createTabGuard({
+    win: root, key: C.SAVE_KEY, storageArea: storage,
+    overlay: $('#tabLock'), takeoverButton: $('#btnTakeover'), inertEls: [$('header'), $('main')],
+    onSuspend: suspendForOtherTab, onTakeOver: takeOver,
+  });
+  const whenActive = tabGuard.whenActive;
 
   // ============================================================ 이벤트
   document.addEventListener('click', whenActive(e => {
@@ -444,9 +458,8 @@
   }));
   /** 현재 저장 키(C.SAVE_KEY)의 진행을 새 게임으로 덮어쓴다 */
   function startNewGame() {
-    cancelDrag();
-    S = SV.defaultState(now());
-    Object.assign(ui, { armed: {}, view: null, nextEnhanceAt: 0, nextAutoAt: now() + I.autoInterval(S) });
+    const t = now();
+    resetUiFor(SV.defaultState(t), t);
     $('#log').innerHTML = '';
     $('#settingsPop').hidden = true;
     persist();
@@ -462,11 +475,11 @@
   // 보관함 칸 드래그: 놓은 자리로 순서만 바꾼다(활성 검은 그대로). 강화 연출 중·탭 잠금 중에는 시작하지 않는다
   stripDrag = SG.createStripDrag($('#strip'), {
     item: '[data-sword]',
-    canStart: () => !suspended && !ui.busy,
+    canStart: () => !isSuspended() && !ui.busy,
     onStart: id => { ui.dragId = id; },
     onEnd: (id, toIndex) => {
       ui.dragId = null;
-      const r = toIndex === null || suspended || ui.busy ? null : R.moveSword(S, id, toIndex);
+      const r = toIndex === null || isSuspended() || ui.busy ? null : R.moveSword(S, id, toIndex);
       if (r && r.ok && r.moved) afterChange();
       else render();
     },

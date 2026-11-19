@@ -64,3 +64,10 @@
 - 산출물: js/strip-drag.js (pointerdown의 마우스·펜 setPointerCapture 제거, begin()의 캡처만 유지)
 - 결정 사항: 포인터 캡처 시 Chrome이 click을 #strip으로 재지정해 data-act 위임이 죽던 문제 해결. 실제 Chrome CDP(cdp2.js)로 확인: 3번째 카드 클릭 시 활성 1→3, 1번 카드를 3번 뒤로 드래그하면 순서 2,3,1,... 및 활성 유지, 스트립 밖 릴리스 후 .dragging/.drag-on 없음. 테스트 run-tests 189, smoke-dom 152, m1-qa 29, round2 36, m1.1-qa 189 통과. stub로 클릭 재지정을 볼 수 없어 smoke-dom 검사는 추가하지 않음.
 - 남은 문제: 임계값 전에 스트립 밖에서 버튼을 떼면 제스처가 대기 상태로 남으나 무해(다음 pointermove/pointerdown에서 정리). 커밋 안 함.
+
+## 2026-11-19 — REQ-012 M1 QA 권장 수정 묶음 (3-3)
+- 지시: 디렉터 / 관련 단계: 3단계 3-3 / 처리한 요청: REQ-012 (항목 1,3~12, 13 중 setSeal만. 진행 중 상태 유지)
+- 참여 팀원: client-programmer
+- 산출물: js/tab-guard.js(신규), js/main.js, save.js, rules.js, idle.js, view.js, fx.js, constants.js, css/style.css, index.html, test.html, tests/run-tests.js(208), tests/smoke-dom.js(182)
+- 결정 사항: 저장소 clear 이벤트는 storageArea가 같거나 없을 때 잠금(기존 스모크 5g 유지). 의뢰 탭 배지는 납품 가능 개수. backedUp은 keptAt에서 파생해 외부 계약 유지. setUse는 토글 전용, 인장은 setSeal. MAX_PARTICLES=400. 테스트: run-tests 208, smoke-dom 182, m1-qa 29, m1.1-qa 189 통과, round2 34/36.
+- 남은 문제: QA 소유 round2 테스트 2건(main.js wiring, AC 17)이 main.js 소스 문자열을 검사해 탭 가드 분리로 실패 → QA 갱신 필요. tools/sim-late/selfcheck는 HEAD에서도 실패(REQ-024). 항목 2는 REQ-013, rules.js 분리는 M2. 설계 문서 3건 갱신 필요(m1-overview 73행 배지, constants-index MAX_PARTICLES, m1-storage 빈 v2/clear). 커밋 안 함.

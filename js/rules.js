@@ -137,13 +137,23 @@
   }
 
   const sealActive = S => !!S.use.seal && S.inv.seal > 0;
+  const sealedGold = amount => Math.floor(amount * C.SEAL_MULT);
+  /** 표시용: 지금 판매·납품하면 받을 골드(인장이 켜져 있으면 배율 적용, 소모 없음) */
+  const payoutPreview = (S, amount) => (sealActive(S) ? sealedGold(amount) : amount);
 
   /** 인장이 켜져 있으면 골드에 배율을 걸고 1장 소모 (판매·납품 공통) */
   function payWithSeal(S, amount) {
     if (!sealActive(S)) return { gold: amount, sealed: false };
     S.inv.seal--;
     S.use.seal = false;
-    return { gold: Math.floor(amount * C.SEAL_MULT), sealed: true };
+    return { gold: sealedGold(amount), sealed: true };
+  }
+
+  /** 감정 인장 켜기/끄기(트레이 토글과 달리 판매·납품에 쓰인다) */
+  function setSeal(S, on) {
+    if (on && S.inv.seal <= 0) return fail('noStock');
+    S.use.seal = !!on;
+    return { ok: true };
   }
 
   function sellSword(S, id) {
@@ -260,17 +270,10 @@
     return use;
   };
 
-  const isUseKey = id => id === 'seal' || C.TRAY_TOGGLES.includes(id);
-
-  /** 토글 변경. 확정 강화권을 켜면 나머지 토글은 강제 해제 */
+  /** 트레이 토글 변경(감정 인장은 setSeal). 확정 강화권을 켜면 나머지 토글은 강제 해제 */
   function setUse(S, id, on) {
-    if (!isUseKey(id)) return fail('notFound');
+    if (!C.TRAY_TOGGLES.includes(id)) return fail('notFound');
     if (!on) { S.use[id] = false; return { ok: true }; }
-    if (id === 'seal') {
-      if (S.inv.seal <= 0) return fail('noStock');
-      S.use.seal = true;
-      return { ok: true };
-    }
     const block = trayState(S)[id].block;
     if (block) return fail(block);
     S.use[id] = true;
@@ -278,11 +281,17 @@
     return { ok: true };
   }
 
-  /** 보유량이 0이거나 장착 모루가 쓸 수 없으면 토글 해제 (단계 조건은 표시에서만 무효 처리) */
+  /**
+   * 보유량이 0이거나 장착 모루가 쓸 수 없으면 토글 해제 (단계 조건은 표시에서만 무효 처리).
+   * 반환: 보유량이 0이 되어 이번에 켜짐 → 꺼짐으로 바뀐 소모품 id 목록
+   */
   function cleanupUse(S) {
-    C.CONSUMABLES.forEach(id => { if (hasOwn(S.use, id) && S.inv[id] <= 0) S.use[id] = false; });
+    const empty = C.CONSUMABLES.filter(id => hasOwn(S.use, id) && S.inv[id] <= 0);
+    const ranOut = empty.filter(id => S.use[id]);
+    empty.forEach(id => { S.use[id] = false; });
     const a = equippedAnvil(S);
     if (!a || a.dura <= 0) S.use.anvil = false;
+    return ranOut;
   }
 
   // 성공률 보너스를 주는 토글 → 그 보너스를 뺀 확률 옵션
@@ -426,7 +435,8 @@
     // 테스트 페이지의 강제 성공은 진행 기록이 아니다(m1.1 §3.1)
     r.mastery = ch.forced ? null : recordLateProgress(S, l, r.outcome);
     if (anvil && anvil.dura <= 0) r.anvilBroke = true;
-    cleanupUse(S);
+    // 이번 시도로 다 써서 자동으로 꺼진 트레이 소모품(화면 알림용)
+    r.ranOut = cleanupUse(S).filter(id => C.TRAY_TOGGLES.includes(id));
     return r;
   }
 
@@ -509,7 +519,7 @@
     gaugeIndex, masteryIndex, masteryBonus, masteryCount, gaugeInfo, isGaugeFull, enhanceOpts, currentChances,
     // 보관함
     findSword, activeSword, bestSword, topLv, createSword, removeSword, moveSword, buySword, setActive, sellSword,
-    expandCost, expandSlots, sealActive, payWithSeal,
+    expandCost, expandSlots, sealActive, payoutPreview, payWithSeal, setSeal,
     // 아이템
     findAnvil, equippedAnvil, addAnvil, capacityFor, grantItem,
     // 강화

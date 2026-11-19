@@ -14,10 +14,17 @@
   const fail = reason => ({ ok: false, reason });
 
   const autoUnlocked = S => R.isUnlocked(S, 'idle');
-  const autoInterval = S => C.AUTO_CD_MS - S.idle.up.speed * C.UP_SPEED_STEP;
-  const offlineCapH = S => C.OFFLINE_CAP_H + S.idle.up.offline * C.UP_OFFLINE_STEP_H;
+  // 업그레이드 레벨 n의 효과 값: speed=자동 사냥 간격(ms), gold=골드 배율, offline=오프라인 상한(시간)
+  const UP_VALUE = {
+    speed: n => C.AUTO_CD_MS - n * C.UP_SPEED_STEP,
+    gold: n => 1 + C.UP_GOLD_STEP * n,
+    offline: n => C.OFFLINE_CAP_H + n * C.UP_OFFLINE_STEP_H,
+  };
+  const upgradeValue = (id, n) => UP_VALUE[id](n);
+  const autoInterval = S => UP_VALUE.speed(S.idle.up.speed);
+  const offlineCapH = S => UP_VALUE.offline(S.idle.up.offline);
   const offlineCapMs = S => offlineCapH(S) * HOUR_MS;
-  const goldUpFactor = S => 1 + C.UP_GOLD_STEP * S.idle.up.gold;
+  const goldUpFactor = S => UP_VALUE.gold(S.idle.up.gold);
   const boostFactorAt = (S, t) => (R.boostActiveAt(S, t) ? C.BOOSTER_MULT : 1);
 
   // ============================================================ 수동 사냥
@@ -111,7 +118,7 @@
   const idleActionable = S => C.UPGRADES.some(u => upgradeBlock(S, u.id) === null);
 
   return {
-    autoUnlocked, autoInterval, offlineCapH, offlineCapMs, goldUpFactor,
+    autoUnlocked, upgradeValue, autoInterval, offlineCapH, offlineCapMs, goldUpFactor,
     manualHuntGold, manualHunt, autoRunGold, setAutoOn, runAutoCatchup, settleOffline,
     upgradeCost, nextUpgradeCost, upgradeBlock, buyUpgrade, idleActionable,
   };

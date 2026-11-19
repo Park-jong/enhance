@@ -62,13 +62,16 @@
   ];
   const TAB_DOT = {
     forge: S => F.forgeActionable(S),
-    quests: S => Q.deliverableSlots(S).length > 0,
     idle: S => I.idleActionable(S),
   };
+  // 탭 이름 옆 개수 배지(0이면 숨김). 의뢰: 지금 납품할 수 있는 의뢰 수
+  const TAB_COUNT = {
+    quests: S => Q.deliverableSlots(S).length,
+  };
   const UP_EFFECT = {
-    speed: n => `간격 ${(C.AUTO_CD_MS - n * C.UP_SPEED_STEP) / 1000}초`,
-    gold: n => `자동·오프라인 골드 +${Math.round(n * C.UP_GOLD_STEP * 100)}%`,
-    offline: n => `오프라인 상한 ${C.OFFLINE_CAP_H + n * C.UP_OFFLINE_STEP_H}시간`,
+    speed: n => `간격 ${I.upgradeValue('speed', n) / 1000}초`,
+    gold: n => `자동·오프라인 골드 +${Math.round((I.upgradeValue('gold', n) - 1) * 100)}%`,
+    offline: n => `오프라인 상한 ${I.upgradeValue('offline', n)}시간`,
   };
   const STATS = [
     ['최고 강화', S => '+' + S.best], ['강화 시도', S => fmt(S.stats.tries)], ['성공', S => fmt(S.stats.success)],
@@ -76,6 +79,8 @@
     ['보호 성공', S => fmt(S.stats.protectSaved)], ['획득 파편', S => fmt(S.stats.shardsGained)], ['납품', S => fmt(S.stats.delivered)],
     ['모루 제작', S => fmt(S.stats.crafted)], ['사냥 골드', S => fmt(S.stats.huntGold)], ['오프라인 골드', S => fmt(S.stats.offlineGold)],
   ];
+
+  const SAVE_FAILED_TEXT = '저장하지 못했습니다. 브라우저 저장 공간을 확인하세요.';
 
   const swordName = lv => `+${lv} ${C.SWORDS[lv].n}`;
   const NO_ACTIVE_TEXT = '보관함에서 강화할 검을 선택하세요';
@@ -167,7 +172,7 @@
       : '';
     const sw = R.activeSword(S);
     if (!sw) return `<div class="sel-name">활성 검 없음 · ${NO_ACTIVE_TEXT}</div>${seal}`;
-    const price = R.sealActive(S) ? Math.floor(R.sell(sw.lv) * C.SEAL_MULT) : R.sell(sw.lv);
+    const price = R.payoutPreview(S, R.sell(sw.lv));
     const qSlot = Q.slotForSword(S, sw);
     const sellArmed = isArmed(ui, 'sell:' + sw.id, now);
     const delArmed = isArmed(ui, 'deliverSword:' + sw.id, now);
@@ -474,7 +479,7 @@
     if (!q) return `<div class="quest"><div class="q-head">${badge} 새 의뢰 준비 중</div><div class="q-sub">다음 의뢰까지 ${until(S.quests.readyAt[i])}</div></div>`;
     const cand = Q.candidate(S, q);
     const sealOn = R.sealActive(S);
-    const gold = sealOn ? Math.floor(q.gold * C.SEAL_MULT) : q.gold;
+    const gold = R.payoutPreview(S, q.gold);
     const reward = `${ic('gold')} ${fmt(gold)}G${sealOn ? ` (인장 ×${C.SEAL_MULT})` : ''}${q.item ? ' + ' + itemLabel(q.item.id, q.item.n) : ''}`;
     const have = S.swords.map(s => '+' + s.lv).join(', ');
     let sub;
@@ -513,7 +518,7 @@
     const boostLeft = R.boostRemainingMs(S, now);
     const booster = `<div class="row"><div class="shop-icon">${ic('booster')}</div>
       <div class="shop-text">${C.ITEMS.booster.name} <span class="muted">보유 ${S.inv.booster}</span>
-        <small>${boostLeft > 0 ? `적용 중 · 남은 시간 ${until(S.idle.boostUntil)}` : '사용 시 10분간 골드 ×' + C.BOOSTER_MULT} (최대 ${C.BOOSTER_MAX_MIN}분)</small></div>
+        <small>${boostLeft > 0 ? `적용 중 · 남은 시간 ${until(S.idle.boostUntil)}` : `사용 시 ${C.BOOSTER_DURATION_MIN}분간 골드 ×${C.BOOSTER_MULT}`} (최대 ${C.BOOSTER_MAX_MIN}분)</small></div>
       <button class="small-btn" data-act="useBooster" ${S.inv.booster <= 0 || !R.canExtendBoost(S, now) ? 'disabled' : ''}>사용</button></div>`;
     return `<h3 class="sub-title">자동 사냥</h3>${status}<h3 class="sub-title">업그레이드</h3>${ups}
       <h3 class="sub-title">부스터</h3>${booster}
@@ -529,12 +534,18 @@
 
   function tabUnlocked(S, tab) { return !tab.unlock || R.isUnlocked(S, tab.unlock); }
 
+  /** 탭 알림 표시: 개수 배지(있고 1 이상) 또는 점 */
+  function tabMarkHTML(S, id) {
+    const count = TAB_COUNT[id] ? TAB_COUNT[id](S) : 0;
+    if (count > 0) return `<span class="tab-count">${count}</span>`;
+    return TAB_DOT[id] && TAB_DOT[id](S) ? '<span class="dot"></span>' : '';
+  }
+
   function renderTabs(S, ui, now) {
     setHTML($('#tabbar'), TABS.map(t => {
       const locked = !tabUnlocked(S, t);
-      const dot = !locked && TAB_DOT[t.id] && TAB_DOT[t.id](S);
       return `<button class="tab-btn ${ui.tab === t.id ? 'on' : ''}" data-act="tab" data-id="${t.id}">
-        <span class="ti">${locked ? ic('lock') : ic(t.id)}</span>${t.name}${dot ? '<span class="dot"></span>' : ''}</button>`;
+        <span class="ti">${locked ? ic('lock') : ic(t.id)}</span>${t.name}${locked ? '' : tabMarkHTML(S, t.id)}</button>`;
     }).join(''));
     TABS.forEach(t => {
       const panel = document.querySelector(`[data-panel="${t.id}"]`);
@@ -559,6 +570,8 @@
 
   /** 새 숙련 기록 토스트 문구(기록 1회당 1번) */
   const masteryToastText = m => `+${m.lv} 숙련! 이후 +${m.lv} 강화 성공률 +${m.gained}%p`;
+  /** 다 써서 자동으로 꺼진 트레이 소모품 토스트(시도 1회당 1번) */
+  const ranOutToastText = ids => `${ids.map(id => itemText(id)).join(', ')}을(를) 다 써서 사용을 껐습니다.`;
 
   // ============================================================ 정적 요소
   /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지) */
@@ -608,6 +621,6 @@
 
   SG.view = {
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
-    swordName, itemLabel, itemText, fmtDuration, masteryToastText,
+    swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, SAVE_FAILED_TEXT,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -185,6 +185,7 @@
   const SKIP_KEEP_DESTROY_LV = 10;
   const SKIP_MIN_INTERVAL_MS = 250;
   const SKIP_RESULT_MS = 500;
+  const MAX_PARTICLES = 400;               // 동시에 그리는 파티클 상한(연타 시 프레임 저하 방지). 한 번의 최대 버스트는 140개
 
   // ---------------------------------------------------------------- 7. 소모품
   const PRICE = { bless: 1500, protect: 4000, keepdown: 3000, sure: 1500, seal: 2000 };
@@ -208,12 +209,12 @@
   // ---------------------------------------------------------------- 아이템 정의 (데이터 주도)
   // kind: consumable(inv 스택) / anvil(장비 인스턴스) / shard(파편)
   const ITEMS = {
-    bless:    { kind: 'consumable', name: '축복 주문서',     desc: '이번 강화 성공 확률 +10%p (사용 시 소모)' },
-    protect:  { kind: 'consumable', name: '파괴 보호권',     desc: '파괴될 때 대신 소모 · 한 단계에서 최대 2회 (발동 시 소모)' },
-    keepdown: { kind: 'consumable', name: '하락 방지 주문서', desc: '+10~+14에서 실패해도 하락하지 않음 (발동 시 소모)' },
-    sure:     { kind: 'consumable', name: '확정 강화권',     desc: '+9 이하에서 성공 100% · 파괴 0% (사용 시 소모)' },
-    booster:  { kind: 'consumable', name: '골드 부스터',     desc: '10분간 사냥·자동·오프라인 골드 ×1.5' },
-    seal:     { kind: 'consumable', name: '감정 인장',       desc: '다음 판매 또는 납품 골드 ×1.3' },
+    bless:    { kind: 'consumable', name: '축복 주문서',     desc: `이번 강화 성공 확률 +${BLESS_BONUS}%p (사용 시 소모)` },
+    protect:  { kind: 'consumable', name: '파괴 보호권',     desc: `파괴될 때 대신 소모 · 한 단계에서 최대 ${PROTECT_USES}회 (발동 시 소모)` },
+    keepdown: { kind: 'consumable', name: '하락 방지 주문서', desc: `+${DROP_FROM}~+${KEEPDOWN_MAX_LV - 1}에서 실패해도 하락하지 않음 (발동 시 소모)` },
+    sure:     { kind: 'consumable', name: '확정 강화권',     desc: `+${SURE_MAX_TARGET - 1} 이하에서 성공 100% · 파괴 0% (사용 시 소모)` },
+    booster:  { kind: 'consumable', name: '골드 부스터',     desc: `${BOOSTER_DURATION_MIN}분간 사냥·자동·오프라인 골드 ×${BOOSTER_MULT}` },
+    seal:     { kind: 'consumable', name: '감정 인장',       desc: `다음 판매 또는 납품 골드 ×${SEAL_MULT}` },
     anvil_1:  { kind: 'anvil', g: 1, name: '철 모루' },
     anvil_2:  { kind: 'anvil', g: 2, name: '강철 모루' },
     anvil_3:  { kind: 'anvil', g: 3, name: '미스릴 모루' },
@@ -266,7 +267,7 @@
     AUTO_UNLOCK_BEST, AUTO_CD_MS, AUTO_COST_RATIO, AUTO_MIN, AUTO_CATCHUP_MAX,
     OFFLINE_CAP_H, OFFLINE_EFF, OFFLINE_MIN_SEC,
     UP_MAX, UP_SPEED_STEP, UP_GOLD_STEP, UP_OFFLINE_STEP_H, UP_COST_BASE, UP_COST_GROWTH, UPGRADES,
-    SKIP_KEEP_LV, SKIP_KEEP_DESTROY_LV, SKIP_MIN_INTERVAL_MS, SKIP_RESULT_MS,
+    SKIP_KEEP_LV, SKIP_KEEP_DESTROY_LV, SKIP_MIN_INTERVAL_MS, SKIP_RESULT_MS, MAX_PARTICLES,
     PRICE, BOOSTER_PRICE_MIN, BOOSTER_PRICE_HUNT_MULT, BOOSTER_PRICE_ROUND, KEEPDOWN_MAX_LV, SURE_MAX_TARGET,
     BOOSTER_MULT, BOOSTER_DURATION_MIN, BOOSTER_MAX_MIN, SEAL_MULT, CONSUMABLES, TRAY_TOGGLES,
     FORGE_UNLOCK_BEST, BOOSTER_SEAL_UNLOCK_BEST, UNLOCK,

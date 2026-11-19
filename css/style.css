@@ -381,6 +381,10 @@ main {
 .tab-btn .ti { font-size: 17px; line-height: 1; }
 .tab-btn.on { background: var(--panel2); color: var(--text); }
 .tab-btn .dot { position: absolute; top: 5px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.tab-btn .tab-count {
+  position: absolute; top: 2px; right: calc(50% - 24px); min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--bad); color: #fff; font-size: 11px; line-height: 16px; text-align: center;
+}
 .tab-panel { min-height: 120px; }
 .locked-msg { text-align: center; color: var(--muted); padding: 24px 8px; font-size: 14px; line-height: 1.6; }
 .locked-msg b { display: block; font-size: 28px; margin-bottom: 6px; }

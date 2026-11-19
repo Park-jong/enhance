@@ -360,7 +360,7 @@
     "priority": "P2",
     "priorityReason": "M1은 QA 승인 완료. 모두 드문 경우의 정합성·접근성·코드 품질 개선이라 다음 마일스톤에서 처리",
     "milestone": "M2 장기 플레이",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-17",
     "history": [
       {
@@ -368,6 +368,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P2"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "3-3 작업 시작. 항목 2는 REQ-013(3-4)로 이관, 13의 rules.js 분리는 M2로 이월."
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "항목 1, 3~12와 13의 setSeal 분리를 완료했다. QA 승인(2026-11-19, 사이클 1). 항목 2는 3-4 REQ-013으로, rules.js 책임 분리는 M2로 넘겼다. 새 파일 js/tab-guard.js"
       }
     ]
   },
@@ -661,7 +673,7 @@
     "priority": "P1",
     "priorityReason": "현재 3단계에서 바뀐 동작이고, 기획서와 QA 체크리스트가 실제 동작과 어긋남",
     "milestone": "3단계 3-6",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-18",
     "history": [
       {
@@ -669,6 +681,24 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "설계 문서를 3-6 동작에 맞게 갱신 시작"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "문서 반영 완료(디렉터 QA 확인 대기): m1-storage, m1-overview, m1-constants-index, m1-protect-shards"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "기획 팀이 m1-storage.md, m1-constants-index.md, m1-overview.md, m1-protect-shards.md를 3-6 동작에 맞게 수정했다. QA 가벼운 검증에서 승인(2026-11-19, 사이클 1)"
       }
     ]
   },
@@ -708,6 +738,69 @@
     "history": [
       {
         "at": "2026-11-18",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
+  },
+  {
+    "id": "REQ-026",
+    "from": "tech",
+    "to": "design",
+    "kind": "feedback",
+    "title": "REQ-012 이후 기획서 갱신 (의뢰 탭 배지, 빈 v2, 저장소 clear 잠금, MAX_PARTICLES)",
+    "detail": "REQ-012 구현으로 코드가 바뀌었지만 기획서는 예전 내용이다.\n1) docs/design/m1-overview.md 73행: 의뢰 탭 알림 점 → 납품 가능한 의뢰 수 배지(0이면 숨김). m1-quest.md 57행과 맞춘다.\n2) m1-constants-index.md: MAX_PARTICLES=400(연출 전용, 오래된 파티클부터 버림)을 추가한다.\n3) m1-storage.md에 아래 내용을 반영한다.\n- 빈 문자열 v2는 저장 없음으로 보고 v1을 이전한다.\n- 다른 탭이 저장소를 clear(key===null)하면 이 탭의 localStorage이거나 storageArea가 없을 때만 잠근다. sessionStorage clear는 무시한다.\n- 소모품이 떨어져 토글이 자동으로 꺼지면 강화 1회당 토스트를 1번 띄운다.\n- 저장에 실패하면 페이지 세션당 토스트를 1번 띄운다.",
+    "priority": "P1",
+    "priorityReason": "현재 3단계에서 바뀐 동작이고, 4단계 M2 저장 필드 표가 m1-storage.md를 기준으로 하므로 3단계 안에 맞춰야 한다 (REQ-023과 같은 기준)",
+    "milestone": "3단계 3-3",
+    "status": "open",
+    "createdAt": "2026-11-19",
+    "history": [
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      }
+    ]
+  },
+  {
+    "id": "REQ-027",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "main.js의 tabGuard를 persist·resume보다 먼저 정의",
+    "detail": "js/main.js에서 tabGuard는 약 428행에서 const로 정의된다. 그런데 그보다 앞에 정의된 isSuspended()와 persist()가 tabGuard를 참조한다. 지금은 초기화 중에 이 함수들이 그보다 먼저 호출되지 않아서 동작한다. 나중에 초기화 순서가 바뀌면 TDZ 오류가 날 수 있다. 가드 생성을 위로 옮기거나 주석을 남긴다.",
+    "priority": "P3",
+    "priorityReason": "현재 동작에는 문제가 없는 잠재 위험이라 백로그",
+    "milestone": "3단계 3-3",
+    "status": "open",
+    "createdAt": "2026-11-19",
+    "history": [
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
+  },
+  {
+    "id": "REQ-028",
+    "from": "tech",
+    "to": "design",
+    "kind": "feedback",
+    "title": "빈 문자열 v1 저장도 저장 없음으로 볼지 결정",
+    "detail": "REQ-012 3번으로 빈 문자열 v2는 저장 없음으로 처리한다. 그러나 빈 문자열 v1은 지금도 손상된 v1으로 표시된다. v1도 같은 방식으로 처리할지 정해 달라. 저장 안전 정책(REQ-013, 3-4)과 함께 정하면 된다.",
+    "priority": "P3",
+    "priorityReason": "거의 발생하지 않는 경우의 개선 제안이고 데이터 손실은 없음. REQ-013 결정 때 함께 보면 된다",
+    "milestone": "3단계 3-4",
+    "status": "open",
+    "createdAt": "2026-11-19",
+    "history": [
+      {
+        "at": "2026-11-19",
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"

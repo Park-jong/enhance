@@ -50,3 +50,10 @@
 - 산출물: docs/verification-issues.md (V3 해소 확인 문구)
 - 결정 사항: APPROVED. 스위트 5종 통과(189/152/29/36/189). CDP: 3번째 카드 클릭 활성 전환, 1번 카드를 3번 뒤로 드래그 시 순서 2,3,1이고 활성 검 유지, 밖에서 놓기 후 .dragging/.drag-on 없음. active:0 저장 로드 시 안내 표시, 강화 버튼 비활성, Space 무반응. 임계값 전 밖에서 놓은 대기 제스처는 다음 move(buttons 없음)나 pointerdown에서 정리되어 허용.
 - 남은 문제: 실제 터치 롱프레스와 스크롤 양보는 실기기 미검증.
+
+## 2026-11-19 — 3단계 3-3 REQ-012 M1 잔여 개선 검증 (1차)
+- 지시: 디렉터 / 관련 단계: 3단계 3-3 / 처리한 요청: REQ-012 검증
+- 참여 팀원: 없음 (스위트 실행·diff 검토·CDP 확인을 직접 수행)
+- 산출물: tests/run-m1-round2-tests.js (정적 검사 2건을 js/tab-guard.js 기준으로 갱신), docs/verification-issues.md (V2 병합, 2회)
+- 결정 사항: APPROVED. 스위트 5종 통과(208/182/29/36/189). headless Chrome CDP로 index.html·test.html에서 저장 이벤트 잠금, 포커스 이동, 이어받기, sessionStorage clear 무시, localStorage clear 잠금 확인, 콘솔 오류 없음.
+- 남은 문제: 두 탭 실제 동시 실행은 StorageEvent 합성으로 대체. 아이콘·배지 시각 확인 미실시.

@@ -327,20 +327,26 @@ describe('two-tab: save sharing and offline settlement', () => {
     assert.ok(latest.idle.lastSeen > stale.idle.lastSeen, 'adoptNewerSave condition');
     assert.strictEqual(I.settleOffline(latest, NOW + 5 * HOUR), null);
   });
-  test('main.js wiring: storage listener, key filter, suspended guards, takeover resumes (static source check)', () => {
+  test('main.js wiring: guard-based storage listener, suspended guards, takeover adopts then resumes (static source check; lock logic moved to js/tab-guard.js in REQ-012)', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf8');
-    assert.ok(/addEventListener\('storage'[^\n]*C\.SAVE_KEY/.test(src), 'storage listener filters SAVE_KEY');
-    assert.ok(/function persist\(\) \{\s*if \(suspended\) return;/.test(src), 'persist guarded');
-    assert.ok(/if \(suspended \|\| document\.hidden\) return;/.test(src), 'tick guarded');
-    assert.ok(/function takeOver\(\)[\s\S]*?resume\(true\);/.test(src), 'takeOver resumes with forced adopt');
+    const guard = fs.readFileSync(path.join(__dirname, '..', 'js', 'tab-guard.js'), 'utf8');
+    assert.ok(/addEventListener\('storage'[^\n]*concernsSave/.test(guard) && /e\.key === opts\.key/.test(guard), 'guard storage listener filters the save key');
+    assert.ok(/createTabGuard\(\{[\s\S]*?key: C\.SAVE_KEY/.test(src), 'main.js passes SAVE_KEY to the guard');
+    assert.ok(/function persist\(\) \{\s*if \(isSuspended\(\)\) return;/.test(src), 'persist guarded');
+    assert.ok(/if \(isSuspended\(\) \|\| document\.hidden\) return;/.test(src), 'tick guarded');
+    assert.ok(/function takeOver\(\)[\s\S]*?adoptStoredSave\(now\(\), true\);[\s\S]*?resume\(\);/.test(src), 'takeOver force-adopts then resumes');
     const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
     assert.ok(/id="tabLock" hidden/.test(html) && /id="btnTakeover"/.test(html));
+    assert.ok(/js\/tab-guard\.js[\s\S]*js\/main\.js/.test(html), 'tab-guard.js loads before main.js');
   });
   test('AC 17: the lock is released only by takeOver (no automatic unlock path)', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf8');
-    const unlocks = src.match(/setLocked\(false\)/g) || [];
-    assert.strictEqual(unlocks.length, 1);
-    assert.ok(/function takeOver\(\) \{[^}]*setLocked\(false\)/.test(src), 'the only unlock is inside takeOver');
+    const guard = fs.readFileSync(path.join(__dirname, '..', 'js', 'tab-guard.js'), 'utf8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf8');
+    assert.strictEqual((main.match(/setLocked\(/g) || []).length, 0, 'main.js never touches the lock directly');
+    // setLocked(false): the takeOver function and the initial (unlocked) state at construction
+    assert.strictEqual((guard.match(/setLocked\(false\)/g) || []).length, 2);
+    assert.ok(/function takeOver\(\) \{[^}]*setLocked\(false\)/.test(guard), 'the only runtime unlock is inside takeOver');
+    assert.ok(/takeoverButton\.addEventListener\('click', takeOver\)/.test(guard));
   });
 });
 

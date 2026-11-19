@@ -45,6 +45,7 @@ class El {
     return new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
   }
   closest() { return null; }
+  focus() { El.focused = this; }
 }
 
 function makeEnv(initialStorage, opts = {}) {
@@ -53,6 +54,20 @@ function makeEnv(initialStorage, opts = {}) {
   const docListeners = {};
   const store = Object.assign({}, initialStorage);
   const timers = [];
+  // opts.manualTimers: setTimeout을 가상 시계 큐에 넣고 테스트가 runTimer로 하나씩 실행한다(연출 순서 재현용)
+  const queue = [];
+  let virtualMs = 0;
+  const queueTimeout = (f, ms) => { queue.push({ f, due: virtualMs + (ms || 0) }); return queue.length; };
+  async function runTimer() {
+    if (!queue.length) return false;
+    const next = queue.reduce((best, t) => (t.due < best.due ? t : best), queue[0]);
+    queue.splice(queue.indexOf(next), 1);
+    virtualMs = next.due;
+    next.f();
+    await new Promise(r => setImmediate(r));   // 깨어난 async 함수가 다음 await까지 진행하게 한다
+    return true;
+  }
+  async function runAllTimers() { while (await runTimer()); }
   const winListeners = {};
   const document = {
     hidden: false,
@@ -69,7 +84,7 @@ function makeEnv(initialStorage, opts = {}) {
     document,
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
     requestAnimationFrame: () => 0,
-    setTimeout: (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),   // 연출 대기를 짧게
+    setTimeout: opts.manualTimers ? queueTimeout : (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),   // 연출 대기를 짧게
     clearTimeout,
     setInterval: f => { timers.push(f); return timers.length; },
     confirm: () => true,
@@ -83,7 +98,7 @@ function makeEnv(initialStorage, opts = {}) {
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1])
     .filter(src => !(opts.withoutAssets && src.startsWith('assets/')));
   scripts.forEach(src => vm.runInContext(fs.readFileSync(path.join(ROOT, src), 'utf8'), ctx, { filename: src }));
-  return { ctx, byId, docListeners, winListeners, store, tick: () => timers.forEach(f => f()), scripts };
+  return { ctx, byId, docListeners, winListeners, store, tick: () => timers.forEach(f => f()), scripts, runTimer, runAllTimers };
 }
 
 function click(env, act, id) {
@@ -120,7 +135,7 @@ async function main() {
 
   // 1) 새 게임: 로드·렌더·저장
   let env = makeEnv({});
-  ok(env.scripts.length === 13, 'all scripts loaded');
+  ok(env.scripts.length === 14, 'all scripts loaded');
   ok(!!env.ctx.M1_ICONS && !!env.ctx.M1_SFX_PLAY, 'content assets loaded');
   ok(env.byId['#tabbar']._html.includes('<svg'), 'content SVG icons used in tabs');
   ok(saved(env).v === 2, 'v2 saved on start');
@@ -389,6 +404,10 @@ async function main() {
   // 8) 테스트 페이지(test.html): 같은 스크립트 + 테스트 설정. 강화 100%, 별도 저장 키, 실제 저장 불가침
   await testPage(ok);
 
+  // 9) 3-3 REQ-012: 연출 중 이어받기·새 게임, 탭 잠금 clear 판정·포커스, 알림 3종
+  await req012(ok);
+  particleCap(ok);
+
   console.log(`smoke-dom: ${checks} checks passed`);
 }
 
@@ -604,11 +623,26 @@ async function stripDrag(ok) {
   ok(!d.card(2).classList.contains('dragging') && d.order() === '1,2,3', 'no drag while the enhance animation runs');
   await pending;
   scanRendered();
+
+  // 끄는 중 다른 탭 잠금·새 게임(resetUiFor): 제스처를 정리하고 순서를 바꾸지 않는다(V1)
+  d = setup([1, 2, 3]);
+  d.pointer('pointerdown', 2, 143); d.pointer('pointermove', 2, 260);
+  fire(d.env, 'storage', { key: 'sword-enhance-v2' });
+  ok(!d.card(2).classList.contains('dragging') && !d.card(3).classList.contains('drop-after'), 'other-tab lock cancels a drag in progress');
+  d.env.byId['#btnTakeover'].listeners.click[0]();
+  d.pointer('pointerup', 2, 260);
+  ok(d.order() === '1,2,3', 'releasing after the lock does not reorder');
+  d.pointer('pointerdown', 2, 143); d.pointer('pointermove', 2, 260);
+  ok(d.card(2).classList.contains('dragging'), 'drag works again after take over');
+  d.env.byId['#btnReset'].listeners.click[0]();
+  ok(!d.card(2).classList.contains('dragging') && saved(d.env).gold === 300, 'new game cancels a drag in progress');
+  key(d.env, 'Space');
+  ok(saved(d.env).stats.tries === 1, 'Space works again after the drag was cancelled by new game');
 }
 
 const TEST_KEY = 'sword-enhance-test';
 const REAL_KEYS = ['sword-enhance-v2', 'sword-enhance-v1', 'sword-enhance-v2-corrupt'];
-// 잠금 화면은 setLocked가 처음 호출될 때 스텁 요소가 생긴다
+// 잠금 화면 스텁은 탭 가드가 시작할 때 만들고 숨긴다
 const isLocked = env => !!env.byId['#tabLock'] && env.byId['#tabLock'].hidden === false;
 const savedTest = env => JSON.parse(env.store[TEST_KEY]);
 const scriptList = page => [...fs.readFileSync(path.join(ROOT, page), 'utf8').matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
@@ -635,7 +669,7 @@ async function testPage(ok) {
   const realUntouched = env => REAL_KEYS.every(k => env.store[k] === realStore[k]);
 
   let env = makeEnv(realStore, { page: 'test.html' });
-  ok(env.scripts.length === 15, 'test page loads all scripts');
+  ok(env.scripts.length === 16, 'test page loads all scripts');
   ok(env.ctx.SG.C.SAVE_KEY === TEST_KEY && env.ctx.SG.config.forceSuccess === true, 'test config applied');
   ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'test page starts its own new game (no v1 migration, no real save)');
   ok(realUntouched(env), 'real v2 / v1 / corrupt-backup keys untouched on test page start');
@@ -690,6 +724,128 @@ async function testPage(ok) {
   click(env, 'testGold');
   ok(saved(env).gold === goldBefore && !(TEST_KEY in env.store), 'real page has no test actions and never writes the test key');
   ok(env.ctx.SG.config.forceSuccess === false && env.byId['#vSucc'].textContent === '95%', 'real page odds unchanged');
+}
+
+/** REQ-012 #11: 파티클 상한과 캔버스 크기 캐시(fx.js만 별도 VM에서 실행) */
+function particleCap(ok) {
+  let draws = 0;
+  let layoutReads = 0;
+  let frame = null;
+  const canvas2d = new Proxy({}, {
+    get: (t, k) => (k === 'arc' || k === 'fillRect' ? () => { draws++; } : (k in t ? t[k] : () => {})),
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  const cv = { width: 0, height: 0, getContext: () => canvas2d, getBoundingClientRect: () => { layoutReads++; return { width: 300, height: 200 }; } };
+  const ctx = { Math, Object, Array, devicePixelRatio: 1, document: { querySelector: () => cv }, requestAnimationFrame: fn => { frame = fn; return 1; } };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  ['js/constants.js', 'js/fx.js'].forEach(src => vm.runInContext(fs.readFileSync(path.join(ROOT, src), 'utf8'), ctx, { filename: src }));
+  const FX = ctx.SG.fx;
+  FX.sizeFx();
+  ok(layoutReads === 1 && cv.width === 300 && cv.height === 200, '#11: sizeFx reads the layout once and sizes the canvas');
+  for (let i = 0; i < 10; i++) FX.burst(['#ffffff'], 140);
+  frame();
+  ok(draws === ctx.SG.C.MAX_PARTICLES, '#11: one frame draws at most MAX_PARTICLES: ' + draws);
+  ok(layoutReads === 1, '#11: bursts and frames use the cached canvas size (no layout read)');
+}
+
+/** 3-3 REQ-012 */
+async function req012(ok) {
+  const KEY = 'sword-enhance-v2';
+  const plainSave = (fields, swords) => {
+    const s = Object.assign(SG_default(), fields);
+    if (swords) { s.swords = swords; s.nextSwordId = 100; s.active = swords[0].id; }
+    return s;
+  };
+  const resultLogs = env => texts(env.byId['#log']).filter(t => /강화 (성공|실패)/.test(t)).length;
+  const enhanceBtn = env => env.byId['#btnEnhance'];
+  const toastTexts = env => (env.byId['#toasts'] ? texts(env.byId['#toasts']) : []);
+
+  // #1 연출 중 이어받기: 이전 시도의 결과는 버리고, 새 상태의 busy를 건드리지 않는다
+  {
+    const env = makeEnv({ [KEY]: JSON.stringify(plainSave({ gold: 1e6, best: 3 }, [{ id: 1, lv: 3, prot: 2, pity: 0 }])) }, { manualTimers: true });
+    const pA = enhanceBtn(env).listeners.click[0]();
+    ok(enhanceBtn(env).disabled, '#1: enhance A animating');
+    const other = plainSave({ gold: 777777, best: 3 }, [{ id: 1, lv: 3, prot: 2, pity: 0 }]);
+    other.idle.lastSeen = Date.now() + 5;
+    env.store[KEY] = JSON.stringify(other);
+    fire(env, 'storage', { key: KEY });
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(!enhanceBtn(env).disabled && saved(env).gold === 777777 && saved(env).stats.tries === 0, '#1: take over mid-animation adopts the other save; enhance usable');
+    const pB = enhanceBtn(env).listeners.click[0]();
+    ok(enhanceBtn(env).disabled, '#1: enhance B started on the adopted state');
+    await env.runTimer();   // A의 충전 대기가 먼저 끝난다
+    ok(enhanceBtn(env).disabled, '#1: stale enhance A does not clear busy while B animates');
+    ok(resultLogs(env) === 0, '#1: stale enhance A shows no result');
+    await env.runAllTimers();
+    await pA; await pB;
+    ok(resultLogs(env) === 1 && saved(env).stats.tries === 1, '#1: only B is shown and recorded on the adopted state');
+    ok(!enhanceBtn(env).disabled, '#1: enhance usable after B');
+    scanRendered();
+  }
+  // #7 연출 중 새 게임도 같은 resetUiFor: 이전 결과를 새 게임에 표시하지 않는다
+  {
+    const env = makeEnv({ [KEY]: JSON.stringify(plainSave({ gold: 1e6, best: 3 }, [{ id: 1, lv: 3, prot: 2, pity: 0 }])) }, { manualTimers: true });
+    const p = enhanceBtn(env).listeners.click[0]();
+    env.byId['#btnReset'].listeners.click[0]();
+    ok(!enhanceBtn(env).disabled && saved(env).gold === 300, '#7: new game mid-animation resets busy');
+    await env.runAllTimers();
+    await p;
+    ok(resultLogs(env) === 0 && saved(env).stats.tries === 0, '#7: the old attempt is not shown on the new game');
+  }
+
+  // #4 storage clear(key null) 판정, #5 잠금 시 '이 탭에서 계속하기'로 포커스
+  {
+    const env = makeEnv({});
+    fire(env, 'storage', { key: null, storageArea: {} });
+    ok(!isLocked(env), '#4: clear() of another storage area (sessionStorage) does not lock');
+    El.focused = null;
+    fire(env, 'storage', { key: null, storageArea: env.ctx.localStorage });
+    ok(isLocked(env), '#4: localStorage.clear() in another tab locks');
+    ok(El.focused === env.byId['#btnTakeover'], '#5: focus moves to the take over button');
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(!isLocked(env), 'take over unlocks');
+  }
+
+  // #6a 마지막 소모품을 써서 토글이 꺼지면 그때 한 번 토스트
+  {
+    const st = plainSave({ gold: 1e6, best: 3 }, [{ id: 1, lv: 3, prot: 2, pity: 0 }]);
+    st.inv.bless = 1; st.use.bless = true;
+    const env = makeEnv({ [KEY]: JSON.stringify(st) });
+    const ranOutToasts = () => toastTexts(env).filter(t => t.includes('축복 주문서') && t.includes('사용을 껐습니다')).length;
+    ok(ranOutToasts() === 0, '#6a: no toast before the attempt');
+    await enhanceBtn(env).listeners.click[0]();
+    ok(saved(env).use.bless === false && saved(env).inv.bless === 0, '#6a: last bless used, toggle off');
+    ok(ranOutToasts() === 1, '#6a: one toast when the toggle was switched off');
+    await enhanceBtn(env).listeners.click[0]();
+    ok(ranOutToasts() === 1, '#6a: no repeat on later attempts');
+  }
+
+  // #6b 의뢰 탭 이름 옆 납품 가능 개수(0이면 숨김)
+  {
+    const st = plainSave({ gold: 1e6, best: 5 }, [{ id: 1, lv: 5, prot: 2, pity: 0 }, { id: 2, lv: 2, prot: 2, pity: 0 }]);
+    const later = Date.now() + 10 * 60 * 1000;
+    st.quests = { list: [{ id: 1, tier: 'easy', lv: 2 }, null, null], readyAt: [0, later, later], nextId: 2 };
+    const env = makeEnv({ [KEY]: JSON.stringify(st) });
+    const tabbar = () => env.byId['#tabbar']._html;
+    ok((tabbar().match(/class="tab-count"/g) || []).length === 1 && tabbar().includes('의뢰<span class="tab-count">1</span>'), '#6b: quests tab shows 1 deliverable');
+    click(env, 'deliver', 0);
+    ok(saved(env).stats.delivered === 1 && !tabbar().includes('tab-count'), '#6b: count hidden at 0 after delivering');
+  }
+
+  // #6c 저장 실패는 세션당 한 번만 알린다
+  {
+    const env = makeEnv({});
+    const failedToasts = () => toastTexts(env).filter(t => t === env.ctx.SG.view.SAVE_FAILED_TEXT).length;
+    ok(failedToasts() === 0, '#6c: no toast while saving works');
+    env.ctx.localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+    env.byId['#btnHunt'].listeners.click[0]();
+    ok(failedToasts() === 1, '#6c: first failed save shows a toast');
+    click(env, 'buySword');
+    env.tick();
+    setVisible(env, false);
+    ok(failedToasts() === 1, '#6c: later failed saves stay quiet');
+  }
 }
 
 main().catch(e => { console.error('smoke-dom FAILED:', e.stack || e.message); process.exit(1); });

@@ -86,19 +86,22 @@
   let ctx = null;
   let parts = [];
   let fxOn = false;
+  // 캔버스 CSS 크기: 매 프레임 레이아웃을 읽지 않도록 sizeFx(시작·resize)에서만 갱신한다
+  const size = { width: 0, height: 0 };
   function sizeFx() {
     cv = cv || $('#fx');
     ctx = ctx || cv.getContext('2d');
     const r = cv.getBoundingClientRect();
     const d = root.devicePixelRatio || 1;
+    size.width = r.width;
+    size.height = r.height;
     cv.width = r.width * d;
     cv.height = r.height * d;
     ctx.setTransform(d, 0, 0, d, 0, 0);
   }
   function burst(colors, n, opt = {}) {
-    const r = cv.getBoundingClientRect();
-    const ox = r.width / 2;
-    const oy = opt.y ?? r.height * 0.45;
+    const ox = size.width / 2;
+    const oy = opt.y ?? size.height * 0.45;
     const speed = opt.speed ?? 6;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -117,11 +120,12 @@
         color: colors[Math.floor(Math.random() * colors.length)],
       });
     }
+    // 상한을 넘으면 가장 오래된(곧 사라질) 파티클부터 버려 새 결과의 연출을 살린다
+    if (parts.length > C.MAX_PARTICLES) parts.splice(0, parts.length - C.MAX_PARTICLES);
     if (!fxOn) { fxOn = true; requestAnimationFrame(stepFx); }
   }
   function stepFx() {
-    const r = cv.getBoundingClientRect();
-    ctx.clearRect(0, 0, r.width, r.height);
+    ctx.clearRect(0, 0, size.width, size.height);
     ctx.globalCompositeOperation = 'lighter';
     parts = parts.filter(p => {
       p.x += p.vx; p.y += p.vy; p.vy += p.g; p.vx *= 0.98; p.rot += p.vr;
@@ -144,7 +148,7 @@
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     if (parts.length) requestAnimationFrame(stepFx);
-    else { fxOn = false; ctx.clearRect(0, 0, r.width, r.height); }
+    else { fxOn = false; ctx.clearRect(0, 0, size.width, size.height); }
   }
 
   // ============================================================ 피드백

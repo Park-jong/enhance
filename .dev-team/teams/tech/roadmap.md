@@ -9,6 +9,7 @@ M1 콘텐츠 확장: F1~F10, F15 구현 (보관함, 보호권/파편, 모루/광
 | 우선순위 | 항목 | 출처 (디렉터 / REQ-번호) | 담당 | 상태 |
 | --- | --- | --- | --- | --- |
 | P1 | 브라우저 실기 확인(file://, 데스크톱/모바일 폭) | 디렉터 (QA 요청 예정) | QA | 대기 |
+| P1 | REQ-012 M1 QA 권장 수정 (구현 완료, QA 검증 대기) | REQ-012 | client-programmer | 검증 대기 |
 
 ## 완료
 - TODO 3-6 보관함·화면 사용성 수정: 테마 스크롤바, .play 래퍼로 sticky 겹침 해결, 한 번 클릭 활성화, 파괴 후 활성 검 없음(active=0), Pointer Events 드래그 정렬 (3차 H1 수정: pointerdown 캡처 제거로 클릭 활성화 복구 / 2차 QA 수정 반영: run-tests 189, smoke-dom 152, QA 3종 통과) — client-programmer
