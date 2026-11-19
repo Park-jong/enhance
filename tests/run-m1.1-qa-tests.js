@@ -645,8 +645,8 @@ describe('AC11 save fields gauge / mastery', () => {
     assert.deepStrictEqual([raw.gauge, raw.mastery], [[3, 5, 1, 0, 9], [4, 0, 2, 3, 1]]);
     assert.deepStrictEqual(SV.load(st, NOW).state.gauge, [3, 5, 1, 0, 9]);
     assert.deepStrictEqual(SV.load(st, NOW).state.mastery, [4, 0, 2, 3, 1]);
-    assert.deepStrictEqual(SV.peek(st, NOW).gauge, [3, 5, 1, 0, 9]);
-    assert.deepStrictEqual(SV.peek(st, NOW).mastery, [4, 0, 2, 3, 1]);
+    assert.deepStrictEqual(SV.peek(st, NOW).state.gauge, [3, 5, 1, 0, 9]);
+    assert.deepStrictEqual(SV.peek(st, NOW).state.mastery, [4, 0, 2, 3, 1]);
   });
   test('roundtrip is idempotent: normalize(normalize(x)) equals normalize(x)', () => {
     const once = norm({ gauge: [-1, 99, 2.7, 'a', null, 7], mastery: [9, 9, 9, 9, 9] });

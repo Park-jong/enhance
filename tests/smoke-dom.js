@@ -46,6 +46,7 @@ class El {
   }
   closest() { return null; }
   focus() { El.focused = this; }
+  select() { El.selected = this; }
 }
 
 function makeEnv(initialStorage, opts = {}) {
@@ -76,13 +77,22 @@ function makeEnv(initialStorage, opts = {}) {
     querySelectorAll: () => [],
     createElement: t => new El(t),
     addEventListener: (t, f) => { (docListeners[t] = docListeners[t] || []).push(f); },
+    body: new El('body'),
+    // opts.execCommand: 복사 대체 경로(선택 + execCommand) 스텁. 기본은 실패
+    execCommand: opts.execCommand || (() => false),
   };
+  // opts.failKeys: 이 키들에 대한 setItem은 QuotaExceededError (테스트 도중 바꿀 수 있음)
+  const failKeys = new Set(opts.failKeys || []);
   // opts.now: 가짜 시계(탭 동결 등 시간 경과 재현용)
   const ClockDate = opts.now ? Object.assign(class extends Date {}, { now: opts.now }) : Date;
   const ctx = {
     console, Math, Date: ClockDate, JSON, Promise, Object, Array, Number, String, Set, Map, Proxy, Error,
     document,
-    localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
+    localStorage: {
+      getItem: k => (k in store ? store[k] : null),
+      setItem: (k, v) => { if (failKeys.has(k)) throw new Error('QuotaExceededError'); store[k] = String(v); },
+    },
+    navigator: opts.navigator,
     requestAnimationFrame: () => 0,
     setTimeout: opts.manualTimers ? queueTimeout : (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),   // 연출 대기를 짧게
     clearTimeout,
@@ -98,7 +108,7 @@ function makeEnv(initialStorage, opts = {}) {
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1])
     .filter(src => !(opts.withoutAssets && src.startsWith('assets/')));
   scripts.forEach(src => vm.runInContext(fs.readFileSync(path.join(ROOT, src), 'utf8'), ctx, { filename: src }));
-  return { ctx, byId, docListeners, winListeners, store, tick: () => timers.forEach(f => f()), scripts, runTimer, runAllTimers };
+  return { ctx, byId, docListeners, winListeners, store, failKeys, tick: () => timers.forEach(f => f()), scripts, runTimer, runAllTimers };
 }
 
 function click(env, act, id) {
@@ -410,6 +420,9 @@ async function main() {
   // 9) 3-3 REQ-012: 연출 중 이어받기·새 게임, 탭 잠금 clear 판정·포커스, 알림 3종
   await req012(ok);
   particleCap(ok);
+
+  // 10) 3-4 저장 안전: 보호 모드·손상 저장 이어받기·빈 v1·저장 실패 배지·잠금 문구 (m1-storage AC 15/17/18, 30~36)
+  await saveSafety(ok);
 
   console.log(`smoke-dom: ${checks} checks passed`);
 }
@@ -876,6 +889,230 @@ async function req012(ok) {
     setVisible(env, false);
     ok(failedToasts() === 1, '#6c: later failed saves stay quiet');
   }
+}
+
+/** 3-4 저장 안전 (m1-storage 저장 안전, AC 15/17/18, 30~36) */
+async function saveSafety(ok) {
+  const KEY = 'sword-enhance-v2';
+  const BACKUP = 'sword-enhance-v2-corrupt';
+  const RAW = '{"gold": 123456, "swords": [';   // 파싱 불가 v2
+  const T = require(path.join(ROOT, 'js', 'constants.js'));
+  const toastTexts = env => (env.byId['#toasts'] ? texts(env.byId['#toasts']) : []);
+  const TXT = env => env.ctx.SG.view.SAVE_SAFETY_TEXT;
+  const bannerShown = env => env.byId['#saveGuard'].hidden === false;
+  const badgeShown = env => env.byId['#saveBadge'].hidden === false;
+  const gold = env => Number(env.byId['#gold'].textContent.replace(/,/g, ''));
+  const hunt = env => env.byId['#btnHunt'].listeners.click[0]();
+  const flush = () => sleep(10);
+  const validSave = fields => JSON.stringify(Object.assign(SG_default(), fields));
+  const protectedEnv = (extra, opts) => makeEnv(Object.assign({ [KEY]: RAW }, extra), Object.assign({ failKeys: [BACKUP] }, opts));
+
+  // AC 30: 백업 실패 → 보호 모드. 기본 상태로 시작, 원문 유지, 배너, 입력은 동작
+  {
+    const clk = { t: Date.now() };
+    const env = protectedEnv({}, { now: () => clk.t });
+    ok(env.store[KEY] === RAW && !(BACKUP in env.store), 'AC 30: corrupt raw kept in the save key at start (backup failed)');
+    ok(bannerShown(env) && env.byId['#saveGuard']._html.includes(TXT(env).banner), 'AC 30: protected-mode banner shown with the spec text');
+    ok(['copyCorrupt', 'retryBackup', 'abandonCorrupt'].every(a => env.byId['#saveGuard']._html.includes(`data-act="${a}"`)), 'AC 30: banner has copy / retry / abandon buttons');
+    ok(!/data-act="(close|dismiss)/.test(env.byId['#saveGuard']._html), 'AC 30: banner has no close button');
+    ok(env.ctx.document.documentElement.classList.contains('save-guarded'), 'AC 30: page marked save-guarded (side panel layout)');
+    ok(!badgeShown(env), 'AC 30: blocked saves are not shown as failed saves');
+    ok(gold(env) === 300, 'AC 30: starts from the default state');
+    hunt(env);
+    ok(gold(env) > 300, 'AC 30: hunting works in memory');
+    key(env, 'Space');
+    await flush();
+    ok(texts(env.byId['#log']).some(t => /강화 (성공|실패)|파괴|하락|보호/.test(t)), 'AC 30: enhancing works in memory');
+    clk.t += 6000;
+    env.tick();
+    setVisible(env, false);
+    fire(env, 'pagehide', {});
+    clk.t += 1000;
+    setVisible(env, true);
+    click(env, 'buySword');
+    ok(env.store[KEY] === RAW, 'AC 30: autosave tick, visibilitychange, pagehide, and actions never write the save key');
+    env.byId['#btnReset'].listeners.click[0]();
+    ok(env.store[KEY] === RAW && bannerShown(env) && gold(env) === 300, 'AC 30: new game does not write the save key; banner stays');
+    // 탭 잠금은 보호 모드에서도 동작하고, 잠긴 동안 배너 버튼은 먹히지 않는다. 이어받기 후에도 원문 유지·메모리 상태 유지
+    hunt(env);
+    const goldBeforeLock = gold(env);
+    fire(env, 'storage', { key: KEY });
+    ok(isLocked(env), 'AC 30: tab lock still works in protected mode');
+    click(env, 'abandonCorrupt');
+    ok(env.store[KEY] === RAW && bannerShown(env), 'AC 30: banner buttons are ignored while the tab is locked');
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(env.store[KEY] === RAW && bannerShown(env) && gold(env) === goldBeforeLock, 'AC 15/33: take over with the protected raw keeps memory state and keeps protecting');
+    ok(!isLocked(env), 'take over unlocks');
+    scanRendered();
+  }
+
+  // AC 31: [백업 다시 시도] 실패 → 유지, 성공 → 백업·해제·즉시 저장
+  {
+    const env = protectedEnv();
+    hunt(env);
+    click(env, 'retryBackup');
+    ok(bannerShown(env) && env.store[KEY] === RAW && !(BACKUP in env.store), 'AC 31: failed retry keeps the banner and storage unchanged');
+    ok(toastTexts(env).includes(TXT(env).retryFailed), 'AC 31: failed retry says so');
+    env.failKeys.clear();
+    click(env, 'retryBackup');
+    ok(env.store[BACKUP] === RAW, 'AC 31: successful retry writes the raw to the backup key');
+    ok(!bannerShown(env) && !env.ctx.document.documentElement.classList.contains('save-guarded'), 'AC 31: banner removed');
+    ok(saved(env).gold === gold(env) && gold(env) > 300, 'AC 31: current state saved immediately');
+    ok(toastTexts(env).includes(env.ctx.SG.view.corruptKeptText(BACKUP)), 'AC 31: kept toast names the backup key');
+    click(env, 'buySword');
+    ok(saved(env).swords.length === 2, 'AC 31: saving resumes after the retry');
+  }
+
+  // AC 32: [보존 포기하고 저장] 취소 → 변화 없음, 확인 → 저장·해제
+  {
+    const env = protectedEnv();
+    hunt(env);
+    let asked = null;
+    env.ctx.confirm = msg => { asked = msg; return false; };
+    click(env, 'abandonCorrupt');
+    ok(asked === TXT(env).abandonConfirm && asked === '손상된 저장 원문이 영구히 사라집니다', 'AC 32: confirm dialog text');
+    ok(env.store[KEY] === RAW && bannerShown(env), 'AC 32: cancel changes nothing');
+    env.ctx.confirm = () => true;
+    click(env, 'abandonCorrupt');
+    ok(saved(env).gold === gold(env) && !bannerShown(env), 'AC 32: confirm overwrites with the current state and leaves protected mode');
+    ok(!(BACKUP in env.store), 'AC 32: abandon writes no backup');
+    click(env, 'buySword');
+    ok(saved(env).swords.length === 2, 'AC 32: saving continues after abandon');
+  }
+
+  // AC 32: [원문 복사] — Clipboard API / execCommand 대체 / 둘 다 실패 시 읽기 전용 칸 (예외 없음)
+  {
+    let copied = null;
+    let env = protectedEnv({}, { navigator: { clipboard: { writeText: text => { copied = text; return Promise.resolve(); } } } });
+    click(env, 'copyCorrupt');
+    await flush();
+    ok(copied === RAW && toastTexts(env).includes(TXT(env).copied), 'AC 32: copy puts the exact raw on the clipboard');
+    ok(env.store[KEY] === RAW && !(BACKUP in env.store) && bannerShown(env), 'AC 32: copy writes no storage and keeps protected mode');
+
+    let selected = null;
+    env = protectedEnv({}, { execCommand: cmd => { selected = cmd === 'copy' ? El.selected.value : null; return true; } });
+    click(env, 'copyCorrupt');
+    await flush();
+    ok(selected === RAW && toastTexts(env).includes(TXT(env).copied), 'AC 32: without the Clipboard API (file://) the selection + execCommand fallback copies the raw');
+    ok(!env.byId['#saveGuardRaw'] || env.byId['#saveGuardRaw'].hidden !== false, 'AC 32: no raw box when the fallback copy worked');
+
+    env = protectedEnv({}, {
+      navigator: { clipboard: { writeText: () => Promise.reject(new Error('NotAllowedError')) } },
+      execCommand: () => { throw new Error('unsupported'); },
+    });
+    click(env, 'copyCorrupt');
+    await flush();
+    const box = env.byId['#saveGuardRaw'];
+    ok(box.hidden === false && box.value === RAW && El.selected === box, 'AC 32: both copy paths failing shows the raw in a selected read-only box');
+    ok(toastTexts(env).includes(TXT(env).copyFailed), 'AC 32: copy failure toast');
+    ok(env.byId['#saveGuard']._html.includes('id="saveGuardRaw" readonly'), 'AC 32: the raw box is read-only');
+    env.failKeys.clear();
+    click(env, 'retryBackup');
+    ok(box.hidden === true && box.value === '', 'raw box cleared when protected mode ends');
+  }
+
+  // AC 33: 실행 중 저장이 손상되면 복귀·이어받기에서 이어받지 않고 메모리 상태 유지, 저장 전에 백업
+  {
+    const env = makeEnv({ [KEY]: validSave({ gold: 5000 }) });
+    hunt(env);
+    const g = gold(env);
+    setVisible(env, false);
+    env.store[KEY] = RAW;
+    setVisible(env, true);
+    ok(env.store[BACKUP] === RAW, 'AC 33: resume backs the corrupt raw up before saving');
+    ok(gold(env) === g && saved(env).gold === g, 'AC 33: resume keeps the in-memory state (no reset) and saves it');
+    ok(toastTexts(env).includes(env.ctx.SG.view.corruptKeptText(BACKUP)) && toastTexts(env).includes('손상된 저장을 sword-enhance-v2-corrupt에 보관했습니다'), 'AC 33: kept toast');
+    ok(!bannerShown(env), 'AC 33: no protected mode when the backup worked');
+  }
+  {
+    const env = makeEnv({ [KEY]: validSave({ gold: 5000 }), [BACKUP]: '{older' });
+    hunt(env);
+    const g = gold(env);
+    fire(env, 'storage', { key: KEY });
+    env.store[KEY] = RAW;
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(env.store[BACKUP] === '{older', 'AC 33: take over keeps the earlier backup (occupied)');
+    ok(toastTexts(env).filter(t => t === TXT(env).occupied).length === 1 && TXT(env).occupied === '이전 백업이 있어 이번 손상본은 보관하지 못했습니다', 'AC 33: occupied toast once');
+    ok(gold(env) === g && saved(env).gold === g, 'AC 15/33: take over of a corrupt save keeps memory state, then saves');
+  }
+  {
+    const env = makeEnv({ [KEY]: validSave({ gold: 5000 }) }, { failKeys: [BACKUP] });
+    hunt(env);
+    const g = gold(env);
+    fire(env, 'storage', { key: KEY });
+    env.store[KEY] = RAW;
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(env.store[KEY] === RAW && bannerShown(env) && gold(env) === g, 'AC 33: failed backup on take over → protected mode, raw kept, memory state kept');
+    hunt(env);
+    setVisible(env, false);
+    ok(env.store[KEY] === RAW, 'AC 33: no writes after entering protected mode on take over');
+    // 다른 탭이 유효한 저장으로 덮어쓴 뒤 이어받으면 지킬 원문이 없으므로 보호를 끝내고 이어받는다
+    setVisible(env, true);
+    fire(env, 'storage', { key: KEY });
+    env.store[KEY] = validSave({ gold: 8888 });
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(!bannerShown(env) && saved(env).gold === 8888 && gold(env) === 8888, 'take over of a valid save ends protected mode (nothing left to protect)');
+  }
+
+  // AC 18: 시작 시 손상 v2 백업 성공 → 토스트 1회(이어지는 시작 정산에서 같은 원문을 다시 알리지 않음)
+  {
+    const env = makeEnv({ [KEY]: RAW });
+    const corruptToasts = toastTexts(env).filter(t => t.includes(BACKUP));
+    ok(env.store[BACKUP] === RAW && corruptToasts.length === 1, 'AC 18: one backup toast at start: ' + corruptToasts.join(' | '));
+    ok(!bannerShown(env) && saved(env).gold === 300, 'AC 18: saving starts normally after the backup');
+  }
+
+  // AC 35: v1 '' (v2 없음 또는 '') → 새 게임, 손상 백업·토스트 없음
+  for (const init of [{ 'sword-enhance-v1': '' }, { [KEY]: '', 'sword-enhance-v1': '' }]) {
+    const env = makeEnv(init);
+    ok(saved(env).gold === 300 && !(BACKUP in env.store) && env.store['sword-enhance-v1'] === '', 'AC 35: empty v1 → new game, no backup: ' + JSON.stringify(init));
+    ok(!toastTexts(env).some(t => t.includes('읽을 수 없어')), 'AC 35: no corrupt toast');
+  }
+
+  // AC 36: 저장 실패 배지는 실패가 이어지는 동안 유지, 성공하면 사라짐. 토스트는 세션당 1회
+  {
+    const env = makeEnv({});
+    ok(!badgeShown(env) && env.byId['#saveBadge'].textContent === '저장 안 됨 — 저장 공간 확인', 'AC 36: badge hidden while saving works (text set)');
+    env.failKeys.add(KEY);
+    hunt(env);
+    ok(badgeShown(env), 'AC 36: badge shown after a failed save');
+    ok(gold(env) > 300, 'AC 36: game continues in memory while saves fail');
+    click(env, 'buySword');
+    env.tick();
+    setVisible(env, false);
+    setVisible(env, true);
+    ok(badgeShown(env) && toastTexts(env).filter(t => t === env.ctx.SG.view.SAVE_FAILED_TEXT).length === 1, 'AC 36: badge stays, toast once per session');
+    ok(!bannerShown(env), 'AC 36: failing saves are not protected mode');
+    env.failKeys.clear();
+    setVisible(env, false);   // 다음 저장 시도(숨김 시 저장)
+    ok(!badgeShown(env) && saved(env).gold === gold(env), 'AC 36: badge cleared after a successful save');
+  }
+
+  // 테스트 페이지: 조작판(commit/newGame) 경로도 보호 모드에서 테스트 저장 키에 쓰지 않는다
+  {
+    const env = makeEnv({ [TEST_KEY]: RAW }, { page: 'test.html', failKeys: [TEST_KEY + '-corrupt'] });
+    ok(env.scripts.length === 16 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
+    click(env, 'testGold');
+    click(env, 'testToggleForce');
+    click(env, 'testReset');
+    ok(env.store[TEST_KEY] === RAW, 'test page: test panel actions do not write while protected');
+    ok(!('sword-enhance-v2' in env.store), 'test page: real save key never written');
+  }
+
+  // AC 17: 잠금 화면 문구, z-order(잠금 화면 > 배너), 배너는 헤더 안(하단 탭바와 겹치지 않음) — 두 페이지 모두
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8');
+  const zOf = sel => Number((css.match(new RegExp('(?:^|\\n)' + sel.replace(/[#.]/g, '\\$&') + '\\s*\\{[^}]*z-index:\\s*(\\d+)')) || [])[1]);
+  ok(zOf('#tabLock') > zOf('header') && zOf('#tabLock') > zOf('#toasts'), `AC 17: lock overlay (z ${zOf('#tabLock')}) above the header banner (z ${zOf('header')})`);
+  for (const page of ['index.html', 'test.html']) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    const lock = html.match(/<div id="tabLock" hidden>[\s\S]*?<\/div>\s*<\/div>/)[0];
+    ok(lock.includes('<h3>다른 탭에서 게임이 실행 중입니다</h3>'), `AC 17 ${page}: lock title`);
+    ok(lock.includes('저장이 서로 덮어쓰이지 않도록 이 탭을 멈췄습니다.') && lock.includes('누르면 다른 탭이 멈춥니다.'), `AC 17 ${page}: lock body`);
+    ok(/<button[^>]*id="btnTakeover"[^>]*>이 탭에서 계속하기<\/button>/.test(lock), `AC 17 ${page}: take over button label`);
+    const header = html.match(/<header>[\s\S]*?<\/header>/)[0];
+    ok(header.includes('id="saveGuard"') && header.includes('id="saveBadge"'), `${page}: banner and badge live in the sticky header (inert while locked, away from the bottom tab bar)`);
+  }
+  ok(T.SAVE_KEY === KEY, 'real save key unchanged');
 }
 
 main().catch(e => { console.error('smoke-dom FAILED:', e.stack || e.message); process.exit(1); });

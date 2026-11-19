@@ -57,3 +57,10 @@
 - 산출물: tests/run-m1-round2-tests.js (정적 검사 2건을 js/tab-guard.js 기준으로 갱신), docs/verification-issues.md (V2 병합, 2회)
 - 결정 사항: APPROVED. 스위트 5종 통과(208/182/29/36/189). headless Chrome CDP로 index.html·test.html에서 저장 이벤트 잠금, 포커스 이동, 이어받기, sessionStorage clear 무시, localStorage clear 잠금 확인, 콘솔 오류 없음.
 - 남은 문제: 두 탭 실제 동시 실행은 StorageEvent 합성으로 대체. 아이콘·배지 시각 확인 미실시.
+
+## 2026-11-19 — 3단계 3-4 저장 안전 정책 검증 (1차)
+- 지시: 디렉터 / 관련 단계: 3단계 3-4 / 처리한 요청: REQ-013, REQ-012 항목 2, REQ-028 검증
+- 참여 팀원: tester(스위트·Edge CDP 브라우저 검증), code-reviewer(저장 쓰기 경로·peek 계약 리뷰)
+- 산출물: tests/run-m1.1-qa-tests.js (648-649행 .state 로 수정), docs/verification-issues.md (V2 병합, 3회, 🚨)
+- 결정 사항: APPROVED. 스위트 5종 통과(221/257/29/36/189). 보호 모드 중 저장 키 쓰기 0회, 복사 폴백·재시도·포기·백업 중복·배지·잠금 문구·390px 확인, 콘솔 오류 없음. 리뷰어 must fix 1건은 QA 테스트 갱신으로 해소.
+- 남은 문제: 헤더가 모바일에서 길어짐(배너+textarea), 항상 적용된 flex-wrap, getItem 실패 시 보호 해제, 텍스트영역 포커스 중 단축키 동작(Space/S/H), 실제 클립보드 성공·교차 탭 checkStored 브라우저 미검증.

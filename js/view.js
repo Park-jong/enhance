@@ -81,6 +81,20 @@
   ];
 
   const SAVE_FAILED_TEXT = '저장하지 못했습니다. 브라우저 저장 공간을 확인하세요.';
+  // 저장 안전: 보호 모드 배너·저장 실패 배지·손상 백업 알림 (m1-storage 저장 안전)
+  const SAVE_SAFETY_TEXT = {
+    banner: '저장 공간이 부족해 손상된 저장을 보존하려고 저장을 멈췄습니다. 지금 진행은 저장되지 않습니다.',
+    copy: '원문 복사',
+    retry: '백업 다시 시도',
+    abandon: '보존 포기하고 저장',
+    abandonConfirm: '손상된 저장 원문이 영구히 사라집니다',
+    copied: '손상된 저장 원문을 클립보드에 복사했습니다.',
+    copyFailed: '복사하지 못했습니다. 배너 아래 원문을 직접 선택해 복사하세요.',
+    retryFailed: '이번에도 백업하지 못했습니다. 저장 공간을 비운 뒤 다시 시도하세요.',
+    occupied: '이전 백업이 있어 이번 손상본은 보관하지 못했습니다',
+    badge: '저장 안 됨 — 저장 공간 확인',
+  };
+  const corruptKeptText = key => `손상된 저장을 ${key}에 보관했습니다`;
 
   const swordName = lv => `+${lv} ${C.SWORDS[lv].n}`;
   const NO_ACTIVE_TEXT = '보관함에서 강화할 검을 선택하세요';
@@ -574,9 +588,43 @@
   const ranOutToastText = ids => `${ids.map(id => itemText(id)).join(', ')}을(를) 다 써서 사용을 껐습니다.`;
 
   // ============================================================ 정적 요소
-  /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지) */
+  /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지)하고, 저장 안전 배너·배지 문구를 채운다 */
   function decorateStatic() {
     $('#btnSettings').innerHTML = ic('settings');
+    $('#saveGuard').innerHTML = saveGuardHTML();
+    $('#saveBadge').textContent = SAVE_SAFETY_TEXT.badge;
+  }
+
+  // ============================================================ 저장 안전 (배너·배지)
+  function saveGuardHTML() {
+    const T = SAVE_SAFETY_TEXT;
+    return `<p class="save-guard-text">${T.banner}</p>
+      <div class="save-guard-actions">
+        <button class="small-btn" data-act="copyCorrupt">${T.copy}</button>
+        <button class="small-btn gold" data-act="retryBackup">${T.retry}</button>
+        <button class="small-btn" data-act="abandonCorrupt">${T.abandon}</button>
+      </div>
+      <textarea class="save-guard-raw" id="saveGuardRaw" readonly hidden></textarea>`;
+  }
+  /** status: { guarding: 보호 모드(닫을 수 없는 배너), failed: 마지막 저장 시도 실패(배지) } */
+  function renderSaveStatus(status) {
+    $('#saveGuard').hidden = !status.guarding;
+    $('#saveBadge').hidden = !status.failed;
+    document.documentElement.classList.toggle('save-guarded', status.guarding);
+    if (!status.guarding) hideCorruptRaw();
+  }
+  /** 복사가 막혔을 때: 원문을 읽기 전용 칸에 보여 주고 전체 선택해 둔다 */
+  function showCorruptRaw(raw) {
+    const el = $('#saveGuardRaw');
+    el.value = raw;
+    el.hidden = false;
+    el.focus();
+    el.select();
+  }
+  function hideCorruptRaw() {
+    const el = $('#saveGuardRaw');
+    el.hidden = true;
+    el.value = '';
   }
 
   // ============================================================ 도감
@@ -622,5 +670,6 @@
   SG.view = {
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
     swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, SAVE_FAILED_TEXT,
+    SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

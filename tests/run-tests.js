@@ -1023,27 +1023,33 @@ function countingStorage(init) {
   return st;
 }
 
-describe('fix round 2: read-only SV.peek', () => {
-  test('valid v2 → normalized state, no writes', () => {
+describe('AC 34: read-only SV.peek returns { state, corrupt, raw }', () => {
+  const NO_SAVE = { state: null, corrupt: false };
+  test('valid v2 → { state (normalized), corrupt:false }, no writes', () => {
     const st = countingStorage();
     SV.save(st, Object.assign(fresh(), { gold: 1234 }), NOW);
     st.writes.length = 0;
-    const S = SV.peek(st, NOW + MIN);
-    assert.strictEqual(S.gold, 1234);
-    assert.strictEqual(S.idle.lastSeen, NOW);
+    const r = SV.peek(st, NOW + MIN);
+    assert.deepStrictEqual(Object.keys(r).sort(), ['corrupt', 'state']);
+    assert.strictEqual(r.corrupt, false);
+    assert.strictEqual(r.state.gold, 1234);
+    assert.strictEqual(r.state.idle.lastSeen, NOW);
     assert.deepStrictEqual(st.writes, []);
   });
-  test('corrupt v2 → null and the backup key is not written', () => {
-    const st = countingStorage({ [C.SAVE_KEY]: '{broken' });
-    assert.strictEqual(SV.peek(st, NOW), null);
-    assert.deepStrictEqual(st.writes, []);
+  test('corrupt v2 → { state:null, corrupt:true, raw } and the backup key is not written', () => {
+    for (const raw of ['{broken', '[]', '5', 'null', ' ']) {
+      const st = countingStorage({ [C.SAVE_KEY]: raw });
+      assert.deepStrictEqual(SV.peek(st, NOW), { state: null, corrupt: true, raw }, raw);
+      assert.deepStrictEqual(st.writes, [], raw);
+    }
   });
-  test('v1 only → null, no migration write; empty / throwing storage → null', () => {
+  test('missing or empty-string v2 → { state:null, corrupt:false }; v1 is not migrated; throwing storage → no save', () => {
     const st = countingStorage({ [C.SAVE_KEY_V1]: JSON.stringify({ gold: 5, level: 3 }) });
-    assert.strictEqual(SV.peek(st, NOW), null);
+    assert.deepStrictEqual(SV.peek(st, NOW), NO_SAVE);
     assert.deepStrictEqual(st.writes, []);
-    assert.strictEqual(SV.peek(memStorage(), NOW), null);
-    assert.strictEqual(SV.peek({ getItem() { throw new Error('denied'); } }, NOW), null);
+    assert.deepStrictEqual(SV.peek(memStorage(), NOW), NO_SAVE);
+    assert.deepStrictEqual(SV.peek(memStorage({ [C.SAVE_KEY]: '' }), NOW), NO_SAVE);
+    assert.deepStrictEqual(SV.peek({ getItem() { throw new Error('denied'); } }, NOW), NO_SAVE);
   });
 });
 
@@ -1855,7 +1861,12 @@ describe('REQ-012 #8: corrupt result keeps one source of truth', () => {
       [false, null, null],
       [false, C.SAVE_KEY_V1, null],
     ]);
-    cases.forEach(r => assert.deepStrictEqual(Object.keys(r).sort(), ['backedUp', 'earlierBackupAt', 'keptAt', 'source', 'state']));
+    const CORRUPT_KEYS = ['backedUp', 'earlierBackupAt', 'keptAt', 'source', 'state'];
+    // 손상 v2에는 백업 결과와 원문이 더해진다(보호 모드용, 3-4). 손상 v1은 v1 키를 쓰지 않으므로 필요 없다
+    cases.slice(0, 4).forEach(r => assert.deepStrictEqual(Object.keys(r).sort(), ['backedUp', 'backup', 'earlierBackupAt', 'keptAt', 'raw', 'source', 'state']));
+    assert.deepStrictEqual(cases.map(r => r.backup), ['written', 'same', 'occupied', 'failed', undefined]);
+    assert.ok(cases.slice(0, 4).every(r => r.raw === '{bad'));
+    assert.deepStrictEqual(Object.keys(cases[4]).sort(), CORRUPT_KEYS);
   });
   test('non-corrupt results are { state, source } only', () => {
     assert.deepStrictEqual(Object.keys(SV.load(memStorage(), NOW)).sort(), ['source', 'state']);
@@ -1993,6 +2004,140 @@ describe('REQ-012 #4 #5 #10: tab guard (js/tab-guard.js)', () => {
     assert.strictEqual(g.lockedAtTakeover, false, 'onTakeOver runs after the lock is released');
     assert.strictEqual(act(1), 'done');
     assert.strictEqual(calls, 3);
+  });
+});
+
+// ============================================================ 3-4 저장 안전 (m1-storage AC 30~36)
+/** 키별로 setItem을 실패시킬 수 있는 메모리 저장소: failing = Set(키) */
+function quotaStorage(init, failing) {
+  const st = countingStorage(init);
+  const setItem = st.setItem;
+  st.setItem = (k, v) => { if (failing.has(k)) throw new Error('QuotaExceededError'); setItem(k, v); };
+  return st;
+}
+const BROKEN = '{broken save';
+const BACKUP = SV.CORRUPT_BACKUP_KEY;
+
+describe('AC 35: empty-string v1 is no save (REQ-028)', () => {
+  test("v1 '' with v2 missing or '' → new game, no backup, no corrupt result, no writes", () => {
+    for (const init of [{ [C.SAVE_KEY_V1]: '' }, { [C.SAVE_KEY]: '', [C.SAVE_KEY_V1]: '' }]) {
+      const st = countingStorage(init);
+      const r = SV.load(st, NOW);
+      assert.strictEqual(r.source, 'new', JSON.stringify(init));
+      assert.deepStrictEqual(st.writes, []);
+      assert.strictEqual(st.dump[C.SAVE_KEY_V1], '');
+    }
+  });
+  test('non-empty unparsable v1 keeps the old behavior: corrupt, v1 key untouched, no v2 backup', () => {
+    const st = countingStorage({ [C.SAVE_KEY_V1]: '{gold:' });
+    const r = SV.load(st, NOW);
+    assert.strictEqual(r.source, 'corrupt');
+    assert.strictEqual(r.keptAt, C.SAVE_KEY_V1);
+    assert.deepStrictEqual(st.writes, []);
+  });
+});
+
+describe('save keeper: single write gate and protected mode (AC 30~33, 36)', () => {
+  test('AC 30: corrupt v2 whose backup fails → protected; every save is blocked and the raw stays; lastSeen still advances', () => {
+    const st = quotaStorage({ [C.SAVE_KEY]: BROKEN }, new Set([BACKUP]));
+    const keeper = SV.createSaveKeeper(st);
+    const r = keeper.load(NOW);
+    assert.strictEqual(r.source, 'corrupt');
+    assert.strictEqual(r.backup, 'failed');
+    assert.ok(keeper.isProtected());
+    assert.strictEqual(keeper.guardedRaw(), BROKEN);
+    st.writes.length = 0;
+    const S = r.state;
+    assert.strictEqual(keeper.save(S, NOW + MIN), 'blocked');
+    assert.strictEqual(S.idle.lastSeen, NOW + MIN, 'memory state stays current for offline settlement');
+    assert.strictEqual(keeper.save(S, NOW + 2 * MIN), 'blocked');
+    assert.deepStrictEqual(st.writes, []);
+    assert.strictEqual(st.dump[C.SAVE_KEY], BROKEN);
+    assert.strictEqual(keeper.lastSaveFailed(), false, 'a blocked save is not a failed save');
+  });
+  test('AC 18: written / same / occupied at load → not protected, saving resumes', () => {
+    const cases = [
+      [{ [C.SAVE_KEY]: BROKEN }, 'written'],
+      [{ [C.SAVE_KEY]: BROKEN, [BACKUP]: BROKEN }, 'same'],
+      [{ [C.SAVE_KEY]: BROKEN, [BACKUP]: '{older' }, 'occupied'],
+    ];
+    for (const [init, backup] of cases) {
+      const st = memStorage(init);
+      const keeper = SV.createSaveKeeper(st);
+      const r = keeper.load(NOW);
+      assert.strictEqual(r.backup, backup);
+      assert.ok(!keeper.isProtected(), backup);
+      assert.strictEqual(keeper.save(r.state, NOW), 'saved');
+      assert.strictEqual(JSON.parse(st.dump[C.SAVE_KEY]).v, 2);
+      assert.strictEqual(st.dump[BACKUP], init[BACKUP] || BROKEN, 'backup key is write-once');
+    }
+  });
+  test('AC 31: retry that fails keeps protection and storage; retry that succeeds backs up and releases', () => {
+    const failing = new Set([BACKUP]);
+    const st = quotaStorage({ [C.SAVE_KEY]: BROKEN }, failing);
+    const keeper = SV.createSaveKeeper(st);
+    const S = keeper.load(NOW).state;
+    st.writes.length = 0;
+    assert.strictEqual(keeper.retryBackup(), 'failed');
+    assert.ok(keeper.isProtected());
+    assert.deepStrictEqual([st.dump[C.SAVE_KEY], BACKUP in st.dump], [BROKEN, false]);
+    failing.clear();
+    assert.strictEqual(keeper.retryBackup(), 'written');
+    assert.ok(!keeper.isProtected() && keeper.guardedRaw() === null);
+    assert.strictEqual(st.dump[BACKUP], BROKEN);
+    assert.strictEqual(keeper.save(S, NOW), 'saved');
+    assert.strictEqual(keeper.retryBackup(), null, 'retry outside protected mode does nothing');
+  });
+  test('AC 32: abandon releases protection so the next save overwrites the raw (backup key untouched)', () => {
+    const st = quotaStorage({ [C.SAVE_KEY]: BROKEN }, new Set([BACKUP]));
+    const keeper = SV.createSaveKeeper(st);
+    const S = keeper.load(NOW).state;
+    keeper.abandon();
+    assert.ok(!keeper.isProtected());
+    assert.strictEqual(keeper.save(S, NOW), 'saved');
+    assert.strictEqual(JSON.parse(st.dump[C.SAVE_KEY]).gold, C.START_GOLD);
+    assert.strictEqual(BACKUP in st.dump, false);
+  });
+  test('AC 33: checkStored backs up a newly found corrupt raw once and never returns a state for it', () => {
+    const st = countingStorage();
+    const keeper = SV.createSaveKeeper(st);
+    keeper.load(NOW);
+    st.dump[C.SAVE_KEY] = BROKEN;
+    st.writes.length = 0;
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: 'written' });
+    assert.deepStrictEqual(st.writes, [BACKUP], 'backup happens before any save');
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: null }, 'the same raw is not handled twice');
+    st.dump[C.SAVE_KEY] = '{another';
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: 'occupied' });
+    assert.strictEqual(st.dump[BACKUP], BROKEN);
+    assert.ok(!keeper.isProtected());
+  });
+  test('AC 33: checkStored with a failing backup enters protected mode; a later valid save in the key ends it', () => {
+    const st = quotaStorage({}, new Set([BACKUP]));
+    const keeper = SV.createSaveKeeper(st);
+    keeper.load(NOW);
+    st.dump[C.SAVE_KEY] = BROKEN;
+    assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: 'failed' });
+    assert.ok(keeper.isProtected());
+    assert.strictEqual(keeper.save(fresh(), NOW), 'blocked');
+    assert.strictEqual(st.dump[C.SAVE_KEY], BROKEN);
+    // 다른 탭이 유효한 저장으로 덮어쓰면 지킬 원문이 저장 키에 없으므로 보호를 끝낸다
+    st.dump[C.SAVE_KEY] = JSON.stringify(Object.assign(fresh(), { gold: 999 }));
+    const r = keeper.checkStored(NOW);
+    assert.strictEqual(r.state.gold, 999);
+    assert.ok(!keeper.isProtected());
+  });
+  test('AC 36: lastSaveFailed follows the last save attempt', () => {
+    const failing = new Set([C.SAVE_KEY]);
+    const st = quotaStorage({}, failing);
+    const keeper = SV.createSaveKeeper(st);
+    const S = keeper.load(NOW).state;
+    assert.strictEqual(keeper.save(S, NOW), 'failed');
+    assert.strictEqual(keeper.save(S, NOW + 1), 'failed');
+    assert.ok(keeper.lastSaveFailed());
+    failing.clear();
+    assert.strictEqual(keeper.save(S, NOW + 2), 'saved');
+    assert.ok(!keeper.lastSaveFailed());
   });
 });
 

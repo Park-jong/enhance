@@ -35,7 +35,9 @@
     return { getItem: () => null, setItem: () => {} };
   })();
 
-  const loaded = SV.load(storage, now());
+  // 저장 키에 쓰는 길은 이 관문 하나뿐이다(persist). 손상 원문을 지키는 보호 모드도 여기서 막는다
+  const keeper = SV.createSaveKeeper(storage);
+  const loaded = keeper.load(now());
   let S = loaded.state;
   const audio = SG.createAudio(() => S.settings.muted);
   const sfx = cue => audio.play(cue);
@@ -52,9 +54,12 @@
 
   function persist() {
     if (isSuspended()) return;
-    if (!SV.save(storage, S, now())) noticeSaveFailedOnce();
+    if (keeper.save(S, now()) === 'failed') noticeSaveFailedOnce();
     lastSaveAt = now();
+    showSaveStatus();
   }
+  // 보호 모드 배너와 '저장 안 됨' 배지(마지막 저장 시도가 실패한 동안)
+  const showSaveStatus = () => V.renderSaveStatus({ guarding: keeper.isProtected(), failed: keeper.lastSaveFailed() });
   // 저장 실패는 틱마다 반복되므로 이번 세션에 한 번만 알린다
   function noticeSaveFailedOnce() {
     if (saveFailNoticed) return;
@@ -344,6 +349,9 @@
     upgrade: id => settle(I.buyUpgrade(S, id), r => `${C.UPGRADES.find(u => u.id === id).name} Lv ${r.level}`),
     useBooster: () => settle(R.useBoosterFromInv(S, now()), () => `${itemName('booster')} 사용! 남은 시간 ${V.fmtDuration(R.boostRemainingMs(S, now()))}`, 'useBooster'),
     toggleAuto: () => setAuto(!S.idle.autoOn),
+    copyCorrupt: () => copyGuardedRaw(),
+    retryBackup: () => retryCorruptBackup(),
+    abandonCorrupt: () => abandonCorruptSave(),
     closeModal: () => { $('#modal').hidden = true; sfx('offlineCollect'); },
   };
 
@@ -381,11 +389,19 @@
    * 저장소의 유효한 v2 상태를 이어받는다. force가 아니면 다른 탭이 더 나중에 저장했을 때(lastSeen이 더 최근)만.
    * 오래된 탭이 옛 lastSeen으로 오프라인 보상을 다시 받고 최신 저장을 덮어쓰는 것을 막는다.
    * 이 탭의 저장이 실패해 저장소 쪽이 더 오래된 경우에는 메모리 상태를 유지한다.
+   * 저장이 손상이면 이어받지 않고(메모리 상태 유지) 다음 저장 전에 원문을 백업한다(실패하면 보호 모드, AC 33)
    */
   function adoptStoredSave(t, force) {
-    const latest = SV.peek(storage, t);
+    const stored = keeper.checkStored(t);
+    if (stored.backup) noticeCorruptBackup(stored.backup);
+    const latest = stored.state;
     if (!latest || (!force && latest.idle.lastSeen <= S.idle.lastSeen)) return;
     resetUiFor(latest, t);
+  }
+  /** 이어받기·복귀·다시 시도에서 손상 원문을 백업한 결과 알림. 실패(보호 모드)는 배너가 알린다 */
+  function noticeCorruptBackup(backup) {
+    if (backup === 'written' || backup === 'same') FX.toast(V.corruptKeptText(SV.CORRUPT_BACKUP_KEY));
+    else if (backup === 'occupied') FX.toast(V.SAVE_SAFETY_TEXT.occupied, 'bad');
   }
   /** 복귀 정산: 다른 탭의 더 최근 저장을 이어받고, 오프라인 수입을 한 번 정산한다 */
   function resume() {
@@ -412,6 +428,53 @@
     render();
   }
 
+  // ============================================================ 저장 보호 모드 (손상 원문 백업 실패)
+  // 버튼은 data-act 클릭으로만 불리므로 탭 잠금(whenActive) 중에는 동작하지 않는다
+  async function copyGuardedRaw() {
+    const raw = keeper.guardedRaw();
+    if (raw === null) return;
+    if (await copyText(raw)) return FX.toast(V.SAVE_SAFETY_TEXT.copied);
+    FX.toast(V.SAVE_SAFETY_TEXT.copyFailed, 'bad');
+    V.showCorruptRaw(raw);
+  }
+  function retryCorruptBackup() {
+    const backup = keeper.retryBackup();
+    if (backup === null) return;
+    if (backup === 'failed') return FX.toast(V.SAVE_SAFETY_TEXT.retryFailed, 'bad');
+    noticeCorruptBackup(backup);
+    persist();
+  }
+  function abandonCorruptSave() {
+    if (!keeper.isProtected() || !confirm(V.SAVE_SAFETY_TEXT.abandonConfirm)) return;
+    keeper.abandon();
+    persist();
+  }
+  /** 클립보드 복사. Clipboard API가 없거나 거부되면(file:// 등) 선택+execCommand로, 그것도 안 되면 false. 예외를 던지지 않는다 */
+  async function copyText(text) {
+    try {
+      await root.navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      return copyBySelection(text);
+    }
+  }
+  function copyBySelection(text) {
+    let helper = null;
+    try {
+      helper = document.createElement('textarea');
+      helper.value = text;
+      helper.readOnly = true;
+      helper.className = 'clip-helper';
+      document.body.appendChild(helper);
+      helper.select();
+      return document.execCommand('copy') === true;
+    } catch (e) {
+      return false;
+    } finally {
+      if (helper) helper.remove();
+    }
+  }
+
   // ============================================================ 다른 탭과의 충돌 방지
   // 같은 저장 키를 다른 탭이 쓰면 이 탭을 멈추고(잠금 화면은 js/tab-guard.js), 사용자가 고르면 최신 저장을 이어받아 계속한다
   function suspendForOtherTab() {
@@ -420,7 +483,7 @@
     $('#modal').hidden = true;
     $('#settingsPop').hidden = true;
   }
-  /** 사용자가 이 탭을 고르면 저장소의 유효한 저장을 무조건 이어받는다(없으면 메모리 상태로 계속) */
+  /** 사용자가 이 탭을 고르면 저장소의 유효한 저장을 lastSeen 비교 없이 이어받는다(없거나 손상이면 메모리 상태로 계속) */
   function takeOver() {
     adoptStoredSave(now(), true);
     resume();

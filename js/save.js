@@ -209,7 +209,7 @@
   }
 
   const loadResult = (state, source) => ({ state, source });
-  /** 손상 결과: backedUp은 keptAt에서 파생해 두 값이 어긋나지 않게 한다 */
+  /** 손상 결과(손상 v1 포함): backedUp은 keptAt에서 파생해 두 값이 어긋나지 않게 한다 */
   const corruptResult = (now, keptAt, earlierBackupAt) => ({
     state: defaultState(now),
     source: 'corrupt',
@@ -218,10 +218,25 @@
     earlierBackupAt,
   });
 
+  /** 손상 v2 결과에는 백업 결과(backup)와 원문(raw)을 더한다: 백업이 실패하면 저장 관문이 그 원문을 지킨다 */
   function corruptV2Result(storage, raw, now) {
-    const outcome = backupCorrupt(storage, raw);
-    const kept = outcome === 'written' || outcome === 'same';
-    return corruptResult(now, kept ? CORRUPT_BACKUP_KEY : null, outcome === 'occupied' ? CORRUPT_BACKUP_KEY : null);
+    const backup = backupCorrupt(storage, raw);
+    const kept = backup === 'written' || backup === 'same';
+    return Object.assign(
+      corruptResult(now, kept ? CORRUPT_BACKUP_KEY : null, backup === 'occupied' ? CORRUPT_BACKUP_KEY : null),
+      { backup, raw });
+  }
+
+  /**
+   * 읽기 전용: 저장소의 v2 저장. 백업·마이그레이션 등 어떤 쓰기도 하지 않는다 (m1-storage AC 34).
+   * 유효 → { state(정규화), corrupt:false } / 없음·'' → { state:null, corrupt:false } / 손상 → { state:null, corrupt:true, raw }
+   */
+  function peek(storage, now) {
+    const raw = read(storage, C.SAVE_KEY);
+    // 빈 문자열은 손상이 아니라 '저장 없음': 유효한 v1이 손상 처리에 가려지지 않게 한다
+    if (isEmpty(raw)) return { state: null, corrupt: false };
+    const d = parse(raw);
+    return isObj(d) ? { state: normalize(d, now), corrupt: false } : { state: null, corrupt: true, raw };
   }
 
   /**
@@ -232,37 +247,83 @@
    * earlierBackupAt: 백업 키에 다른 이전 손상 원문이 있어 이번 원문을 보관하지 못했을 때 그 키, 아니면 null
    */
   function load(storage, now) {
-    const raw2 = read(storage, C.SAVE_KEY);
-    // 빈 문자열은 손상이 아니라 '저장 없음': 유효한 v1이 손상 처리에 가려지지 않게 한다
-    if (!isEmpty(raw2)) {
-      const d = parse(raw2);
-      if (isObj(d)) return loadResult(normalize(d, now), 'v2');
-      return corruptV2Result(storage, raw2, now);
-    }
-    // legacy 키가 없으면(null — 테스트 페이지) v1을 아예 읽지 않는다
+    const v2 = peek(storage, now);
+    if (v2.state) return loadResult(v2.state, 'v2');
+    if (v2.corrupt) return corruptV2Result(storage, v2.raw, now);
+    // legacy 키가 없으면(null — 테스트 페이지) v1을 아예 읽지 않는다. v1도 null·''이면 저장 없음(REQ-028)
     const raw1 = C.SAVE_KEY_V1 ? read(storage, C.SAVE_KEY_V1) : null;
-    if (raw1 !== null && raw1 !== undefined) {
-      const d = parse(raw1);
-      // 손상된 v1은 덮어쓰지 않으므로 원문은 v1 키에 그대로 남는다
-      if (!isObj(d)) return corruptResult(now, C.SAVE_KEY_V1, null);
-      const state = migrateV1(d, now);
-      write(storage, C.SAVE_KEY, state);
-      return loadResult(state, 'v1');
-    }
-    return loadResult(defaultState(now), 'new');
-  }
-
-  /** 읽기 전용: 저장소의 유효한 v2 상태(정규화) 또는 null. 백업·마이그레이션 등 어떤 쓰기도 하지 않는다 */
-  function peek(storage, now) {
-    const d = parse(read(storage, C.SAVE_KEY));
-    return isObj(d) ? normalize(d, now) : null;
+    if (isEmpty(raw1)) return loadResult(defaultState(now), 'new');
+    const d = parse(raw1);
+    // 손상된 v1은 덮어쓰지 않으므로 원문은 v1 키에 그대로 남는다
+    if (!isObj(d)) return corruptResult(now, C.SAVE_KEY_V1, null);
+    const state = migrateV1(d, now);
+    write(storage, C.SAVE_KEY, state);
+    return loadResult(state, 'v1');
   }
 
   /** 저장할 때마다 오프라인 기준 시각을 갱신 */
+  const touch = (S, now) => { S.idle.lastSeen = now; };
   function save(storage, S, now) {
-    S.idle.lastSeen = now;
+    touch(S, now);
     return write(storage, C.SAVE_KEY, S);
   }
 
-  return { SAVE_VERSION, CORRUPT_BACKUP_KEY, defaultState, normalize, migrateV1, load, peek, save };
+  /**
+   * 저장 키 쓰기의 단일 관문 (m1-storage 저장 안전). 손상 원문의 백업이 실패하면 보호 모드가 되어
+   * 그 원문(유일한 사본)을 덮어쓰지 않도록 모든 저장을 막는다. 게임 상태는 메모리에서 계속된다.
+   */
+  function createSaveKeeper(storage) {
+    // 이미 처리한 손상 원문. guarding: 백업에 실패해 보호 중
+    let corrupt = null;
+    let lastFailed = false;
+    const isProtected = () => !!corrupt && corrupt.guarding;
+
+    /** 백업을 시도하고 결과로 보호 모드를 정한다. 결과는 backupCorrupt와 같다 */
+    function guard(raw) {
+      const backup = backupCorrupt(storage, raw);
+      corrupt = { raw, guarding: backup === 'failed' };
+      return backup;
+    }
+
+    return {
+      isProtected,
+      /** 보호 중인 손상 원문(복사용). 보호 모드가 아니면 null */
+      guardedRaw: () => (isProtected() ? corrupt.raw : null),
+      lastSaveFailed: () => lastFailed,
+      /** 시작 로드: 손상 v2의 백업이 실패했으면 보호 모드로 시작한다 */
+      load(now) {
+        const r = load(storage, now);
+        if (r.backup) corrupt = { raw: r.raw, guarding: r.backup === 'failed' };
+        return r;
+      },
+      /**
+       * 이어받기·복귀 때 저장소 확인. 처음 보는 손상 원문이면 다음 저장 전에 백업한다(backup: 그 결과, 아니면 null).
+       * 저장 키에 손상 원문이 더 이상 없으면 지킬 사본도 없으므로 보호 모드를 끝낸다.
+       */
+      checkStored(now) {
+        const stored = peek(storage, now);
+        if (!stored.corrupt) {
+          corrupt = null;
+          return { state: stored.state, backup: null };
+        }
+        if (corrupt && corrupt.raw === stored.raw) return { state: null, backup: null };
+        return { state: null, backup: guard(stored.raw) };
+      },
+      /** [백업 다시 시도]. 보호 모드가 아니면 null */
+      retryBackup: () => (isProtected() ? guard(corrupt.raw) : null),
+      /** [보존 포기하고 저장]: 보호를 풀어 다음 저장이 원문을 덮어쓰게 한다 */
+      abandon() { if (corrupt) corrupt.guarding = false; },
+      /** 결과: 'saved' | 'failed'(쓰기 실패) | 'blocked'(보호 모드라 쓰지 않음) */
+      save(S, now) {
+        if (isProtected()) {
+          touch(S, now);   // 메모리 상태가 최신이므로, 오프라인 정산이 같은 구간을 다시 지급하지 않게 한다
+          return 'blocked';
+        }
+        lastFailed = !save(storage, S, now);
+        return lastFailed ? 'failed' : 'saved';
+      },
+    };
+  }
+
+  return { SAVE_VERSION, CORRUPT_BACKUP_KEY, defaultState, normalize, migrateV1, load, peek, save, createSaveKeeper };
 });

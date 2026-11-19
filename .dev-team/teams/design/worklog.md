@@ -64,3 +64,10 @@
 - 산출물: docs/design/m1-overview.md, m1-quest.md, m1-protect-shards.md, m1-constants-index.md, m1-storage.md
 - 결정 사항: 의뢰 탭은 납품 가능 개수 배지(0이면 숨김), 대장간·방치만 알림 점. 파편 교환 섹션은 대장간 해금 후 항상 표시(0이면 버튼 비활성+안내). MAX_PARTICLES=400 추가. 저장 문서에 빈 문자열 v2=저장 없음, clear 이벤트 storageArea 판정, ui.epoch 폐기, 토스트 규칙, 수용 기준 25~29 추가. REQ-028(빈 문자열 v1)은 결정하지 않음.
 - 남은 문제: MAX_PARTICLES 행의 문서 열 "idle/fx"(fx 문서 없음, 임의 표기). REQ-028 결정 대기.
+
+## 2026-11-19 — 저장 안전 정책 결정 (REQ-013, REQ-012 항목 2, REQ-028)
+- 지시: 디렉터 / 관련 단계: 3단계 3-4 / 처리한 요청: REQ-013, REQ-028 (in_progress 유지, done은 디렉터 확인 후), REQ-012 항목 2
+- 참여 팀원: system-designer (문서 작성), 팀장은 결정과 검토
+- 산출물: docs/design/m1-storage.md (저장 안전 절, 로드 규칙 2, 수용 기준 15·17·18 수정, 30~36 신규), docs/design/m1-pity-cap.md (band 3 = +15~20), docs/design/m1-constants-index.md (PITY_STEP 구간 표기)
+- 결정 사항: (1) 백업 실패 시 손상 원문을 덮어쓰지 않는 보호 모드(게임은 메모리로 계속, 지속 배너, [원문 복사]/[백업 다시 시도]/[보존 포기하고 저장]). (2) 자동 해제 안 함(닫힘 감지 불가, 두 탭 동시 쓰기 위험). (3) 잠금 화면 본문에 멈춘 이유와 "다른 탭이 멈춤" 안내 추가, 버튼 라벨 유지. (4) 문서를 코드에 맞춰 band 3 = +15~20. 이어받기·복귀 중 손상 발견도 백업(메모리 상태 유지), peek는 {state, corrupt, raw} 반환. 빈 문자열 v1도 저장 없음. 저장 실패 중 지속 배지 "저장 안 됨".
+- 남은 문제: 구현(Tech)과 QA 확인 필요. 사용자 결정 필요 항목 없음.

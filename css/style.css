@@ -42,7 +42,7 @@ html::-webkit-scrollbar-track { background: var(--bg); }
 /* ---------- 헤더 ---------- */
 header {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 12px 20px;
   background: rgba(14, 16, 22, .85);
   backdrop-filter: blur(8px);
@@ -69,6 +69,26 @@ header {
   padding: 6px 10px; font-size: 13px; cursor: pointer;
 }
 .icon-btn:hover { border-color: #3c4358; }
+
+/* ---------- 저장 안전: 보호 모드 배너 / 저장 실패 배지 ----------
+ * 배너는 sticky 헤더의 마지막 줄(z 20)이라 항상 보이고, 하단 탭바(z 40)·토스트(z 50)와 겹치지 않으며 잠금 화면(z 90) 아래에 있다 */
+.save-guard {
+  flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding: 10px 12px; border: 1px solid var(--bad); border-radius: 10px;
+  background: color-mix(in srgb, var(--bad) 14%, var(--panel));
+}
+.save-guard-text { flex: 1 1 260px; margin: 0; font-size: 13px; font-weight: 700; line-height: 1.5; }
+.save-guard-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.save-guard-raw {
+  flex: 1 1 100%; height: 96px; resize: vertical; padding: 8px;
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+  font: 12px/1.4 ui-monospace, monospace;
+}
+/* 배너로 헤더가 높아지면 넓은 화면의 sticky 오른쪽 패널(top 고정값)이 헤더 밑으로 들어가므로 흐름 배치로 돌린다 */
+.save-guarded .side { position: static; max-height: none; overflow: visible; }
+.save-badge { font-size: 12px; }
+/* 복사 대체 경로(execCommand)용 임시 칸: 화면에 보이지 않게 */
+.clip-helper { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 /* ---------- 레이아웃 ---------- */
 main {

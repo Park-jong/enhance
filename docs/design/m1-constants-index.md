@@ -40,7 +40,7 @@
 | 이름 | 의미 | 확정값 | 문서 |
 | --- | --- | --- | --- |
 | `PITY_BAND_WIDTH` | 실패 보정·상한 band 폭: `band = min(3, ⌊l / PITY_BAND_WIDTH⌋)` | 5 | pc |
-| `PITY_STEP[band]` | 실패 1회당 보정 %p (band 0..3: +0~4, +5~9, +10~14, +15~19) | [1, 1, 2, 2] | pc |
+| `PITY_STEP[band]` | 실패 1회당 보정 %p (band 0..3: +0~4, +5~9, +10~14, +15~20) | [1, 1, 2, 2] | pc |
 | `PITY_MAX[band]` | 보정 최대 %p | [5, 6, 8, 10] | pc |
 | `BONUS_CAP[band]` | 보너스 합계 상한 %p (bless+anvil+pity), band별 | **[20, 20, 14, 14]** (규칙: 단일값 → 배열) | pc |
 | `SUCC_CEIL` | 절대 성공률 천장 % (`max(base, SUCC_CEIL)`) | 90 | pc |

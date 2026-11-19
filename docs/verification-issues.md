@@ -6,7 +6,14 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 
 ## 🚨 반드시 지킬 규칙 (3회 이상 반복된 문제)
 
-(없음)
+### 🚨 V2. 규칙·코드 위치를 바꿀 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (3회)
+- **예방 규칙**: **불변식(항상 존재, 항상 유효)을 깨는 규칙 변경은 grep으로 js/ 밖(tools/, tests/, docs/design)의 같은 API 사용처와 문서 서술까지 찾아 같은 변경에서 함께 고쳐라. 코드를 옮기거나 지우는 리팩터링도 같다: 소스 문자열을 정규식으로 보는 정적 테스트(tests/run-m1-round2-tests.js 등)를 grep으로 찾아 함께 고쳐라. 함수의 반환 형태를 바꾸면(예: SV.peek이 상태 대신 {state, corrupt, raw}를 반환) tests/ 아래 모든 스위트(run-m1*.js 포함)에서 그 함수 호출을 grep으로 찾아 같은 변경에서 고쳐라.**
+- 증상: tools/sim-late가 파괴 후 R.activeSword(S).lv에서 TypeError로 중단. QA 테스트 4건 실패. docs/design/m1-storage.md 16행과 154행이 옛 자동 활성 규칙을 그대로 서술.
+- 증상(3회째): SV.peek 반환 형태 변경 후 QA 소유 tests/run-m1.1-qa-tests.js 648-649행이 .gauge/.mastery를 읽어 1건 실패.
+- 근본 원인: 변경 범위를 js/와 화면 호출처로만 잡았다.
+- 확인 방법: grep -rn "activeSword|S.active" tools tests docs, 그리고 옮기는 함수·식별자 이름(예: setLocked, resume(true))을 grep -rn 으로 tests/ 에서 찾는다 와 node tools/sim-late/selfcheck.js 를 실행한다. 사전 리뷰에 도구·문서 소비자 목록 항목을 넣는다.
+- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정), 2026-11-19 3단계 3-4 저장 안전 (SV.peek 계약 변경, tests/run-m1.1-qa-tests.js:648-649를 QA가 .state로 수정)
+
 
 ## 문제 기록
 
@@ -16,14 +23,6 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 - 근본 원인: 제스처 상태를 strip 요소의 이벤트에만 의존해 종료시키고, DOM 교체와 외부 상태 변화(busy, suspend, adopt)를 고려하지 않았다.
 - 확인 방법: smoke-dom에 buttons 없는 move, strip 밖 pointerup, 드래그 시작 전 재렌더, 드래그 중 keydown 시나리오를 추가한다. 수동으로는 카드 윗부분을 누른 채 위로 튕겨 밖에서 놓은 뒤 다시 strip 위로 이동한다. 사전 리뷰에서는 제스처 종료 경로 전부(밖에서 놓기, 포커스 상실, 재렌더, 모달/suspend)를 확인한다.
 - 발생: 2026-11-19 3단계 3-6 (js/strip-drag.js, js/main.js)
-
-### ⚠️ V2. 규칙·코드 위치를 바꿀 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (2회)
-- **예방 규칙**: 불변식(항상 존재, 항상 유효)을 깨는 규칙 변경은 grep으로 js/ 밖(tools/, tests/, docs/design)의 같은 API 사용처와 문서 서술까지 찾아 같은 변경에서 함께 고쳐라. 코드를 옮기거나 지우는 리팩터링도 같다: 소스 문자열을 정규식으로 보는 정적 테스트(tests/run-m1-round2-tests.js 등)를 grep으로 찾아 함께 고쳐라.
-- 증상: tools/sim-late가 파괴 후 R.activeSword(S).lv에서 TypeError로 중단. QA 테스트 4건 실패. docs/design/m1-storage.md 16행과 154행이 옛 자동 활성 규칙을 그대로 서술.
-- 근본 원인: 변경 범위를 js/와 화면 호출처로만 잡았다.
-- 확인 방법: grep -rn "activeSword|S.active" tools tests docs, 그리고 옮기는 함수·식별자 이름(예: setLocked, resume(true))을 grep -rn 으로 tests/ 에서 찾는다 와 node tools/sim-late/selfcheck.js 를 실행한다. 사전 리뷰에 도구·문서 소비자 목록 항목을 넣는다.
-- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정)
-
 
 ### V3. pointerdown에서 포인터를 capture하면 click 대상이 capture 요소로 바뀌어 위임 클릭이 죽는다 (1회)
 - **예방 규칙**: 클릭이 필요한 요소 위에서 시작하는 제스처는 pointerdown에서 setPointerCapture를 호출하지 말고, 임계값을 넘어 드래그가 확정된 뒤에만 capture하라. capture를 쓰는 변경은 반드시 실제 브라우저에서 mousePressed/mouseReleased 단순 클릭을 검증하라.

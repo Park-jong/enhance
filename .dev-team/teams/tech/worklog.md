@@ -85,3 +85,10 @@
 - 산출물: js/rules.js (attemptEnhance: `use.sure && !ch.forced`일 때만 소모), js/test-mode.js·rules.js 주석(테스트 페이지 전용), tests/run-tests.js (+3건, 211)
 - 결정 사항: 강제 성공 후에도 확정 강화권 토글은 켜진 채 유지(미소모이므로 자동 해제 없음). 토글 비저장·잠금 동작은 변경 없음. 5개 스위트 통과(211/187/29/36/189).
 - 남은 문제: 강제 성공 시 r.used.sure가 true라 main.js:188에서 useSure 효과음이 재생됨(범위 밖, 디렉터 결정 필요). tools/sim-late/selfcheck.js가 profiles.js:12(activeSword null)에서 기존부터 크래시(V2 잔존).
+
+## 2026-11-19 — 3-4 저장 안전 구현 (보호 모드·지속 배지·peek 변경·잠금 문구)
+- 지시: 디렉터 / 관련 단계: 3단계 3-4 / 처리한 요청: REQ-013, REQ-012 항목 2, REQ-028 (기획 팀 요청이라 상태 변경 권한 없음 — 디렉터가 기록)
+- 참여 팀원: client-programmer
+- 산출물: js/save.js (createSaveKeeper, peek 새 형태), js/main.js, js/view.js, index.html, test.html, css/style.css, tests/run-tests.js (221), tests/smoke-dom.js (257)
+- 결정 사항: 저장 키 쓰기는 keeper.save 단일 관문. 보호 모드/배너/배지 구현. 5개 스위트 중 4개 통과, run-m1.1-qa-tests는 188/1 실패(QA 소유 648-649행이 옛 peek 형태 사용).
+- 남은 문제: QA 테스트 수정 필요(`SV.peek(...).state.gauge/mastery`). 구현자 가정 7건 기획 확인 필요. tools/sim-late/selfcheck.js 기존 크래시(V2 잔존).
