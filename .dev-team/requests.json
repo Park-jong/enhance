@@ -644,7 +644,7 @@
     "priority": "P3",
     "priorityReason": "사용자가 시뮬레이션을 하지 않기로 해서 지금은 영향 없음. 다시 쓸 때만 필요",
     "milestone": "M1.1",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-18",
     "history": [
       {
@@ -652,6 +652,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "mechanics.js inCapOverrides와 profiles.js bestCombo가 R.enhanceOpts(S)를 기반으로 확률 계산. selfcheck 통과. 확인 후 done 처리 예정."
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "mechanics.js·profiles.js가 R.enhanceOpts(S)로 확률 옵션을 만듦, selfcheck 블록 G 추가(13개 통과). QA 승인 2026-11-19"
       }
     ]
   },
@@ -736,7 +748,7 @@
     "priority": "P3",
     "priorityReason": "시뮬레이션은 사용자 요청 시에만 실행하므로 다시 쓸 때만 필요",
     "milestone": "3단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-18",
     "history": [
       {
@@ -744,6 +756,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "engine.js 루프에서 활성 검이 없으면 최고 검을 활성화. selfcheck 통과. 확인 후 done 처리 예정."
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "engine.js가 활성 검이 없으면 최고 단계 검을 다시 활성화. selfcheck 통과. QA 승인 2026-11-19"
       }
     ]
   },
@@ -1003,6 +1027,27 @@
         "by": "메인 세션",
         "status": "done",
         "note": "m1-storage.md 보호 모드 구현 세부 7건과 REQ-031 동작(판정 37~39), m1-overview.md 단축키 항목 반영. QA 승인 2026-11-19"
+      }
+    ]
+  },
+  {
+    "id": "REQ-033",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "sim-late 후보 A/B가 게임의 게이지·숙련과 이중으로 계산됨",
+    "detail": "tools/sim-late의 후보 메커닉 A/B(mechanics.js 17-37행)는 자체 S._gauge와 S._mastery를 쓴다. 그런데 굴림은 R.attemptEnhance를 거치므로 게임의 S.gauge와 S.mastery도 함께 적용된다. 그래서 A/B를 켠 실행에서는 보너스가 두 번 들어간다. A/B를 끈 실행은 문제가 없고, 이번 수정으로 생긴 문제도 아니다. 다음에 A/B로 시뮬레이션하기 전에 A/B를 없애거나 게임 쪽 효과를 끄고, 게이지·숙련 출처가 하나뿐인지 확인하는 selfcheck를 추가한다.",
+    "priority": "P3",
+    "priorityReason": "시뮬레이션은 사용자가 요청할 때만 하므로 다음에 시뮬레이션을 요청받을 때만 필요하다",
+    "milestone": "3단계",
+    "status": "open",
+    "createdAt": "2026-11-19",
+    "history": [
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
       }
     ]
   }

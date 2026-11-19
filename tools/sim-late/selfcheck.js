@@ -64,4 +64,20 @@ const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
   ok(snapshot() === before, 'constants restored after F batch');
 }
 
+// G: tool chance options equal the game's (gauge-full / mastery state) - guards against option drift
+{
+  const S = fresh(17); const sw = R.activeSword(S);
+  const i = R.gaugeIndex(17), m = R.masteryIndex(17);
+  S.gauge[i] = C.GAUGE_N[i]; S.mastery[m] = 5;
+  const opts = R.enhanceOpts(S);
+  ok(opts.gaugeFull === true && opts.mastery === 5, 'enhanceOpts reflects gauge-full / mastery');
+  const mech = M.combine([M.smith({ bonusFrom: 15, bonus: [0, 3], tries: [1], inCap: true })]); mech.init(S); S._smith = 5;
+  ok(JSON.stringify(R.currentChances(S)) === JSON.stringify(R.chances(sw, opts)), 'game currentChances === chances(enhanceOpts)');
+  const g = R.chances(sw, Object.assign({}, opts, { bless: false, anvilGrade: 0 })).succ;
+  ok(g === 100, 'gauge-full state yields 100% in tool-side chance (got ' + g + ')');
+  S.gauge[i] = 0;
+  const withM = R.chances(sw, Object.assign({}, R.enhanceOpts(S), { bless: false, anvilGrade: 0 })).succ;
+  ok(withM === R.chances(sw, { mastery: 5 }).succ && withM > C.RATE[17] || C.MASTERY_STEP[m] === 0, 'mastery counted in tool-side chance');
+}
+
 console.log(`selfcheck: ${n} checks passed`);

@@ -108,3 +108,10 @@
 - 결정 사항: 브라우저 없으면 SKIP 후 exit 0, 잘못된 BROWSER_PATH는 exit 1. 자동 스크롤은 프레임당 12px(설계 문서 서술과 일치). REASON.noActive 문구에서 "먼저" 삭제(공통 상수 사용).
 - 테스트: run-tests 226, smoke-dom 299, qa 29, round2 36, m1.1 189, browser-strip 14 모두 통과. Chrome과 Edge 모두 확인.
 - 남은 문제: tools/sim-late/selfcheck.js는 기존 REQ-024 문제로 실패. 이전 QA가 남긴 헤드리스 Edge 프로세스(약 8개, 포트 9333)가 실행 중일 수 있음.
+
+## 2026-11-19 — sim-late 도구 확률 옵션 동기화와 활성 검 없음 처리
+- 지시: 디렉터 / 관련 단계: 3단계 잔여 / 처리한 요청: REQ-021, REQ-024 (in_progress, 디렉터 확인 후 done)
+- 참여 팀원: 없음 (소규모라 팀장이 직접 수정)
+- 산출물: tools/sim-late/lib/mechanics.js, lib/profiles.js, lib/engine.js, selfcheck.js
+- 결정 사항: 확률 계산을 R.enhanceOpts(S) 기반(토글만 덮어씀)으로 바꿔 게임과 옵션이 어긋나지 않게 함. 파괴 후 활성 검이 없으면 profile.manage 전에 최고 검을 활성화. selfcheck에 게임 옵션 일치 검사(G) 추가. selfcheck 13건, 테스트 6개 파일 모두 통과.
+- 남은 문제: 도구의 자체 게이지/숙련 상태(S._gauge, S._mastery)는 게임 S.gauge/S.mastery와 별개라, 게임 상태 동기화가 필요하면 별도 작업.

@@ -155,7 +155,7 @@ function combine(list) {
       const b = parts.reduce((s, m) => s + (m.inCap ? m.inCap(S, sw) : 0), 0);
       if (!b || sw.lv >= C.MAX) return () => {};
       const a = use.anvil ? R.equippedAnvil(S) : null;
-      const ch = R.chances(sw, { bless: use.bless, anvilGrade: a ? a.g : 0 });
+      const ch = R.chances(sw, Object.assign({}, R.enhanceOpts(S), { bless: use.bless, anvilGrade: a ? a.g : 0 }));   // same gaugeFull/mastery as the game
       const x = Math.max(0, Math.min(b, ch.cap - Math.min(ch.raw, ch.cap)));
       if (!x) return () => {};
       const l = sw.lv, old = C.RATE[l];

@@ -12,6 +12,7 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 - 증상(3회째): SV.peek 반환 형태 변경 후 QA 소유 tests/run-m1.1-qa-tests.js 648-649행이 .gauge/.mastery를 읽어 1건 실패.
 - 근본 원인: 변경 범위를 js/와 화면 호출처로만 잡았다.
 - 확인 방법: grep -rn "activeSword|S.active" tools tests docs, 그리고 옮기는 함수·식별자 이름(예: setLocked, resume(true))을 grep -rn 으로 tests/ 에서 찾는다 와 node tools/sim-late/selfcheck.js 를 실행한다. 사전 리뷰에 도구·문서 소비자 목록 항목을 넣는다.
+- 해소 기록: 2026-11-19 REQ-021·REQ-024로 tools/sim-late가 R.enhanceOpts(S)를 쓰도록 고쳐졌고 selfcheck 블록 G(13건)가 옵션 어긋남을 막는다. 남은 위험: 도구 자체 후보 A/B(S._gauge/S._mastery)를 켜면 게임 S.gauge/S.mastery와 함께 적용되어 이중 계산된다. A/B 후보를 쓰는 시뮬 전에 게임 쪽 값을 끄거나 후보를 폐기할 것.
 - 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정), 2026-11-19 3단계 3-4 저장 안전 (SV.peek 계약 변경, tests/run-m1.1-qa-tests.js:648-649를 QA가 .state로 수정)
 
 

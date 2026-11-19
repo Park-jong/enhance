@@ -37,8 +37,9 @@ const anvilGrade = (S, sw) => {
 };
 
 /** cheapest toggle set that still reaches the best success rate (perfect play: no wasted bless/durability) */
-function bestCombo(sw, allowBless, gA) {
-  const s = (b, a) => R.chances(sw, { bless: b, anvilGrade: a }).succ;
+function bestCombo(S, sw, allowBless, gA) {
+  const base = R.enhanceOpts(S);   // game's own options (gaugeFull, mastery); only the toggles vary
+  const s = (b, a) => R.chances(sw, Object.assign({}, base, { bless: b, anvilGrade: a })).succ;
   const top = s(allowBless, gA);
   if (s(false, 0) >= top) return { bless: false, anvil: false };
   if (gA && s(false, gA) >= top) return { bless: false, anvil: true };
@@ -71,7 +72,7 @@ const heavy = {
       if (S.inv.sure < 1) { plan.buy.sure = 1; plan.gold += C.PRICE.sure; }
       return plan;
     }
-    const combo = bestCombo(sw, l >= 12, gA);
+    const combo = bestCombo(S, sw, l >= 12, gA);
     plan.use.anvil = combo.anvil;
     if (combo.bless) { plan.use.bless = true; if (S.inv.bless < 1) { plan.buy.bless = 1; plan.gold += C.PRICE.bless; } }
     if (l >= 11) addProtect(S, sw, plan, true);

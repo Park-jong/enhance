@@ -109,6 +109,7 @@ function runOne(profile, mech, timeModel, seed, capH) {
   const capSec = capH * 3600;
   while (S.best < C.MAX && st.active < capSec) {
     sessionCheck();
+    if (!R.activeSword(S)) R.setActive(S, R.bestSword(S).id);   // after a destroy: player picks a sword
     profile.manage(S, ctx);
     mech.manage(S, ctx, profile);
     record(null);                                 // fusion can raise best outside an attempt
