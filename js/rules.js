@@ -60,6 +60,7 @@
    * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure, gaugeFull, mastery(성공 기록 횟수) }
    * — m1-pity-cap §3, m1.1-late-correction §3.3. 규칙 모듈은 S를 모르므로 gaugeFull·mastery는 호출자가 주입한다.
    * config.forceSuccess(테스트 페이지 설정)가 켜져 있으면 모든 단계·옵션에서 성공 100%. 강화 굴림은 모두 이 값을 따른다
+   * 주의: forceSuccess는 테스트 페이지(test.html, js/test-mode.js) 전용이다. 실제 페이지(index.html)에서는 절대 켜지 않는다
    */
   function chances(sword, opts) {
     const l = sword.lv;
@@ -422,7 +423,8 @@
 
     S.gold -= price;
     if (use.bless) S.inv.bless--;
-    if (use.sure) S.inv.sure--;
+    // 테스트 강제 성공은 확정권 없이도 100%이므로 확정권을 소모하지 않는다(보유량이 그대로라 토글도 켜진 채 남음)
+    if (use.sure && !ch.forced) S.inv.sure--;
     if (anvil) anvil.dura--;
     S.stats.tries++;
 

@@ -1219,9 +1219,42 @@ describe('test page config: forced success', () => {
     }
     assert.strictEqual(T.rules.chances({ lv: 19, pity: 0 }).succ, 100);
   });
+  const sureOnState = sure => {
+    const S = T.save.defaultState(NOW);
+    S.gold = 1e9;
+    S.inv.sure = sure;
+    assert.ok(T.rules.setUse(S, 'sure', true).ok);
+    return S;
+  };
+  test('forced attempt with the sure toggle on keeps the ticket and the toggle (last ticket too)', () => {
+    const S = sureOnState(1);
+    for (let n = 0; n < 3; n++) {
+      const r = T.rules.attemptEnhance(S, ROLL_HIGH);
+      assert.strictEqual(r.outcome, 'success');
+      assert.ok(r.chances.forced);
+      assert.ok(!r.ranOut.includes('sure'));
+    }
+    assert.deepStrictEqual([S.inv.sure, S.use.sure, T.rules.trayState(S).sure.on], [1, true, true]);
+  });
+  test('with config.forceSuccess off at runtime the sure ticket is consumed by 1', () => {
+    const S = sureOnState(2);
+    T.config.forceSuccess = false;
+    try {
+      const r = T.rules.attemptEnhance(S, ROLL_HIGH);
+      assert.strictEqual(r.outcome, 'success');
+      assert.ok(r.chances.sure && !r.chances.forced);
+    } finally {
+      T.config.forceSuccess = true;
+    }
+    assert.deepStrictEqual([S.inv.sure, S.use.sure], [1, true]);
+  });
 });
 
 describe('real config is unchanged', () => {
+  test('main.js: useSure sound is skipped for forced attempts', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf8');
+    assert.ok(src.includes("if (r.used.sure && !r.chances.forced) sfx('useSure')"));
+  });
   test('defaults: forceSuccess off, real save keys', () => {
     assert.strictEqual(globalThis.SG.config.forceSuccess, false);
     assert.strictEqual(C.SAVE_KEY, 'sword-enhance-v2');
@@ -1237,6 +1270,13 @@ describe('real config is unchanged', () => {
   });
   test('worst roll still fails/destroys in the real game', () => {
     assert.strictEqual(R.attemptEnhance(stateWith({ top: { gold: 1e9 } }), ROLL_HIGH).outcome, 'fail');
+  });
+  test('the last sure ticket is consumed by 1 and its toggle turns off in the real game', () => {
+    const S = stateWith({ sword: { lv: 5 }, inv: { sure: 1 }, top: { gold: 1e9 } });
+    assert.ok(R.setUse(S, 'sure', true).ok);
+    const r = R.attemptEnhance(S, ROLL_HIGH);
+    assert.ok(r.chances.sure && !r.chances.forced);
+    assert.deepStrictEqual([S.inv.sure, S.use.sure, r.ranOut.includes('sure')], [0, false, true]);
   });
 });
 

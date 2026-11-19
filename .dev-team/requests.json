@@ -414,7 +414,7 @@
     "priority": "P3",
     "priorityReason": "테스트 전용 페이지의 편의·명확성 개선으로 실제 게임에 영향 없음",
     "milestone": "M2 장기 플레이",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-17",
     "history": [
       {
@@ -422,6 +422,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "rules.js attemptEnhance에서 강제 성공 시 확정 강화권 미소모, SG.config 테스트 전용 주석 추가, run-tests.js 테스트 3건 추가. QA 검증 대기."
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "강제 성공 시 확정 강화권 미소모와 효과음 생략, SG.config 테스트 전용 주석. QA 승인 2026-11-19"
       }
     ]
   },

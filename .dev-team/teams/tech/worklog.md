@@ -78,3 +78,10 @@
 - 산출물: js/view.js(renderForge: showExchange 조건 제거, 파편 0개일 때 panel-note 안내), tests/smoke-dom.js(forgeShardExchange 5건 추가, 187)
 - 결정 사항: 규칙(R.exchangeBlock) 변경 없음. 파편 0개면 버튼 비활성 + "검이 파괴되면 파편을 얻습니다." 안내. 5개 스위트 통과(208/187/29/36/189).
 - 남은 문제: docs/design/m1-overview.md 41행이 옛 규칙(첫 파편 획득 시)을 서술 → 설계 갱신 필요. 실제 브라우저 확인은 안 함. tools/sim-late/selfcheck는 기존 실패(REQ-024). 커밋 안 함.
+
+## 2026-11-19 — REQ-014 강제 성공 시 확정 강화권 미소모
+- 지시: 디렉터 / 관련 단계: 3단계 3-5 / 처리한 요청: REQ-014 (in_progress, QA 검증 대기)
+- 참여 팀원: client-programmer
+- 산출물: js/rules.js (attemptEnhance: `use.sure && !ch.forced`일 때만 소모), js/test-mode.js·rules.js 주석(테스트 페이지 전용), tests/run-tests.js (+3건, 211)
+- 결정 사항: 강제 성공 후에도 확정 강화권 토글은 켜진 채 유지(미소모이므로 자동 해제 없음). 토글 비저장·잠금 동작은 변경 없음. 5개 스위트 통과(211/187/29/36/189).
+- 남은 문제: 강제 성공 시 r.used.sure가 true라 main.js:188에서 useSure 효과음이 재생됨(범위 밖, 디렉터 결정 필요). tools/sim-late/selfcheck.js가 profiles.js:12(activeSword null)에서 기존부터 크래시(V2 잔존).

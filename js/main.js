@@ -185,7 +185,7 @@
     persist();
     const fx = pickFx(r);
     const outcome = OUTCOME_FX[r.outcome];
-    if (r.used.sure) sfx('useSure');
+    if (r.used.sure && !r.chances.forced) sfx('useSure');   // 강제 성공(테스트 페이지)은 확정 강화권을 쓰지 않는다
     ui.busy = true;
     ui.view = { lv: r.from, chances: r.chances, gauge: r.gaugeBefore };
     render();
