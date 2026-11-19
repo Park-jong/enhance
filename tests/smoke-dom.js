@@ -401,6 +401,9 @@ async function main() {
   await noActiveAfterDestroy(ok);
   await stripDrag(ok);
 
+  // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
+  forgeShardExchange(ok);
+
   // 8) 테스트 페이지(test.html): 같은 스크립트 + 테스트 설정. 강화 100%, 별도 저장 키, 실제 저장 불가침
   await testPage(ok);
 
@@ -750,6 +753,33 @@ function particleCap(ok) {
 }
 
 /** 3-3 REQ-012 */
+function forgeShardExchange(ok) {
+  const KEY = 'sword-enhance-v2';
+  const NOTE = '검이 파괴되면 파편을 얻습니다.';
+  const forgeBody = env => env.byId['[data-panel="forge"]'].querySelector('.panel-body')._html;
+  const exchangeButtons = html => html.match(/<button class="buy" data-act="exchange"[^>]*>/g) || [];
+  const shardIds = Object.keys(require(path.join(ROOT, 'js', 'constants.js')).SHARD_COST);
+  const forgeSave = shards => {
+    const s = Object.assign(SG_default(), { gold: 1e6, best: 5, shards });
+    s.swords = [{ id: 1, lv: 5, prot: 2, pity: 0 }]; s.nextSwordId = 2; s.active = 1;
+    return JSON.stringify(s);
+  };
+
+  let env = makeEnv({ [KEY]: forgeSave(0) });
+  click(env, 'tab', 'forge');
+  let html = forgeBody(env);
+  ok(saved(env).stats.shardsGained === 0 && html.includes('파편 교환 · 보유'), 'forge: exchange section shown with 0 shards and none ever gained');
+  ok(exchangeButtons(html).length === shardIds.length && exchangeButtons(html).every(b => b.includes('disabled')), 'forge: every exchange button disabled at 0 shards');
+  ok(html.includes(`<p class="panel-note">${NOTE}</p>`), 'forge: 0-shard note shown');
+  scanRendered();
+
+  env = makeEnv({ [KEY]: forgeSave(500) });
+  click(env, 'tab', 'forge');
+  html = forgeBody(env);
+  ok(html.includes('파편 교환 · 보유') && !html.includes(NOTE), 'forge: no 0-shard note when shards are owned');
+  ok(exchangeButtons(html).some(b => !b.includes('disabled')), 'forge: exchange buttons enabled with shards');
+}
+
 async function req012(ok) {
   const KEY = 'sword-enhance-v2';
   const plainSave = (fields, swords) => {

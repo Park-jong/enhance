@@ -806,5 +806,47 @@
         "note": "우선순위 P3"
       }
     ]
+  },
+  {
+    "id": "REQ-029",
+    "from": "tech",
+    "to": "design",
+    "kind": "feedback",
+    "title": "대장간 파편 교환 섹션 항상 표시로 바뀐 규칙을 기획서에 반영",
+    "detail": "사용자 요청(2026-11-19)으로 대장간 탭이 열리면 파편 교환 섹션을 항상 보여 준다. 파편이 0이면 교환 버튼은 비활성이고, '검이 파괴되면 파편을 얻습니다.' 안내가 나온다. docs/design/m1-overview.md 41행의 '단, 파편 교환 섹션은 첫 파편 획득 시'를 고치고, 필요하면 m1-protect-shards.md의 교환 절도 고친다. REQ-026과 함께 처리하면 된다.",
+    "priority": "P1",
+    "priorityReason": "현재 3단계에서 바뀐 동작이라 기획서와 실제 동작이 어긋남 (REQ-023, REQ-026과 같은 기준)",
+    "milestone": "3단계",
+    "status": "open",
+    "createdAt": "2026-11-19",
+    "history": [
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
+      }
+    ]
+  },
+  {
+    "id": "REQ-030",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "smoke-dom.js의 REQ-012 주석 위치 정리",
+    "detail": "tests/smoke-dom.js 약 755행에서 req012 함수를 설명하던 주석 '/** 3-3 REQ-012 */'이 새로 추가된 forgeShardExchange 함수 위에 붙어 있다. 주석을 req012 위로 되돌리고 새 함수에는 별도 주석을 단다.",
+    "priority": "P3",
+    "priorityReason": "테스트 코드 주석 위치만 틀린 낮음 문제라 백로그",
+    "milestone": "3단계",
+    "status": "open",
+    "createdAt": "2026-11-19",
+    "history": [
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
   }
 ]

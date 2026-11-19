@@ -460,14 +460,14 @@
     const ores = C.ORES.map(k => F.oreUnlocked(S, k)
       ? `<div>${ic(k)} ${C.ORE_NAMES[k]}<b>${fmt(S.ore[k])}</b><small>사냥당 +${C.ORE_PER_HUNT[k]}</small></div>`
       : `<div class="muted">${ic('lock')} ${C.ORE_NAMES[k]}<b>-</b><small>최고 +${C.ORE_UNLOCK_LV[k]} 달성 시</small></div>`).join('');
-    const showExchange = S.shards > 0 || S.stats.shardsGained > 0;
-    const exchange = showExchange ? `<h3 class="sub-title">파편 교환 · 보유 ${ic('shard')} ${fmt(S.shards)}</h3>` +
+    const shardNote = S.shards > 0 ? '' : '<p class="panel-note">검이 파괴되면 파편을 얻습니다.</p>';
+    const exchange = `<h3 class="sub-title">파편 교환 · 보유 ${ic('shard')} ${fmt(S.shards)}</h3>${shardNote}` +
       Object.keys(C.SHARD_COST).map(id => {
         const item = C.ITEMS[id];
         const own = item.kind === 'anvil' ? `(${S.anvils.length}/${C.ANVIL_OWN_MAX})` : `(${S.inv[id]})`;
         return `<div class="row"><div class="shop-icon">${ic(id)}</div><div class="shop-text">${item.name} <span class="muted">${own}</span></div>
           <button class="buy" data-act="exchange" data-id="${id}" ${R.exchangeBlock(S, id) ? 'disabled' : ''}>${ic('shard')} ${C.SHARD_COST[id]}</button></div>`;
-      }).join('') : '';
+      }).join('');
     return `<h3 class="sub-title">모루 (${S.anvils.length}/${C.ANVIL_OWN_MAX})</h3>${anvils}
       <h3 class="sub-title">제작</h3>${craft}
       <h3 class="sub-title">광석</h3><div class="ore-grid">${ores}</div>${exchange}`;
