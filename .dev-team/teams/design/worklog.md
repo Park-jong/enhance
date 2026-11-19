@@ -57,3 +57,10 @@
 - 산출물: docs/design/m1-storage.md, m1-overview.md, m1-constants-index.md, m1-protect-shards.md
 - 결정 사항: 코드를 기준으로 작성. 파괴 시 active=0 유지(로드도 0 유지, 정수 아님/없는 id는 최고 검), 판매·납품은 기존처럼 최고 검 자동 활성. 카드 한 번 클릭=활성, 드래그로 칸 순서 변경. 요청문과 코드의 차이: 스트립 아래 [판매]/[납품]은 이제 활성 검에만 적용(예전 문서의 "어느 검이든 바로 판매"는 UI에서 더는 아님, 규칙 sellSword는 id 지정 가능)
 - 남은 문제: docs/qa에는 옛 동작 서술 없음(검색 결과 0건)
+
+## 2026-11-19 — REQ-026·REQ-029 설계 문서를 v0.5.0/v0.5.1 코드에 맞춤
+- 지시: 디렉터 / 관련 단계: 3단계 (REQ-012, 3-8) / 처리한 요청: REQ-026, REQ-029 (in_progress 유지, done은 디렉터 확인 후)
+- 참여 팀원: system-designer (문서 수정), 팀장은 코드 대조 확인
+- 산출물: docs/design/m1-overview.md, m1-quest.md, m1-protect-shards.md, m1-constants-index.md, m1-storage.md
+- 결정 사항: 의뢰 탭은 납품 가능 개수 배지(0이면 숨김), 대장간·방치만 알림 점. 파편 교환 섹션은 대장간 해금 후 항상 표시(0이면 버튼 비활성+안내). MAX_PARTICLES=400 추가. 저장 문서에 빈 문자열 v2=저장 없음, clear 이벤트 storageArea 판정, ui.epoch 폐기, 토스트 규칙, 수용 기준 25~29 추가. REQ-028(빈 문자열 v1)은 결정하지 않음.
+- 남은 문제: MAX_PARTICLES 행의 문서 열 "idle/fx"(fx 문서 없음, 임의 표기). REQ-028 결정 대기.

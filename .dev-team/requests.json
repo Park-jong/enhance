@@ -754,7 +754,7 @@
     "priority": "P1",
     "priorityReason": "현재 3단계에서 바뀐 동작이고, 4단계 M2 저장 필드 표가 m1-storage.md를 기준으로 하므로 3단계 안에 맞춰야 한다 (REQ-023과 같은 기준)",
     "milestone": "3단계 3-3",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-19",
     "history": [
       {
@@ -762,6 +762,17 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "기획 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "m1-overview.md, m1-quest.md, m1-constants-index.md, m1-storage.md(판정 25~29 추가) 반영. QA 승인 2026-11-19"
       }
     ]
   },
@@ -817,7 +828,7 @@
     "priority": "P1",
     "priorityReason": "현재 3단계에서 바뀐 동작이라 기획서와 실제 동작이 어긋남 (REQ-023, REQ-026과 같은 기준)",
     "milestone": "3단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-19",
     "history": [
       {
@@ -825,6 +836,17 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "기획 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-19",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "m1-overview.md 대장간 해금 행과 m1-protect-shards.md 교환 절에 파편 교환 항상 표시 반영. QA 승인 2026-11-19"
       }
     ]
   },
