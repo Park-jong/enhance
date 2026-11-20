@@ -306,7 +306,7 @@
     "priority": "P2",
     "priorityReason": "다음 마일스톤(M2) 범위. M1 수치가 확정되어야 영구 보너스·이벤트 수치를 정할 수 있음",
     "milestone": "M2 장기 플레이",
-    "status": "open",
+    "status": "in_progress",
     "createdAt": "2026-11-17",
     "history": [
       {
@@ -314,6 +314,12 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P2"
+      },
+      {
+        "at": "2026-11-20",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "4단계 배치 A(4-0 후반 골드 사용처, 4-1 F14 특성) 설계 착수. 산출물 docs/design/m2-overview.md, m2-traits.md"
       }
     ]
   },
