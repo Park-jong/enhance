@@ -85,3 +85,17 @@
 - 산출물: docs/design/m1-storage.md (peek readFailed, AC 34 수정, 보호 모드 구현 세부 2·8항, AC 37~39), docs/design/m1-overview.md (단축키 항목)
 - 결정 사항: 읽기 예외 시 checkStored는 아무것도 바꾸지 않음. 단축키는 글자 입력 칸에서 무시.
 - 남은 문제: 원문 칸 120px 상한은 미디어쿼리 밖(모든 너비)이라 문서도 그렇게 기록. 헤더 static만 720px 이하.
+
+## 2026-11-20 — M2 기획 배치 B (4-2 F12 업적·일일 과제, 4-3 F13 시간 이벤트)
+- 지시: 디렉터 / 관련 단계: 4단계 4-2, 4-3 / 처리한 요청: REQ-010 (in_progress 유지)
+- 참여 팀원: system-designer 3회(업적·일일 문서, 이벤트 문서, overview 갱신), 팀장 검토
+- 산출물: docs/design/m2-achievements.md, docs/design/m2-events.md, docs/design/m2-overview.md
+- 결정 사항: 업적 보상 상점·이벤트 이용권 없음. 업적은 34개(3단계 트랙 11 + 단독 1), 보상은 칭호+소액(총 131H, 연속 사냥 5.5분), best<13에서 골드 50%. 일일 과제 3개, 로컬 04:00 리셋, 롤백 무시·앞당김은 세트 1개, 쌓이지 않음. 이벤트 6종(300초, 자동 시작), 시간은 활성 플레이 dt 기준이라 기기 시계 영향 없음, 오프라인 무시. 확률 이벤트는 luck 하나(+5%p, BONUS_CAP 안에서 합산, SUCC_CEIL 유지, 숙련 기록 제외). 새 탭 없이 기록 탭에 배치.
+- 남은 문제: stats.eventsSeen을 읽는 업적이 없음(훅만 존재, 업적 추가 여부는 이후). 환생 시 업적·일일·이벤트 상태는 C에서 확정(잠정: 업적·일일 유지, 이벤트 초기화). luck 이벤트는 플레이 테스트에서 단축 5% 초과 시 +3%p로 낮춤. 기록 탭 길이 증가 가능성.
+
+## 2026-11-20 — 배치 B QA 수정 2차 (10건)
+- 지시: 디렉터(QA 변경 요청) / 처리한 요청: REQ-010 (in_progress 유지)
+- 참여 팀원: system-designer 2회
+- 산출물: docs/design/m2-achievements.md, m2-events.md (m2-overview 변경 없음)
+- 결정 사항: 파편 합계 30으로 정정, craft_m은 모루 6개 미만일 때만(풀 비지 않음 증명+AC), storedClaimed에 maxDay 비교(stale 사유 신설), 조기 구간 k≤23, certain()/최대 단계는 parts:null 유지하고 event 정보는 최상위 필드, eventGain=min(5,max(0,cap-rawNoEvent)), 따라잡기(catch-up) 실행에는 이벤트 보너스 없음, tools/sim-late 소비자 명시.
+- 남은 문제: stale 사유를 claimed에 합칠지는 선택 사항.

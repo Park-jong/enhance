@@ -320,6 +320,12 @@
         "by": "기획 팀장",
         "status": "in_progress",
         "note": "4단계 배치 A(4-0 후반 골드 사용처, 4-1 F14 특성) 설계 착수. 산출물 docs/design/m2-overview.md, m2-traits.md"
+      },
+      {
+        "at": "2026-11-20",
+        "by": "기획 팀장",
+        "status": "in_progress",
+        "note": "배치 B 기획 완료(4-2 F12, 4-3 F13): docs/design/m2-achievements.md, m2-events.md, m2-overview.md 갱신. 배치 C(F11 환생, 4-5 저장 표 최종) 남음."
       }
     ]
   },

@@ -85,3 +85,10 @@
 - 산출물: 없음(문서 검토 보고만). 코드 변경 없음, tests/run-tests.js 226 통과
 - 결정 사항: 코드 대조와 산수는 일치. 문서 간 모순 2건(중간)으로 CHANGES REQUESTED
 - 남은 문제: overview C.5의 "특성 수입이 +5~+12 구간과 겹치지 않음"은 거짓(각인은 +5 무료), overview D와 traits §10의 t 정규화 불일치
+
+## 2026-11-20 — 4단계 묶음 B 검토 (4-2 F12 업적·일일, 4-3 F13 시간 이벤트) 1차
+- 지시: 디렉터 / 관련 단계: 4단계 배치 B / 처리한 요청: 없음
+- 참여 팀원: 없음(light, 직접 검증)
+- 산출물: docs/verification-issues.md V5 추가. 코드 변경 없음, tests/run-tests.js 226 통과
+- 결정 사항: CHANGES REQUESTED. 산수(H·보상표·dayKey·파괴율 불변·Σ1/p)는 node로 일치 확인. 불일치: 업적 파편 합계 27 → 실제 30, certain()의 parts가 null인데 AC가 parts.event 요구, craft_m 달성 불가 상태, eventGain 공식 오류, 조합 수 10,400 오류.
+- 남은 문제: storedClaimed가 daily.maxDay를 비교하지 않음(낮음), 숨김 후 자동 catch-up이 멈춘 이벤트 배율을 받음(낮음), tools/sim-late가 구현 소비자 목록에 없음.
