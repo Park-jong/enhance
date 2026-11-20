@@ -99,3 +99,10 @@
 - 산출물: docs/design/m2-achievements.md, m2-events.md (m2-overview 변경 없음)
 - 결정 사항: 파편 합계 30으로 정정, craft_m은 모루 6개 미만일 때만(풀 비지 않음 증명+AC), storedClaimed에 maxDay 비교(stale 사유 신설), 조기 구간 k≤23, certain()/최대 단계는 parts:null 유지하고 event 정보는 최상위 필드, eventGain=min(5,max(0,cap-rawNoEvent)), 따라잡기(catch-up) 실행에는 이벤트 보너스 없음, tools/sim-late 소비자 명시.
 - 남은 문제: stale 사유를 claimed에 합칠지는 선택 사항.
+
+## 2026-11-20 — M2 기획 배치 C (4-4 F11 환생, 4-5 저장 필드 전체 표)
+- 지시: 디렉터 / 관련 단계: 4단계 4-4, 4-5 / 처리한 요청: REQ-010 (done)
+- 참여 팀원: system-designer 1회, 팀장 설계 결정·산수 검증
+- 산출물: docs/design/m2-rebirth.md, docs/design/m2-overview.md, m2-traits/m2-events/m2-achievements 포인터 한 줄씩
+- 결정 사항: +20 검 제물 소모, 비용 100×H(20)=19,846,200G(골드는 초기화), 명성 환생당 3 고정, 명성 상점 4종(시작 자금·초반 수입 topLv≤12·시작 칸·자동 사냥 즉시 해금, 합 25명성), 확률 보너스 없음, 숙련은 단계당 기록 1개까지만 상속(전부 유지 시 +15~19 무파괴 등반 확률 10.5배라 기각), 게이지 초기화, 페이스 하한 1회차의 80%, 저장 v2 유지 + 기본값 병합(rebirth 필드 추가).
+- 남은 문제: 페이스 가정(골드 제한 구간 8분 이하 등)은 플레이 테스트 필요. 2회차가 15분 미만이면 MASTERY_KEEP_REC=0. 구현(Tech)·QA 필요.
