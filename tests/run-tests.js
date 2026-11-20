@@ -786,13 +786,13 @@ describe('save & migrate', () => {
     const st = memStorage({ 'sword-enhance-v1': JSON.stringify(v1Full) });
     const { state: S, source } = SV.load(st, NOW);
     assert.strictEqual(source, 'v1');
-    assert.deepStrictEqual(S.swords, [{ id: 1, lv: 7, prot: 2, pity: 0 }]);
+    assert.deepStrictEqual(S.swords, [{ id: 1, lv: 7, prot: 2, pity: 0, trait: null }]);
     assert.deepStrictEqual([S.active, S.gold, S.best, S.settings.muted], [1, 5000, 12, true]);
     assert.deepStrictEqual([S.inv.bless, S.inv.protect, S.use.bless, S.use.protect], [3, 2, true, false]);
     assert.strictEqual(S.found.length, 21);
     assert.strictEqual(S.found[12], true);
     assert.strictEqual(S.found[9], false);   // not back-filled up to best
-    assert.deepStrictEqual(S.stats, { tries: 40, success: 20, fail: 15, destroy: 5, earned: 9000, shardsGained: 0, protectSaved: 0, delivered: 0, crafted: 0, huntGold: 0, offlineGold: 0 });
+    assert.deepStrictEqual(S.stats, { tries: 40, success: 20, fail: 15, destroy: 5, earned: 9000, shardsGained: 0, protectSaved: 0, delivered: 0, crafted: 0, huntGold: 0, offlineGold: 0, sinkGold: 0, traitRolls: 0 });
     assert.strictEqual(S.idle.lastSeen, NOW);
     assert.ok(st.dump['sword-enhance-v2']);
     assert.ok(st.dump['sword-enhance-v1']);
@@ -840,7 +840,7 @@ describe('save & migrate', () => {
   test('new game defaults', () => {
     const { state: S, source } = SV.load(memStorage(), NOW);
     assert.strictEqual(source, 'new');
-    assert.deepStrictEqual(S.swords, [{ id: 1, lv: 0, prot: 2, pity: 0 }]);
+    assert.deepStrictEqual(S.swords, [{ id: 1, lv: 0, prot: 2, pity: 0, trait: null }]);
     assert.deepStrictEqual([S.slots, S.gold, S.shards, S.anvilEq, S.quests.list.length], [3, 300, 0, null, 3]);
     assert.deepStrictEqual(S.inv, { bless: 0, protect: 0, keepdown: 0, sure: 0, booster: 0, seal: 0 });
     assert.deepStrictEqual(S.idle.up, { speed: 0, gold: 0, offline: 0 });
@@ -875,7 +875,7 @@ describe('save & migrate', () => {
     d.anvilEq = 1;
     d.quests.list = [{ id: 1, tier: 'hard', lv: 3 }, 'junk'];
     const S = SV.normalize(JSON.parse(JSON.stringify(d)), NOW);
-    assert.deepStrictEqual(S.swords[0], { id: 3, lv: 20, prot: 2, pity: 0 });
+    assert.deepStrictEqual(S.swords[0], { id: 3, lv: 20, prot: 2, pity: 0, trait: null });
     assert.strictEqual(S.swords.length, 5);
     assert.strictEqual(S.slots, 5);
     assert.strictEqual(S.active, 3);
@@ -891,7 +891,7 @@ describe('save & migrate', () => {
     d.swords = [];
     d.nextSwordId = 9;
     const S = SV.normalize(d, NOW);
-    assert.deepStrictEqual(S.swords, [{ id: 9, lv: 0, prot: 2, pity: 0 }]);
+    assert.deepStrictEqual(S.swords, [{ id: 9, lv: 0, prot: 2, pity: 0, trait: null }]);
     assert.strictEqual(S.active, 9);
   });
 });
@@ -2194,6 +2194,694 @@ describe('REQ-031: a failing read does not end protected mode', () => {
     assert.strictEqual(keeper.load(NOW).backup, 'written');
     assert.ok(!keeper.isProtected());
     assert.deepStrictEqual(keeper.checkStored(NOW), { state: null, backup: null });
+  });
+});
+
+// ============================================================ M2-A F14 검 특성 + 골드 사용처 (m2-traits §14, m2-overview §I)
+/** 호출 횟수를 세는 rng: 값 배열을 순서대로(마지막 값 반복) */
+const countedSeq = (...vals) => { const f = () => vals[Math.min(f.calls++, vals.length - 1)]; f.calls = 0; return f; };
+const sword = (id, lv, trait = null, extra = {}) => Object.assign({ id, lv, prot: C.PROTECT_USES, pity: 0, trait }, extra);
+const tr = (k, t) => ({ k, t });
+/** 모루 장착(토글 ON) 상태의 단일 검 */
+function anvilState(lv, trait, dura = C.ANVIL_DURA[3]) {
+  const S = stateWith({ swords: [sword(1, lv, trait)], top: { gold: 1e12 } });
+  S.anvils = [{ id: 1, g: 3, dura }]; S.anvilEq = 1; S.nextAnvilId = 2;
+  assert.ok(R.setUse(S, 'anvil', true).ok);
+  return S;
+}
+const H = l => R.huntReward(l);
+
+describe('M2-A traits: constants (m2-traits §12, m2-overview §E)', () => {
+  test('trait tables match the spec and weights sum to 100', () => {
+    assert.deepStrictEqual(C.TRAIT_KINDS, ['hunt', 'work', 'trade', 'ore', 'shard', 'anvil']);
+    assert.deepStrictEqual(C.TRAIT_KIND_WEIGHT, { hunt: 20, work: 15, trade: 20, ore: 15, shard: 15, anvil: 15 });
+    assert.deepStrictEqual(C.TRAIT_KINDS.map(k => C.TRAITS[k].values), [[10, 20, 30], [15, 30, 45], [10, 20, 30], [20, 40, 60], [15, 30, 50], [15, 30, 45]]);
+    assert.strictEqual(C.TRAIT_KINDS.reduce((a, k) => a + C.TRAIT_KIND_WEIGHT[k], 0), 100);
+    assert.deepStrictEqual([C.TRAIT_TIER_WEIGHT, C.TRAIT_TIER_MAX, C.TRAIT_ROLL_LV], [[70, 25, 5], 3, 5]);
+    assert.deepStrictEqual(C.TRAIT_TIER_NAME, ['평범한', '정교한', '완벽한']);
+    assert.deepStrictEqual([C.TRAIT_MGMT_UNLOCK_BEST, C.TRAIT_PRICE_ROUND, C.TRAIT_REKIND_MULT, C.TRAIT_TIER_UP_MULT], [13, 100, 80, [200, 500]]);
+    assert.deepStrictEqual([C.MONUMENT_FROM, C.MONUMENT_COUNT, C.MONUMENT_MULT], [13, 8, 150]);
+    assert.strictEqual(C.MONUMENT_COUNT, C.MAX - C.MONUMENT_FROM + 1);
+  });
+  test('traitDef / traitValue use own properties only', () => {
+    assert.strictEqual(R.traitDef('hunt').name, '약탈자');
+    ['constructor', '__proto__', 'toString', 'x', 3, null, undefined, ['hunt']].forEach(k => assert.strictEqual(R.traitDef(k), null, String(k)));
+    assert.strictEqual(R.traitValue(sword(1, 9, tr('ore', 3)), 'ore'), 60);
+    assert.strictEqual(R.traitValue(sword(1, 9, tr('ore', 3)), 'hunt'), 0);
+    assert.strictEqual(R.traitValue(sword(1, 9), 'ore'), 0);
+    assert.strictEqual(R.traitValue({ id: 1, lv: 9 }, 'ore'), 0, 'swords without the field read as no trait');
+  });
+});
+
+describe('M2-A traits: chances never read traits (AC 1-4)', () => {
+  const TRAITS = [null, tr('hunt', 1), tr('anvil', 3), tr('trade', 2), tr('shard', 3), tr('work', 1), tr('ore', 2)];
+  test('AC1: every chances() field is identical for any trait (all levels, opts, pity)', () => {
+    for (let lv = 0; lv <= C.MAX; lv++) {
+      for (const opts of [{}, { bless: true, anvilGrade: 3 }, { sure: true }, { gaugeFull: true }, { mastery: 4, bless: true }]) {
+        for (const pity of [0, 4, 20]) {
+          const base = JSON.stringify(R.chances({ lv, pity, trait: null }, opts));
+          TRAITS.forEach(t => assert.strictEqual(JSON.stringify(R.chances({ lv, pity, trait: t }, Object.assign({ trait: t }, opts))), base, `${lv} ${JSON.stringify(t)}`));
+        }
+      }
+    }
+  });
+  test('AC1: chances() source does not mention trait', () => {
+    assert.ok(!/trait/i.test(R.chances.toString()));
+  });
+  test('AC2: two swords with different traits and the same rng give the same outcome/pity/gauge/mastery/gold (no anvil)', () => {
+    for (const roll of [0, 0.1, 0.2, 0.5, 0.9999]) {
+      const run = trait => {
+        const S = stateWith({ swords: [sword(1, 16, trait, { pity: 2 })], top: { gold: 1e9 } });
+        const r = R.attemptEnhance(S, countedSeq(roll));
+        return JSON.stringify([r.outcome, r.pity, S.gauge, S.mastery, S.gold, S.shards - (r.shards || 0)]);
+      };
+      const base = run(null);
+      TRAITS.forEach(t => assert.strictEqual(run(t), base, `${roll} ${JSON.stringify(t)}`));
+    }
+  });
+  test('AC3: a full gauge is a guaranteed success with the same gauge/mastery update for any trait', () => {
+    const run = trait => {
+      const S = stateWith({ swords: [sword(1, 16, trait)], top: { gold: 1e9 } });
+      S.gauge = [0, 5, 0, 0, 0];
+      const r = R.attemptEnhance(S, () => 0.9999);
+      return JSON.stringify([r.outcome, S.gauge, S.mastery]);
+    };
+    TRAITS.forEach(t => assert.strictEqual(run(t), run(null)));
+    assert.ok(run(tr('anvil', 3)).includes('success'));
+  });
+  test('AC4: attemptEnhance without an anvil-trait roll uses the rng exactly once', () => {
+    const cases = [stateWith({ swords: [sword(1, 12)], top: { gold: 1e9 } }),
+      stateWith({ swords: [sword(1, 12, tr('hunt', 3))], top: { gold: 1e9 } }),
+      anvilState(12, null), anvilState(12, tr('shard', 3))];
+    cases.forEach((S, i) => {
+      const rng = countedSeq(0.5);
+      R.attemptEnhance(S, rng);
+      assert.strictEqual(rng.calls, 1, 'case ' + i);
+    });
+  });
+});
+
+describe('M2-A traits: engraving (AC 5-13, 54)', () => {
+  test('AC5: +4 → +5 success, then engravePending engraves it (traitRolls +1, listed); +4 swords are not engraved', () => {
+    const S = stateWith({ swords: [sword(1, 4), sword(2, 4)], top: { gold: 1e9 } });
+    assert.strictEqual(R.attemptEnhance(S, ROLL_SUCCESS).outcome, 'success');
+    const out = R.engravePending(S, seq(0, 0));
+    assert.deepStrictEqual(out, [{ id: 1, k: 'hunt', t: 1 }]);
+    assert.deepStrictEqual([S.swords[0].trait, S.swords[1].trait, S.stats.traitRolls], [tr('hunt', 1), null, 1]);
+  });
+  test('AC6: weighted boundaries use < (0,0 → hunt 1; .99,.99 → anvil 3; .20,.70 → work 2)', () => {
+    const roll = (a, b) => { const S = stateWith({ swords: [sword(1, 5)] }); R.engravePending(S, seq(a, b)); return S.swords[0].trait; };
+    assert.deepStrictEqual(roll(0, 0), tr('hunt', 1));
+    assert.deepStrictEqual(roll(0.99, 0.99), tr('anvil', 3));
+    assert.deepStrictEqual(roll(0.20, 0.70), tr('work', 2));
+    assert.deepStrictEqual(roll(0.1999, 0.6999), tr('hunt', 1));
+    assert.deepStrictEqual(roll(0.35, 0.95), tr('trade', 3));
+  });
+  test('AC7/AC54: three pending swords use 6 rng calls in array order (kind, tier) per sword; others untouched', () => {
+    const S = stateWith({ swords: [sword(7, 9), sword(2, 3), sword(5, 5), sword(1, 12)] });
+    const rng = countedSeq(0, 0, 0.2, 0.7, 0.99, 0.99);
+    const out = R.engravePending(S, rng);
+    assert.strictEqual(rng.calls, 6);
+    assert.deepStrictEqual(out, [{ id: 7, k: 'hunt', t: 1 }, { id: 5, k: 'work', t: 2 }, { id: 1, k: 'anvil', t: 3 }]);
+    assert.strictEqual(S.swords[1].trait, null);
+    assert.strictEqual(S.stats.traitRolls, 3);
+  });
+  test('AC8/AC54: engravePending is idempotent (no change, 0 rng calls, empty list)', () => {
+    const S = stateWith({ swords: [sword(1, 9, tr('ore', 2)), sword(2, 2)] });
+    const rng = countedSeq(0.5);
+    assert.deepStrictEqual(R.engravePending(S, rng), []);
+    assert.deepStrictEqual([rng.calls, S.swords[0].trait, S.stats.traitRolls], [0, tr('ore', 2), 0]);
+  });
+  test('AC9: trait normalization of bad saved values (no throw)', () => {
+    const cases = [['x', null], [[], null], [{ k: 'constructor', t: 2 }, null], [{ k: '__proto__', t: 2 }, null],
+      [{ k: 'hunt', t: 9 }, tr('hunt', 3)], [{ k: 'hunt', t: 0 }, tr('hunt', 1)], [{ k: 'hunt', t: '2' }, tr('hunt', 2)],
+      [{ k: 'hunt' }, tr('hunt', 1)], [{ k: 'hunt', t: 2.5 }, tr('hunt', 2)], [{ k: 'hunt', t: 'z' }, tr('hunt', 1)],
+      [{ k: 'ore', t: 3, extra: 1 }, tr('ore', 3)], [7, null], [null, null], [{ k: ['hunt'], t: 1 }, null], [undefined, null]];
+    cases.forEach(([raw, want]) => {
+      const d = fresh(); d.swords = [{ id: 1, lv: 6, prot: 2, pity: 0, trait: raw }];
+      const S = SV.normalize(JSON.parse(JSON.stringify(d)), NOW);
+      assert.deepStrictEqual(S.swords[0].trait, want, JSON.stringify(raw));
+    });
+  });
+  test('AC10/AC11: an old v2 save (+7, +2, no trait field) loads both as null; boot engraving gives only +7 a trait, gold unchanged', () => {
+    const d = fresh(); d.gold = 4321; d.best = 7;
+    d.swords = [{ id: 1, lv: 7, prot: 2, pity: 0 }, { id: 2, lv: 2, prot: 2, pity: 0 }]; d.nextSwordId = 3;
+    const raw = JSON.stringify(d);
+    const S = SV.load(memStorage({ [C.SAVE_KEY]: raw }), NOW).state;
+    assert.deepStrictEqual(S.swords.map(s => s.trait), [null, null]);
+    assert.deepStrictEqual(SV.load(memStorage({ [C.SAVE_KEY]: raw }), NOW).state, S, 'loading is deterministic');
+    const out = R.engravePending(S, seq(0.5, 0.5));
+    assert.deepStrictEqual(out.map(e => e.id), [1]);
+    assert.deepStrictEqual([S.swords[0].trait, S.swords[1].trait, S.gold], [tr('trade', 1), null, 4321]);
+  });
+  test('AC12: later successes of an engraved sword do not reroll', () => {
+    const S = stateWith({ swords: [sword(1, 5, tr('shard', 2))], top: { gold: 1e9 } });
+    R.attemptEnhance(S, ROLL_SUCCESS);
+    assert.deepStrictEqual(R.engravePending(S, countedSeq(0)), []);
+    assert.deepStrictEqual([S.swords[0].lv, S.swords[0].trait], [6, tr('shard', 2)]);
+  });
+  test('AC13: bought and free +0 swords have trait null', () => {
+    const S = stateWith({ swords: [sword(1, 9, tr('hunt', 1))], top: { gold: 1e9 } });
+    assert.strictEqual(R.buySword(S).sword.trait, null);
+    assert.strictEqual(fresh().swords[0].trait, null);
+    const T = stateWith({ swords: [sword(1, 9, tr('hunt', 1))] });
+    assert.strictEqual(R.sellSword(T, 1).freeSword.trait, null);
+  });
+});
+
+describe('M2-A traits: sword lifecycle (AC 14-22)', () => {
+  test('AC14: a kept failure keeps the trait', () => {
+    const S = stateWith({ swords: [sword(1, 6, tr('hunt', 2))], top: { gold: 1e9 } });
+    assert.strictEqual(R.attemptEnhance(S, ROLL_HIGH).outcome, 'fail');
+    assert.deepStrictEqual(S.swords[0].trait, tr('hunt', 2));
+  });
+  test('AC15: drops keep the trait, and falling below +5 never rerolls', () => {
+    const S = stateWith({ swords: [sword(1, 11, tr('work', 3))], top: { gold: 1e9 } });
+    assert.strictEqual(R.attemptEnhance(S, ROLL_HIGH).outcome, 'drop');
+    assert.deepStrictEqual([S.swords[0].lv, S.swords[0].trait], [10, tr('work', 3)]);
+    S.swords[0].lv = 4;
+    assert.deepStrictEqual(R.engravePending(S, countedSeq(0)), []);
+    assert.deepStrictEqual(S.swords[0].trait, tr('work', 3));
+  });
+  test('AC16/AC21: destroying the only sword (no protection) gives a free +0 with trait null', () => {
+    const S = stateWith({ swords: [sword(1, 12, tr('trade', 3))], top: { gold: 1e9 } });
+    const r = R.attemptEnhance(S, rollDestroy(R.currentChances(S)));
+    assert.strictEqual(r.outcome, 'destroy');
+    assert.deepStrictEqual(S.swords.map(s => [s.lv, s.trait]), [[0, null]]);
+  });
+  test('AC17: a protected destroy keeps the trait and gives no collector bonus', () => {
+    const S = stateWith({ swords: [sword(1, 12, tr('shard', 3))], inv: { protect: 10 }, top: { gold: 1e9 } });
+    R.setUse(S, 'protect', true);
+    const r = R.attemptEnhance(S, rollDestroy(R.currentChances(S)));
+    assert.deepStrictEqual([r.outcome, r.shards, S.shards, S.swords[0].trait], ['protected', undefined, 0, tr('shard', 3)]);
+  });
+  test('AC18/AC19/AC20: moveSword, setActive and expandSlots keep every trait; income trait unchanged', () => {
+    const S = stateWith({ swords: [sword(1, 9, tr('hunt', 3)), sword(2, 4), sword(3, 9, tr('work', 1))], top: { gold: 1e9 } });
+    const traits = () => JSON.stringify(S.swords.map(s => [s.id, s.trait]).sort((a, b) => a[0] - b[0]));
+    const before = traits();
+    const income = () => C.TRAIT_KINDS.map(k => R.incomeTrait(S, k)).join();
+    const incomeBefore = income();
+    R.moveSword(S, 1, 2);
+    assert.deepStrictEqual(R.findSword(S, 1).trait, tr('hunt', 3));
+    R.setActive(S, 2);
+    assert.strictEqual(income(), incomeBefore);
+    R.expandSlots(S);
+    assert.strictEqual(traits(), before);
+  });
+  test('AC21: selling or delivering the last sword gives a free +0 with trait null', () => {
+    const S = stateWith({ swords: [sword(1, 7, tr('trade', 1))], top: { best: 10 } });
+    S.quests.list[1] = { id: 1, tier: 'normal', lv: 7, gold: 999, item: null };
+    const r = Q.deliver(S, 1, NOW, { confirmActive: true });
+    assert.strictEqual(r.freeSword.trait, null);
+  });
+  test('AC22: save → load keeps traits, sinkGold, traitRolls and monuments', () => {
+    const S = fresh();
+    S.gold = 1e6;
+    R.buySword(S);
+    S.swords[0].lv = 9; S.swords[0].trait = tr('anvil', 2); S.swords[1].trait = tr('ore', 3);
+    S.best = 15; S.stats.sinkGold = 12345; S.stats.traitRolls = 7; S.monuments[2] = 1;
+    const st = memStorage();
+    SV.save(st, S, NOW + 5);
+    const T = SV.load(st, NOW + 10).state;
+    assert.deepStrictEqual(T, S);
+  });
+});
+
+describe('M2-A traits: income traits (AC 23-27a)', () => {
+  test('AC23: top sword {hunt,3} → floor(huntReward(10) × 130 / 100); none → old value; non-top hunt has no effect', () => {
+    const S = stateWith({ swords: [sword(1, 10, tr('hunt', 3)), sword(2, 6, tr('hunt', 3))] });
+    assert.strictEqual(I.manualHuntGold(S, NOW), Math.floor(H(10) * 130 / 100));
+    S.swords[0].trait = null;
+    assert.strictEqual(I.manualHuntGold(S, NOW), Math.floor(H(10) * 1));
+    const r = I.manualHunt(S, NOW, () => 0.9);
+    assert.strictEqual(r.gold, H(10));
+  });
+  test('AC24: booster ×1.5 + {hunt,2} → floor(huntReward × 120 × 1.5 / 100); harvest upgrades do not change manual hunts', () => {
+    const S = stateWith({ swords: [sword(1, 13, tr('hunt', 2))] });
+    S.idle.boostUntil = NOW + MIN;
+    const want = Math.floor(H(13) * 120 * 1.5 / 100);
+    assert.strictEqual(I.manualHuntGold(S, NOW), want);
+    S.idle.up.gold = 5;
+    assert.strictEqual(I.manualHuntGold(S, NOW), want);
+  });
+  test('AC25: tied top swords {work,1} and {work,3} → max 45% (not summed), order-free; hunt+work apply separately', () => {
+    const S = stateWith({ swords: [sword(1, 12, tr('work', 1)), sword(2, 12, tr('work', 3))] });
+    S.idle.up.gold = 3; S.idle.boostUntil = NOW + MIN;
+    const want = Math.round(R.autoReward(12) * I.goldUpFactor(S) * 1.5 * 145 / 100);
+    assert.strictEqual(I.autoRunGold(S, NOW), want);
+    S.swords.reverse();
+    assert.strictEqual(I.autoRunGold(S, NOW), want);
+    S.swords[0].trait = tr('hunt', 2);
+    assert.strictEqual(I.autoRunGold(S, NOW), Math.round(R.autoReward(12) * I.goldUpFactor(S) * 1.5 * 115 / 100));
+    assert.strictEqual(I.manualHuntGold(S, NOW), Math.floor(H(12) * 120 * 1.5 / 100));
+    assert.strictEqual(R.incomeTrait(S, 'work'), 1.15);
+    assert.deepStrictEqual(R.incomeSwords(S).map(s => s.id).sort(), [1, 2]);
+  });
+  test('AC26: offline {work,2} with upgrades and partial booster overlap; non-work top = old formula; removing the top sword recomputes', () => {
+    const make = trait => {
+      const S = stateWith({ swords: [sword(1, 11, trait), sword(2, 9, tr('work', 3))] });
+      S.idle.autoOn = true; S.idle.up.gold = 2; S.idle.lastSeen = NOW - 3 * HOUR; S.idle.boostUntil = NOW - 2 * HOUR;
+      return S;
+    };
+    const S = make(tr('work', 2));
+    const r = I.settleOffline(S, NOW);
+    const gu = 1 + C.UP_GOLD_STEP * 2;
+    assert.strictEqual(r.gold, Math.floor(r.runs * R.autoReward(11) * gu * C.OFFLINE_EFF * r.boostFactor * 130 / 100));
+    const T = make(tr('hunt', 3));
+    const rt = I.settleOffline(T, NOW);
+    assert.strictEqual(rt.gold, Math.floor(rt.runs * R.autoReward(11) * gu * C.OFFLINE_EFF * rt.boostFactor));
+    const U = make(null);
+    R.sellSword(U, 1);
+    assert.strictEqual(R.incomeTraitValue(U, 'work'), 45, 'the remaining top sword now counts');
+  });
+  test('AC27: {ore,3} rollOre — iron 320% → rng .19 gives 4, .21 gives 3; mithril 80% → .79 gives 1, .81 gives 0; same rng call count', () => {
+    const S = stateWith({ swords: [sword(1, 12, tr('ore', 3))] });
+    assert.strictEqual(F.rollOre(S, () => 0.19).iron, 4);
+    assert.strictEqual(F.rollOre(S, () => 0.21).iron, 3);
+    assert.strictEqual(F.rollOre(S, () => 0.79).mithril, 1);
+    assert.strictEqual(F.rollOre(S, () => 0.81).mithril, 0);
+    const rng = countedSeq(0.5);
+    F.rollOre(S, rng);
+    assert.strictEqual(rng.calls, 3, 'one call per unlocked ore, as before');
+    const low = stateWith({ swords: [sword(1, 6, tr('ore', 3))] });
+    assert.deepStrictEqual(Object.keys(F.rollOre(low, () => 0)), ['iron'], 'locked ores stay locked');
+    const plain = stateWith({ swords: [sword(1, 12, tr('hunt', 3))] });
+    assert.deepStrictEqual(F.rollOre(plain, () => 0.49), { iron: 2, silver: 1, mithril: 1 });
+  });
+  test('AC27a: expectedOre = floor(runs × rate × (100+v) × eff / 100); no miner = old value; ORE_MAX still caps', () => {
+    const S = stateWith({ swords: [sword(1, 12, tr('ore', 2))] });
+    const runs = 777;
+    const got = F.expectedOre(S, runs, C.OFFLINE_EFF);
+    C.ORES.forEach(k => assert.strictEqual(got[k], Math.floor(runs * C.ORE_PER_HUNT[k] * 140 * C.OFFLINE_EFF / 100), k));
+    S.swords[0].trait = null;
+    C.ORES.forEach(k => assert.strictEqual(F.expectedOre(S, runs, C.OFFLINE_EFF)[k], Math.floor(runs * C.ORE_PER_HUNT[k] * C.OFFLINE_EFF)));
+    S.ore.iron = C.ORE_MAX - 3;
+    S.swords[0].trait = tr('ore', 3);
+    assert.strictEqual(F.addOre(S, F.expectedOre(S, 1e6, C.OFFLINE_EFF)).iron, 3);
+    assert.strictEqual(S.ore.iron, C.ORE_MAX);
+  });
+});
+
+describe('M2-A traits: trade traits (AC 28-32)', () => {
+  const sellCase = (trait, seal) => {
+    const S = stateWith({ swords: [sword(1, 12), sword(2, 9, trait)], inv: { seal: 1 } });
+    if (seal) R.setSeal(S, true);
+    return S;
+  };
+  test('AC28: selling a non-active {trade,2} +9 → floor(floor(sell × 120/100) × SEAL_MULT); earned matches; non-trade = old', () => {
+    const want = {
+      'trade-seal': Math.floor(Math.floor(R.sell(9) * 120 / 100) * C.SEAL_MULT),
+      'trade-plain': Math.floor(R.sell(9) * 120 / 100),
+      'none-seal': Math.floor(R.sell(9) * C.SEAL_MULT),
+      'none-plain': R.sell(9),
+    };
+    [['trade', tr('trade', 2)], ['none', tr('hunt', 3)]].forEach(([name, trait]) => [true, false].forEach(seal => {
+      const S = sellCase(trait, seal);
+      const r = R.sellSword(S, 2);
+      const key = `${name}-${seal ? 'seal' : 'plain'}`;
+      assert.deepStrictEqual([r.gold, S.stats.earned, r.sealed], [want[key], want[key], seal], key);
+    }));
+  });
+  const deliverCase = (trait, seal) => {
+    const S = stateWith({ swords: [sword(1, 12), sword(2, 7, trait)], inv: { seal: 1 }, top: { best: 12 } });
+    S.quests.list[1] = { id: 4, tier: 'normal', lv: 7, gold: Q.questGold('normal', 7), item: null };
+    if (seal) R.setSeal(S, true);
+    return S;
+  };
+  test('AC29: delivering with {trade,1} → floor(floor(gold × 110/100) × SEAL_MULT) or floor(gold × 110/100); stored quest gold unchanged', () => {
+    const base = Q.questGold('normal', 7);
+    [[tr('trade', 1), true, Math.floor(Math.floor(base * 110 / 100) * C.SEAL_MULT)],
+      [tr('trade', 1), false, Math.floor(base * 110 / 100)],
+      [null, true, Math.floor(base * C.SEAL_MULT)], [null, false, base]].forEach(([trait, seal, want]) => {
+      const S = deliverCase(trait, seal);
+      const r = Q.deliver(S, 1, NOW);
+      assert.deepStrictEqual([r.gold, r.quest.gold], [want, base], JSON.stringify([trait, seal]));
+    });
+  });
+  test('AC30: candidate order (non-active first, then id) ignores traits; swordId picks a traited sword', () => {
+    const S = stateWith({ swords: [sword(1, 7), sword(5, 7, tr('trade', 3)), sword(3, 7)], top: { best: 12 } });
+    S.quests.list[1] = { id: 4, tier: 'normal', lv: 7, gold: 1000, item: null };
+    assert.strictEqual(Q.candidate(S, S.quests.list[1]).id, 3);
+    const r = Q.deliver(S, 1, NOW, { swordId: 5 });
+    assert.deepStrictEqual([r.swordId, r.gold], [5, 1300]);
+  });
+  test('AC30a: payoutPreview(S, amount, sword) equals the actual sell and deliver payout (seal on/off × trade on/off)', () => {
+    [tr('trade', 3), null].forEach(trait => [true, false].forEach(seal => {
+      const S = sellCase(trait, seal);
+      const preview = R.payoutPreview(S, R.sell(9), R.findSword(S, 2));
+      assert.strictEqual(R.sellSword(S, 2).gold, preview, JSON.stringify([trait, seal, 'sell']));
+      const D = deliverCase(trait, seal);
+      const dPreview = R.payoutPreview(D, D.quests.list[1].gold, Q.candidate(D, D.quests.list[1]));
+      assert.strictEqual(Q.deliver(D, 1, NOW).gold, dPreview, JSON.stringify([trait, seal, 'deliver']));
+    }));
+    const S = sellCase(null, true);
+    assert.strictEqual(R.payoutPreview(S, 1001), Math.floor(1001 * C.SEAL_MULT), 'old two-argument form unchanged');
+  });
+  test('AC31: {shard,2} +10 destroyed → floor(shardGain(10) × 130/100) into S.shards and stats; non-collector = shardGain', () => {
+    [[tr('shard', 2), Math.floor(R.shardGain(10) * 130 / 100)], [tr('trade', 3), R.shardGain(10)], [null, R.shardGain(10)]].forEach(([trait, want]) => {
+      const S = stateWith({ swords: [sword(1, 10, trait), sword(2, 3)], top: { gold: 1e9 } });
+      const r = R.attemptEnhance(S, rollDestroy(R.currentChances(S)));
+      assert.deepStrictEqual([r.outcome, r.shards, S.shards, S.stats.shardsGained], ['destroy', want, want, want], JSON.stringify(trait));
+    });
+  });
+  test('AC32: shard exchange and quest shard rewards ignore traits', () => {
+    const S = stateWith({ swords: [sword(1, 10, tr('shard', 3))], top: { shards: 100 } });
+    assert.strictEqual(R.exchangeShards(S, 'protect').cost, C.SHARD_COST.protect);
+    assert.strictEqual(S.shards, 100 - C.SHARD_COST.protect);
+    const g = Q.grantReward(S, { id: 'shard', n: 12 });
+    assert.deepStrictEqual([g.granted, S.shards], [12, 100 - C.SHARD_COST.protect + 12]);
+  });
+});
+
+describe('M2-A traits: smith (anvil) trait (AC 33-38)', () => {
+  test('AC33: {anvil,3} 45% — next rng .40 keeps durability, .50 spends 1', () => {
+    const S = anvilState(12, tr('anvil', 3));
+    const r = R.attemptEnhance(S, countedSeq(0.9999, 0.40));
+    assert.deepStrictEqual([S.anvils[0].dura, r.anvilKept], [C.ANVIL_DURA[3], true]);
+    const T = anvilState(12, tr('anvil', 3));
+    const rt = R.attemptEnhance(T, countedSeq(0.9999, 0.50));
+    assert.deepStrictEqual([T.anvils[0].dura, rt.anvilKept], [C.ANVIL_DURA[3] - 1, undefined]);
+  });
+  test('AC34: durability 1 — a kept roll does not break the anvil; a failed roll breaks it', () => {
+    const S = anvilState(12, tr('anvil', 3), 1);
+    const r = R.attemptEnhance(S, countedSeq(0.9999, 0.1));
+    assert.deepStrictEqual([S.anvils[0].dura, r.anvilBroke], [1, undefined]);
+    const T = anvilState(12, tr('anvil', 3), 1);
+    const rt = R.attemptEnhance(T, countedSeq(0.9999, 0.9));
+    assert.deepStrictEqual([T.anvils[0].dura, rt.anvilBroke], [0, true]);
+  });
+  test('AC35: toggle off or no anvil → no smith roll (1 rng call)', () => {
+    const S = anvilState(12, tr('anvil', 3));
+    R.setUse(S, 'anvil', false);
+    const rng = countedSeq(0.9999, 0);
+    R.attemptEnhance(S, rng);
+    assert.deepStrictEqual([rng.calls, S.anvils[0].dura], [1, C.ANVIL_DURA[3]]);
+    const T = stateWith({ swords: [sword(1, 12, tr('anvil', 3))], top: { gold: 1e9 } });
+    const rt = countedSeq(0.9999, 0);
+    R.attemptEnhance(T, rt);
+    assert.strictEqual(rt.calls, 1);
+  });
+  test('AC36: a guaranteed (full gauge) attempt uses no anvil and no smith roll', () => {
+    const S = anvilState(16, tr('anvil', 3));
+    S.gauge = [0, 5, 0, 0, 0];
+    const rng = countedSeq(0.9999, 0);
+    const r = R.attemptEnhance(S, rng);
+    assert.deepStrictEqual([r.outcome, rng.calls, S.anvils[0].dura], ['success', 1, C.ANVIL_DURA[3]]);
+  });
+  test('AC37: test-page forced success still runs the smith roll normally', () => {
+    const T = loadTestModeSG();
+    const S = T.save.defaultState(NOW);
+    S.gold = 1e9; S.best = 12; S.swords[0].lv = 12; S.swords[0].trait = { k: 'anvil', t: 3 };
+    S.anvils = [{ id: 1, g: 3, dura: 10 }]; S.anvilEq = 1; S.use.anvil = true;
+    const rng = countedSeq(0.9999, 0.1);
+    const r = T.rules.attemptEnhance(S, rng);
+    assert.deepStrictEqual([r.outcome, rng.calls, S.anvils[0].dura], ['success', 2, 10]);
+  });
+  test('AC38: a destroyed smith sword (no protection) still gets its roll, read from the removed sword', () => {
+    const S = anvilState(12, tr('anvil', 3));
+    S.swords.push(sword(2, 3));
+    const roll = (R.currentChances(S).succ + R.currentChances(S).dest / 2) / 100;
+    const rng = countedSeq(roll, 0.1);
+    const r = R.attemptEnhance(S, rng);
+    assert.deepStrictEqual([r.outcome, rng.calls, S.anvils[0].dura, r.anvilKept], ['destroy', 2, C.ANVIL_DURA[3], true]);
+  });
+});
+
+describe('M2-A sinks: trait re-kind / tier up (AC 39-44, overview I.1 I.2 I.9)', () => {
+  const rich = (best, trait, extra = {}) => stateWith({ swords: [sword(1, Math.min(best, 12), trait), sword(2, 4, extra.other || null)], top: { best, gold: extra.gold === undefined ? 1e9 : extra.gold } });
+  const snapshot = S => JSON.stringify([S.gold, S.swords, S.stats]);
+  test('I.1/I.2: prices at best 13 / 15 / 20 and invalid tiers', () => {
+    const at = best => Object.assign(fresh(), { best });
+    assert.deepStrictEqual([13, 15, 20].map(b => R.traitRekindCost(at(b))), [214100, 732600, 15877000]);
+    assert.deepStrictEqual([13, 15, 20].map(b => R.traitTierUpCost(at(b), 1)), [535200, 1831600, 39692400]);
+    assert.deepStrictEqual([13, 15, 20].map(b => R.traitTierUpCost(at(b), 2)), [1338000, 4579000, 99231000]);
+    [0, 3, 1.5, '1', null, undefined].forEach(t => assert.strictEqual(R.traitTierUpCost(at(15), t), null, String(t)));
+  });
+  test('AC39/I.9: best 12 → locked with gold, trait and rng unchanged; best 13 → allowed', () => {
+    const S = rich(12, tr('hunt', 1));
+    const before = snapshot(S);
+    const rng = countedSeq(0.5);
+    assert.deepStrictEqual([R.rerollKind(S, 1, rng), R.upgradeTier(S, 1)], [{ ok: false, reason: 'locked' }, { ok: false, reason: 'locked' }]);
+    assert.deepStrictEqual([snapshot(S), rng.calls], [before, 0]);
+    const T = rich(13, tr('hunt', 1));
+    assert.ok(R.upgradeTier(T, 1).ok && R.rerollKind(T, 1, () => 0).ok);
+  });
+  test('AC40: notFound → locked → noTrait → maxTier → noGold, every failure leaves state and rng untouched', () => {
+    const cases = [
+      [rich(12, null), 99, 'notFound', 'notFound'],
+      [rich(12, null), 1, 'locked', 'locked'],
+      [rich(13, null), 1, 'noTrait', 'noTrait'],
+      [rich(13, tr('hunt', 3), { gold: 0 }), 1, 'noGold', 'maxTier'],
+      [rich(13, tr('hunt', 1), { gold: 1000 }), 1, 'noGold', 'noGold'],
+    ];
+    cases.forEach(([S, id, rekind, tierUp]) => {
+      const before = snapshot(S);
+      const rng = countedSeq(0.5);
+      assert.strictEqual(R.rerollKind(S, id, rng).reason, rekind);
+      assert.strictEqual(R.upgradeTier(S, id).reason, tierUp);
+      assert.strictEqual(R.rerollKindBlock(S, id), rekind);
+      assert.strictEqual(R.upgradeTierBlock(S, id), tierUp);
+      assert.deepStrictEqual([snapshot(S), rng.calls], [before, 0], rekind);
+    });
+  });
+  test('AC41: upgradeTier {hunt,1} → t2 for 200H (sinkGold += price, traitRolls unchanged); t2 → t3 for 500H', () => {
+    const S = rich(15, tr('hunt', 1));
+    const p1 = R.upgradeTier(S, 1);
+    assert.deepStrictEqual([p1.price, S.swords[0].trait, S.gold, S.stats.sinkGold, S.stats.traitRolls],
+      [Math.round(200 * H(15) / 100) * 100, tr('hunt', 2), 1e9 - p1.price, p1.price, 0]);
+    const p2 = R.upgradeTier(S, 1);
+    assert.deepStrictEqual([p2.price, S.swords[0].trait, S.stats.sinkGold], [Math.round(500 * H(15) / 100) * 100, tr('hunt', 3), p1.price + p2.price]);
+    assert.strictEqual(R.upgradeTier(S, 1).reason, 'maxTier');
+  });
+  test('AC42: rerollKind {hunt,2} → another kind, tier kept, 80H paid into sinkGold, traitRolls +1, one rng call', () => {
+    const S = rich(15, tr('hunt', 2));
+    const rng = countedSeq(0.5);
+    const r = R.rerollKind(S, 1, rng);
+    assert.ok(r.ok);
+    assert.notStrictEqual(S.swords[0].trait.k, 'hunt');
+    assert.deepStrictEqual([S.swords[0].trait.t, r.price, S.gold, S.stats.sinkGold, S.stats.traitRolls, rng.calls],
+      [2, R.traitRekindCost(S), 1e9 - r.price, r.price, 1, 1]);
+  });
+  test('AC43: rng 0 → first other kind, 0.9999 → last kind; reweighted shares; never the current kind', () => {
+    const kindAt = (cur, u) => { const S = rich(13, tr(cur, 1)); R.rerollKind(S, 1, () => u); return S.swords[0].trait.k; };
+    assert.strictEqual(kindAt('hunt', 0), 'work');
+    assert.strictEqual(kindAt('hunt', 0.9999), 'anvil');
+    assert.strictEqual(kindAt('anvil', 0.9999), 'shard');
+    const N = 6800;   // every share N × w / (100 − w_cur) is an integer for w ∈ {15, 20}, rest ∈ {80, 85}
+    C.TRAIT_KINDS.forEach(cur => {
+      const counts = {};
+      for (let i = 0; i < N; i++) { const k = kindAt(cur, (i + 0.5) / N); counts[k] = (counts[k] || 0) + 1; }
+      assert.ok(!counts[cur], cur);
+      const rest = 100 - C.TRAIT_KIND_WEIGHT[cur];
+      C.TRAIT_KINDS.filter(k => k !== cur).forEach(k => assert.strictEqual(counts[k], N * C.TRAIT_KIND_WEIGHT[k] / rest, `${cur}→${k}`));
+    });
+  });
+  test('AC44: management works on a non-active, non-top sword', () => {
+    const S = rich(14, tr('hunt', 1), { other: tr('ore', 1) });
+    assert.strictEqual(S.active, 1);
+    assert.ok(R.upgradeTier(S, 2).ok);
+    assert.ok(R.rerollKind(S, 2, () => 0).ok);
+    assert.deepStrictEqual(S.swords[1].trait, tr('hunt', 2));
+  });
+  test('I.8: sink purchases never change chances, gauge, mastery or BONUS_CAP', () => {
+    const S = rich(16, tr('hunt', 1));
+    S.swords[0].lv = 16; S.gauge = [1, 2, 0, 0, 0]; S.mastery = [1, 1, 0, 0, 0];
+    const look = () => JSON.stringify([R.currentChances(S), S.gauge, S.mastery, C.BONUS_CAP]);
+    const before = look();
+    assert.ok(R.upgradeTier(S, 1).ok && R.rerollKind(S, 1, () => 0.3).ok && R.buyMonument(S, 13).ok);
+    assert.strictEqual(look(), before);
+  });
+});
+
+describe('M2-A monuments (overview C.3 M1-M5, I.3 I.4)', () => {
+  test('I.3: monumentCost 13 / 15 / 20 and the 13..20 total', () => {
+    assert.deepStrictEqual([13, 15, 20].map(R.monumentCost), [401400, 1373700, 29769300]);
+    let total = 0;
+    for (let L = 13; L <= 20; L++) total += R.monumentCost(L);
+    assert.strictEqual(total, 64320100);
+  });
+  test('M1: buy → {ok, price}, gold −price, monuments[L-13]=1, sinkGold += price', () => {
+    const S = Object.assign(fresh(), { best: 15, gold: 2e6 });
+    const r = R.buyMonument(S, 15);
+    assert.deepStrictEqual(r, { ok: true, price: 1373700 });
+    assert.deepStrictEqual([S.gold, S.monuments, S.stats.sinkGold], [2e6 - 1373700, [0, 0, 1, 0, 0, 0, 0, 0], 1373700]);
+  });
+  test('M2-M5 and check order invalid → owned → notReached → noGold (state unchanged)', () => {
+    const S = Object.assign(fresh(), { best: 14, gold: 1000 });
+    S.monuments[7] = 1;   // owned +20 above best: kept, and 'owned' is checked before 'notReached'
+    const cases = [[12, 'invalid'], [21, 'invalid'], [13.5, 'invalid'], ['13', 'invalid'], [20, 'owned'], [15, 'notReached'], [14, 'noGold']];
+    const before = JSON.stringify(S);
+    cases.forEach(([L, reason]) => {
+      assert.deepStrictEqual(R.buyMonument(S, L), { ok: false, reason }, String(L));
+      assert.strictEqual(R.monumentBlock(S, L), reason);
+    });
+    assert.strictEqual(JSON.stringify(S), before);
+  });
+});
+
+describe('M2-A save fields (AC 46-48, overview I.5 I.6)', () => {
+  test('AC46: new game — trait null, sinkGold 0, traitRolls 0, 8 empty monuments', () => {
+    const S = SV.load(memStorage(), NOW).state;
+    assert.deepStrictEqual([S.swords[0].trait, S.stats.sinkGold, S.stats.traitRolls, S.monuments], [null, 0, 0, [0, 0, 0, 0, 0, 0, 0, 0]]);
+  });
+  test('AC47/I.6: sinkGold / traitRolls missing, negative, string or fractional → non-negative integers', () => {
+    [[undefined, 0], [-5, 0], ['abc', 0], ['12', 12], [3.7, 3], [null, 0]].forEach(([v, want]) => {
+      const d = JSON.parse(JSON.stringify(fresh()));
+      d.stats.sinkGold = v; d.stats.traitRolls = v;
+      if (v === undefined) { delete d.stats.sinkGold; delete d.stats.traitRolls; }
+      const S = SV.normalize(d, NOW);
+      assert.deepStrictEqual([S.stats.sinkGold, S.stats.traitRolls], [want, want], String(v));
+    });
+  });
+  test('I.6: an old save without batch-A fields gets defaults, keeps the rest, stays v2 and round-trips', () => {
+    const d = JSON.parse(JSON.stringify(fresh()));
+    delete d.monuments; delete d.stats.sinkGold; delete d.stats.traitRolls;
+    d.swords = [{ id: 1, lv: 8, prot: 1, pity: 2 }]; d.gold = 999; d.best = 8;
+    const st = memStorage({ [C.SAVE_KEY]: JSON.stringify(d) });
+    const S = SV.load(st, NOW).state;
+    assert.deepStrictEqual([S.v, S.gold, S.best, S.swords, S.monuments.length, S.stats.sinkGold],
+      [2, 999, 8, [{ id: 1, lv: 8, prot: 1, pity: 2, trait: null }], 8, 0]);
+    SV.save(st, S, NOW);
+    assert.deepStrictEqual(SV.load(st, NOW).state, S);
+  });
+  test('I.5: monuments normalization (missing, non-array, short, long, mixed values; L above best kept)', () => {
+    const load = m => { const d = JSON.parse(JSON.stringify(fresh())); if (m === undefined) delete d.monuments; else d.monuments = m; return SV.normalize(d, NOW).monuments; };
+    const Z = [0, 0, 0, 0, 0, 0, 0, 0];
+    assert.deepStrictEqual(load(undefined), Z);
+    assert.deepStrictEqual(load('x'), Z);
+    assert.deepStrictEqual(load({ 0: 1 }), Z);
+    assert.deepStrictEqual(load([1, 0, 1]), [1, 0, 1, 0, 0, 0, 0, 0]);
+    assert.deepStrictEqual(load([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]), [1, 1, 1, 1, 1, 1, 1, 1]);
+    assert.deepStrictEqual(load([2, 0, 'a', null, '', false, true, -1]), [1, 0, 1, 0, 0, 0, 1, 1]);
+    const d = JSON.parse(JSON.stringify(fresh())); d.best = 3; d.monuments = [0, 0, 0, 0, 0, 0, 0, 1];
+    assert.strictEqual(SV.normalize(d, NOW).monuments[7], 1, 'ownership above best is not corrected');
+  });
+  test('AC48: a save re-written by an old client (trait fields dropped) loads cleanly and is re-engraved at boot', () => {
+    const S = fresh();
+    S.swords = [sword(1, 9, tr('work', 3)), sword(2, 1)]; S.nextSwordId = 3; S.best = 9;
+    const oldClient = JSON.parse(JSON.stringify(S));
+    oldClient.swords.forEach(s => { delete s.trait; });
+    delete oldClient.monuments;
+    const T = SV.normalize(oldClient, NOW);
+    assert.deepStrictEqual(T.swords.map(s => s.trait), [null, null]);
+    assert.deepStrictEqual(R.engravePending(T, seq(0.99, 0)).map(e => e.id), [1]);
+  });
+});
+
+describe('M2-A setTrait test hook (AC 49)', () => {
+  test('setTrait sets {trade,3}; bad kind/tier → badTrait, missing sword → notFound, both unchanged', () => {
+    const S = stateWith({ swords: [sword(1, 6, tr('hunt', 1))] });
+    assert.deepStrictEqual(R.setTrait(S, 1, 'trade', 3), { ok: true });
+    assert.deepStrictEqual(S.swords[0].trait, tr('trade', 3));
+    [['x', 1], ['constructor', 1], ['hunt', 0], ['hunt', 4], ['hunt', 1.5], ['hunt', '2']].forEach(([k, t]) => {
+      assert.deepStrictEqual(R.setTrait(S, 1, k, t), { ok: false, reason: 'badTrait' }, `${k} ${t}`);
+    });
+    assert.deepStrictEqual(R.setTrait(S, 9, 'hunt', 1), { ok: false, reason: 'notFound' });
+    assert.deepStrictEqual(S.swords[0].trait, tr('trade', 3));
+  });
+  test('index.html and its UI scripts have no setTrait entry point', () => {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    assert.ok(!html.includes('setTrait'));
+    ['main.js', 'view.js', 'strip-drag.js', 'tab-guard.js'].forEach(f => assert.ok(!fs.readFileSync(js(f), 'utf8').includes('setTrait'), f));
+  });
+});
+
+describe('M2-A regression: no traits and no monuments keep every old output and rng sequence', () => {
+  test('I.7: M1 numbers unchanged', () => {
+    assert.deepStrictEqual([13, 15, 20].map(H), [2676, 9158, 198462]);
+    assert.deepStrictEqual([R.autoReward(15), R.boosterPrice(15), R.cost(15), R.sell(15)], [1432, 366300, 14320, 305280]);
+    assert.deepStrictEqual([C.SLOT_EXPAND_COST, C.UP_COST_BASE, C.PRICE],
+      [[3000, 10000, 30000, 80000, 200000], { speed: 3000, gold: 5000, offline: 4000 }, { bless: 1500, protect: 4000, keepdown: 3000, sure: 1500, seal: 2000 }]);
+  });
+  // 시드 고정 시나리오(강화·모루·보호·하락 방지·사냥·자동·판매·납품·인장·부스터·오프라인 700회).
+  // 기대 해시는 특성 도입 전 코드(커밋 7c1634c)에서 같은 시나리오로 만든 값이다. engravePending은 main.js 몫이라 부르지 않는다
+  const PRE_TRAIT_SHA = 'a537857d5b17740b10f68f5c6e2fb18b49f18cc15bd86ed2fe158bb98ee78599';
+  const OLD_STATS = ['tries', 'success', 'fail', 'destroy', 'earned', 'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold'];
+  function lcgCounted(seed) {
+    let s = seed >>> 0;
+    const f = () => { f.calls++; s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+    f.calls = 0;
+    return f;
+  }
+  function regressionScenario(seed) {
+    const rng = lcgCounted(seed);
+    const S = SV.defaultState(NOW);
+    let t = NOW;
+    S.gold = 5e7; S.slots = 5;
+    Object.assign(S.inv, { bless: 60, protect: 99, keepdown: 30, seal: 6, booster: 2 });
+    R.addAnvil(S, 3); R.addAnvil(S, 2);
+    let nextAuto = t;
+    let outcomes = '';
+    const gold = [];
+    for (let i = 0; i < 700; i++) {
+      if (!R.activeSword(S)) R.setActive(S, R.bestSword(S).id);
+      R.setUse(S, 'bless', i % 3 === 0);
+      R.setUse(S, 'anvil', true);
+      R.setUse(S, 'protect', i % 2 === 0);
+      R.setUse(S, 'keepdown', i % 4 !== 0);
+      const r = R.attemptEnhance(S, rng);
+      outcomes += r.ok ? r.outcome[0] : 'x';
+      S.anvils.forEach(a => { if (a.dura <= 0) { C.ORES.forEach(k => { S.ore[k] = Math.max(S.ore[k], 200); }); F.repairAnvil(S, a.id); } });
+      if (i % 50 === 25) R.setActive(S, S.swords.reduce((lo, s) => (s.lv < lo.lv ? s : lo), S.swords[0]).id);
+      if (i % 50 === 45) R.setActive(S, R.bestSword(S).id);
+      if (i === 40) R.useBoosterFromInv(S, t);
+      if (i % 5 === 0) { const h = I.manualHunt(S, t, rng); gold.push(h.gold, h.ore.iron || 0, h.ore.silver || 0, h.ore.mithril || 0); }
+      if (i % 7 === 0) {
+        if (!S.idle.autoOn) I.setAutoOn(S, true);
+        const a = I.runAutoCatchup(S, t, nextAuto, rng);
+        nextAuto = a.nextAutoAt;
+        gold.push(a.gold, a.ore.iron || 0, a.ore.mithril || 0);
+      }
+      if (S.swords.length < S.slots && R.activeSword(S) && R.activeSword(S).lv >= 11) R.buySword(S);
+      const spare = S.swords.find(s => s.id !== S.active && s.lv >= 6 && s.lv <= 9);
+      if (spare && i % 11 === 0) {
+        R.setSeal(S, i % 22 === 0);
+        gold.push(R.sellSword(S, spare.id).gold);
+      }
+      Q.refreshQuests(S, t, rng);
+      Q.deliverableSlots(S).forEach(slot => {
+        R.setSeal(S, slot === 1);
+        const d = Q.deliver(S, slot, t, { confirmActive: true });
+        gold.push(d.ok ? d.gold : -1);
+      });
+      t += 3000;
+    }
+    S.idle.boostUntil = t + 30 * 60 * 1000;
+    S.idle.lastSeen = t;
+    const off = I.settleOffline(S, t + 3 * 3600 * 1000);
+    return {
+      calls: rng.calls, outcomes, gold, off: off && { gold: off.gold, ore: off.ore, runs: off.runs },
+      S: {
+        gold: S.gold, shards: S.shards, best: S.best, active: S.active,
+        swords: S.swords.map(s => [s.id, s.lv, s.prot, s.pity]),
+        stats: OLD_STATS.map(k => S.stats[k]), ore: S.ore, inv: S.inv,
+        anvils: S.anvils.map(a => [a.id, a.g, a.dura]), gauge: S.gauge, mastery: S.mastery,
+        quests: S.quests.list.map(q => q && [q.id, q.lv, q.gold, q.item && q.item.id]),
+      },
+      traits: S.swords.map(s => s.trait), sinkGold: S.stats.sinkGold, traitRolls: S.stats.traitRolls, monuments: S.monuments,
+    };
+  }
+  test('seeded 700-attempt scenario matches the pre-trait digest (outputs and 2362 rng calls)', () => {
+    const d = regressionScenario(20261120);
+    const { traits, sinkGold, traitRolls, monuments } = d;
+    delete d.traits; delete d.sinkGold; delete d.traitRolls; delete d.monuments;
+    const sha = require('crypto').createHash('sha256').update(JSON.stringify(d)).digest('hex');
+    assert.deepStrictEqual([d.calls, d.S.best, d.S.gold], [2362, 18, 52715667]);
+    assert.strictEqual(sha, PRE_TRAIT_SHA);
+    assert.ok(traits.every(t => t === null), 'rules alone never engrave');
+    assert.deepStrictEqual([sinkGold, traitRolls, monuments], [0, 0, [0, 0, 0, 0, 0, 0, 0, 0]]);
+  });
+  test('v=0 paths: traits of kinds that do not apply leave hunt/auto/offline/ore/sell/shard outputs unchanged', () => {
+    const make = trait => {
+      const S = stateWith({ swords: [sword(1, 12, trait), sword(2, 9, trait)], inv: { seal: 1 } });
+      S.idle.autoOn = true; S.idle.up.gold = 3; S.idle.lastSeen = NOW - 2 * HOUR; S.idle.boostUntil = NOW - HOUR;
+      return S;
+    };
+    const outputs = S => JSON.stringify([I.manualHuntGold(S, NOW), I.autoRunGold(S, NOW), F.rollOre(S, () => 0.3), F.expectedOre(S, 999, 0.25),
+      R.payoutPreview(S, R.sell(9), R.findSword(S, 2)), I.settleOffline(S, NOW)]);
+    const base = outputs(make(null));
+    assert.strictEqual(outputs(make(tr('anvil', 3))), base);
+    assert.strictEqual(outputs(make(tr('shard', 3))), base);
   });
 });
 

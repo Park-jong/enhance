@@ -583,7 +583,8 @@ describe('AC11 save fields gauge / mastery', () => {
     assert.strictEqual(r.source, 'v2');
     assert.deepStrictEqual([r.state.gauge, r.state.mastery], [ZERO5, ZERO5]);
     assert.deepStrictEqual([r.state.gold, r.state.best, r.state.shards], [777, 9, 41]);
-    assert.deepStrictEqual(r.state.swords, [{ id: 3, lv: 9, prot: 1, pity: 4 }]);
+    // m2-traits §10: loaded swords now carry trait: null
+    assert.deepStrictEqual(r.state.swords, [{ id: 3, lv: 9, prot: 1, pity: 4, trait: null }]);
   });
   test('gauge [-1,99,2.7,"a",null,7] -> [0,5,2,0,0]; mastery "x" -> zeros', () => {
     const S = loadWith({ gauge: [-1, 99, 2.7, 'a', null, 7], mastery: 'x' });

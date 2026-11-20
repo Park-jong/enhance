@@ -14,7 +14,7 @@
   const CORRUPT_BACKUP_KEY = C.SAVE_KEY + '-corrupt';
   const MIN_MS = 60 * 1000;
   const STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned',
-    'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold'];
+    'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold', 'sinkGold', 'traitRolls'];
   const V1_STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned'];
   const USE_KEYS = C.TRAY_TOGGLES.concat('seal');
 
@@ -41,12 +41,13 @@
       shards: 0,
       best: 0,
       found: Array.from({ length: C.MAX + 1 }, (_, i) => i === 0),
-      swords: [{ id: 1, lv: 0, prot: C.PROTECT_USES, pity: 0 }],
+      swords: [{ id: 1, lv: 0, prot: C.PROTECT_USES, pity: 0, trait: null }],
       nextSwordId: 2,
       active: 1,
       slots: C.SLOT_START,
       gauge: C.GAUGE_N.map(() => 0),
       mastery: C.MASTERY_REC_MAX.map(() => 0),
+      monuments: Array(C.MONUMENT_COUNT).fill(0),
       inv: zeros(C.CONSUMABLES),
       use: USE_KEYS.reduce((o, k) => { o[k] = false; return o; }, {}),
       anvils: [],
@@ -70,6 +71,12 @@
     return Array.from({ length: C.MAX + 1 }, (_, i) => i === 0 || src[i] === true);
   }
 
+  /** 검 특성(m2-traits §10): 객체가 아니거나 알 수 없는 종류면 null, 등급은 1..TRAIT_TIER_MAX 정수. {k, t}만 남긴다 */
+  function normTrait(v) {
+    if (!isObj(v) || !R.traitDef(v.k)) return null;
+    return { k: v.k, t: int(v.t, 1, 1, C.TRAIT_TIER_MAX) };
+  }
+
   function normSwords(v) {
     const seen = new Set();
     return (Array.isArray(v) ? v : []).filter(isObj).map(s => ({
@@ -77,6 +84,7 @@
       lv: int(s.lv, 0, 0, C.MAX),
       prot: int(s.prot, C.PROTECT_USES, 0, C.PROTECT_USES),
       pity: int(s.pity, 0, 0),
+      trait: normTrait(s.trait),
     })).filter(s => s.id > 0 && !seen.has(s.id) && seen.add(s.id)).slice(0, C.SLOT_MAX);
   }
 
@@ -108,6 +116,9 @@
   /** 단계별 정수 배열(gauge/mastery, M1.1): 배열이 아니면 0으로, 길이는 maxes에 맞추고 칸마다 0..maxes[i] */
   const normPerLevel = (v, maxes) => maxes.map((max, i) => int(Array.isArray(v) ? v[i] : 0, 0, 0, max));
 
+  /** 기념비 보유(m2-overview §D): 길이 MONUMENT_COUNT로 맞추고 칸마다 truthy면 1. S.best와의 일관성은 강제하지 않는다 */
+  const normMonuments = v => Array.from({ length: C.MONUMENT_COUNT }, (_, i) => (Array.isArray(v) && v[i] ? 1 : 0));
+
   const normCounts = (v, keys, max) => keys.reduce((o, k) => { o[k] = int(obj(v)[k], 0, 0, max); return o; }, {});
 
   /** 저장 데이터(부분/손상 포함)를 기본값과 병합하고 정합성을 맞춘다 (m1-storage §3 로드 규칙 4·5) */
@@ -131,6 +142,7 @@
     S.best = Math.max(S.best, R.bestSword(S).lv);
     S.gauge = normPerLevel(d.gauge, C.GAUGE_N);
     S.mastery = normPerLevel(d.mastery, C.MASTERY_REC_MAX);
+    S.monuments = normMonuments(d.monuments);
 
     S.inv = normCounts(d.inv, C.CONSUMABLES, C.STACK_MAX);
     const use = obj(d.use);

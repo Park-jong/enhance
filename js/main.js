@@ -95,6 +95,17 @@
     setTimeout(render, C.SELL_CONFIRM_MS + RENDER_SLACK_MS);
     return false;
   }
+  /**
+   * +5 이상인데 특성이 없는 검에 무료 각인한다(m2-traits §5: 강화와 같은 rng를 쓴다). 반환: 새 각인 목록.
+   * 알림은 announceEngraved로 따로 띄운다(강화는 결과 연출이 끝난 뒤에 알린다)
+   */
+  const engravePending = () => R.engravePending(S, rng);
+  function announceEngraved(engraved) {
+    if (!engraved.length) return;
+    const msg = V.engraveToastText(engraved);
+    FX.toast(msg, 'special');
+    FX.log(msg, 'good');
+  }
   function announceUnlocks(prevBest) {
     const notices = UNLOCK_NOTICES.filter(n => prevBest < n.best && S.best >= n.best);
     notices.forEach(n => FX.toast(n.msg, 'special'));
@@ -192,7 +203,8 @@
       if (r.reason === 'noGold') reject('noGold');
       return;
     }
-    // 결과·소모는 여기서 확정·저장되고, 연출은 표시만 늦춘다 (새로고침해도 다시 굴릴 수 없음)
+    // 결과·소모·각인은 여기서 확정·저장되고, 연출은 표시만 늦춘다 (새로고침해도 다시 굴릴 수 없음)
+    const engraved = r.outcome === 'success' ? engravePending() : [];
     Q.refreshQuests(S, startedAt, rng);
     persist();
     const fx = pickFx(r);
@@ -220,6 +232,7 @@
       FX.toast(msg, 'special');
       FX.log(msg, 'good');
     }
+    announceEngraved(engraved);
     if (r.anvilBroke) { FX.toast('모루가 파손되었습니다 (수리 필요)', 'bad'); sfx('anvilBreak'); }
     if (r.ranOut.length) FX.toast(V.ranOutToastText(r.ranOut));
     announceUnlocks(prevBest);
@@ -415,6 +428,8 @@
     if (isSuspended()) return;
     const t = now();
     adoptStoredSave(t, false);
+    // 부팅·이어받기·복귀로 들어온 상태(옛 저장 포함)의 미각인 검. 오프라인 정산보다 먼저(정산 시점 구성, m2-traits §4)
+    announceEngraved(engravePending());
     const off = I.settleOffline(S, t);
     if (off) ui.nextAutoAt = t + I.autoInterval(S);
     Q.refreshQuests(S, t, rng);

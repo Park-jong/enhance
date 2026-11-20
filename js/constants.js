@@ -206,6 +206,37 @@
   const BOOSTER_SEAL_UNLOCK_BEST = 5;
   const UNLOCK = { quests: QUEST_UNLOCK_BEST, forge: FORGE_UNLOCK_BEST, idle: AUTO_UNLOCK_BEST };
 
+  // ---------------------------------------------------------------- M2-A. 검 랜덤 특성 (F14, m2-traits §12)
+  const PERCENT = 100;                     // %p 정수 배율의 분모: x × (PERCENT + v) / PERCENT (m2-traits §3.1)
+  const TRAIT_ROLL_LV = 5;                 // 이 단계 이상이 되면 자동·무료 각인
+  const TRAIT_KINDS = ['hunt', 'work', 'trade', 'ore', 'shard', 'anvil'];   // 롤·UI 순서
+  const TRAIT_KIND_WEIGHT = { hunt: 20, work: 15, trade: 20, ore: 15, shard: 15, anvil: 15 };
+  const TRAIT_TIER_WEIGHT = [70, 25, 5];   // 등급 1·2·3 (%)
+  const TRAIT_TIER_MAX = 3;
+  const TRAITS = {
+    hunt:  { name: '약탈자',   short: '약', values: [10, 20, 30] },
+    work:  { name: '일꾼',     short: '일', values: [15, 30, 45] },
+    trade: { name: '상인',     short: '상', values: [10, 20, 30] },
+    ore:   { name: '광부',     short: '광', values: [20, 40, 60] },
+    shard: { name: '수집가',   short: '집', values: [15, 30, 50] },
+    anvil: { name: '대장장이', short: '장', values: [15, 30, 45] },
+  };
+  const TRAIT_TIER_NAME = ['평범한', '정교한', '완벽한'];
+  // 후반 골드 사용처 (m2-overview §C·§E). 가격 = roundTo(배수 × huntReward(기준 단계), TRAIT_PRICE_ROUND)
+  const TRAIT_MGMT_UNLOCK_BEST = 13;
+  const TRAIT_PRICE_ROUND = 100;
+  const TRAIT_REKIND_MULT = 80;
+  const TRAIT_TIER_UP_MULT = [200, 500];   // 인덱스 = 현재 등급 - 1
+  const MONUMENT_FROM = 13;
+  const MONUMENT_COUNT = 8;
+  const MONUMENT_MULT = 150;
+  // 롤 함수는 종류·등급 표가 서로 맞는다고 가정하므로(누락 시 조용히 다른 분포) 로드 시점에 막는다
+  if (TRAIT_TIER_WEIGHT.length !== TRAIT_TIER_MAX || TRAIT_TIER_UP_MULT.length !== TRAIT_TIER_MAX - 1 ||
+      TRAIT_KINDS.some(k => !TRAITS[k] || !TRAIT_KIND_WEIGHT[k] || TRAITS[k].values.length !== TRAIT_TIER_MAX)) {
+    throw new Error('TRAIT_* tables are inconsistent');
+  }
+  if (MONUMENT_COUNT !== MAX - MONUMENT_FROM + 1) throw new Error('MONUMENT_COUNT must equal MAX - MONUMENT_FROM + 1');
+
   // ---------------------------------------------------------------- 아이템 정의 (데이터 주도)
   // kind: consumable(inv 스택) / anvil(장비 인스턴스) / shard(파편)
   const ITEMS = {
@@ -271,6 +302,9 @@
     PRICE, BOOSTER_PRICE_MIN, BOOSTER_PRICE_HUNT_MULT, BOOSTER_PRICE_ROUND, KEEPDOWN_MAX_LV, SURE_MAX_TARGET,
     BOOSTER_MULT, BOOSTER_DURATION_MIN, BOOSTER_MAX_MIN, SEAL_MULT, CONSUMABLES, TRAY_TOGGLES,
     FORGE_UNLOCK_BEST, BOOSTER_SEAL_UNLOCK_BEST, UNLOCK,
+    PERCENT, TRAIT_ROLL_LV, TRAIT_KINDS, TRAIT_KIND_WEIGHT, TRAIT_TIER_WEIGHT, TRAIT_TIER_MAX, TRAITS, TRAIT_TIER_NAME,
+    TRAIT_MGMT_UNLOCK_BEST, TRAIT_PRICE_ROUND, TRAIT_REKIND_MULT, TRAIT_TIER_UP_MULT,
+    MONUMENT_FROM, MONUMENT_COUNT, MONUMENT_MULT,
     ITEMS, ORE_NAMES, SHOP_ITEMS, ICONS, ICON_ASSET_KEYS,
   });
 });

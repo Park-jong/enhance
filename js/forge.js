@@ -25,21 +25,33 @@
     return added;
   }
 
-  /** 사냥 1회분 광석: 정수부 + 소수부 확률 지급 (m1-anvil-ore §4) */
+  /** 특성 없는 사냥 1회분: 정수부 + 소수부 확률 지급 (m1-anvil-ore §4) */
+  function rollPlainOre(rate, rng) {
+    const whole = Math.floor(rate);
+    return whole + (rng() < rate - whole ? 1 : 0);
+  }
+  /** 광부 특성(v>0): 정수 백분율 rate100 = rate × (100+v)로 정수부 + 소수부 확률 (m2-traits §3.1-4). rng 횟수는 같다 */
+  function rollMinerOre(rate, v, rng) {
+    const rate100 = rate * (C.PERCENT + v);
+    const whole = Math.floor(rate100 / C.PERCENT);
+    return whole + (Math.floor(rng() * C.PERCENT) < rate100 % C.PERCENT ? 1 : 0);
+  }
+
+  /** 사냥 1회분 광석(해금된 광석마다 rng 1회). 광부 특성은 수입 검 중 최댓값 */
   function rollOre(S, rng) {
     const gains = {};
+    const v = R.incomeTraitValue(S, 'ore');
     unlockedOres(S).forEach(k => {
-      const rate = C.ORE_PER_HUNT[k];
-      const whole = Math.floor(rate);
-      gains[k] = whole + (rng() < rate - whole ? 1 : 0);
+      gains[k] = v > 0 ? rollMinerOre(C.ORE_PER_HUNT[k], v, rng) : rollPlainOre(C.ORE_PER_HUNT[k], rng);
     });
     return gains;
   }
 
-  /** n회분 기대값 광석(확률 굴림 없음) × 효율, 내림 — 오프라인 정산용 */
+  /** n회분 기대값 광석(확률 굴림 없음) × 효율 × 광부 특성, 내림 — 오프라인 정산용 */
   function expectedOre(S, runs, eff) {
     const gains = {};
-    unlockedOres(S).forEach(k => { gains[k] = Math.floor(runs * C.ORE_PER_HUNT[k] * eff); });
+    const v = R.incomeTraitValue(S, 'ore');
+    unlockedOres(S).forEach(k => { gains[k] = Math.floor(R.traitScaled(runs * C.ORE_PER_HUNT[k] * eff, v)); });
     return gains;
   }
 

@@ -128,7 +128,8 @@
     if (!sword || sword.lv !== quest.lv) return fail('noSword');
     if (sword.id === S.active && !o.confirmActive) return fail('needConfirm');
 
-    const pay = R.payWithSeal(S, quest.gold);
+    // 저장된 quest.gold(기본값)는 그대로 두고 지급액에만 이 검의 상인 특성 → 인장 순서로 적용
+    const pay = R.payWithSeal(S, quest.gold, sword);
     S.gold += pay.gold;
     const reward = grantReward(S, quest.item);
     S.stats.delivered++;

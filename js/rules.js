@@ -94,8 +94,30 @@
   /** 사냥·자동·오프라인 수입 기준 단계: 보관함 최고 단계 검(사용자 결정) */
   const topLv = S => bestSword(S).lv;
 
+  // ============================================================ 검 특성 조회 (F14, m2-traits §3·§4) — chances()는 이 함수들을 쓰지 않는다
+  const traitDef = kind => (typeof kind === 'string' && hasOwn(C.TRAITS, kind) ? C.TRAITS[kind] : null);
+  /** 검에 kind 특성이 있으면 그 등급의 값(%p), 없으면 0 */
+  const traitValue = (sw, kind) => {
+    const def = traitDef(kind);
+    // 정규화를 거치지 않은 상태의 범위 밖 등급이 NaN 골드로 번지지 않게 0으로 본다
+    return def && sw && sw.trait && sw.trait.k === kind ? def.values[sw.trait.t - 1] || 0 : 0;
+  };
+  /** 수입 검: 최고 단계(topLv)인 모든 검(동률 포함, 활성 무관) */
+  const incomeSwords = S => { const top = topLv(S); return S.swords.filter(s => s.lv === top); };
+  /** 수입형 특성 값(%p): 수입 검들 중 그 종류의 최댓값(합산 없음) */
+  const incomeTraitValue = (S, kind) => incomeSwords(S).reduce((m, s) => Math.max(m, traitValue(s, kind)), 0);
+  /** 표시용 배율 (100+v)/100. 지급 계산은 부동소수 오차를 피하려고 traitScaled(정수 %p)를 쓴다 */
+  const incomeTrait = (S, kind) => (C.PERCENT + incomeTraitValue(S, kind)) / C.PERCENT;
+  /**
+   * x × (100+v) / 100 — 정수 %p를 곱하고 마지막에 한 번 나눈다(호출자가 그 뒤 기존 floor/round를 한다).
+   * v가 0이면 x를 그대로 돌려줘 특성 없는 값이 이전과 비트 단위로 같다(m2-traits §3.1)
+   */
+  const traitScaled = (x, v) => (v > 0 ? x * (C.PERCENT + v) / C.PERCENT : x);
+  /** 거래형(상인): 이 검의 판매·납품 기본 지급액 */
+  const tradeGold = (sw, base) => Math.floor(traitScaled(base, traitValue(sw, 'trade')));
+
   function createSword(S) {
-    const sw = { id: S.nextSwordId++, lv: 0, prot: C.PROTECT_USES, pity: 0 };
+    const sw = { id: S.nextSwordId++, lv: 0, prot: C.PROTECT_USES, pity: 0, trait: null };
     S.swords.push(sw);
     return sw;
   }
@@ -139,15 +161,24 @@
 
   const sealActive = S => !!S.use.seal && S.inv.seal > 0;
   const sealedGold = amount => Math.floor(amount * C.SEAL_MULT);
-  /** 표시용: 지금 판매·납품하면 받을 골드(인장이 켜져 있으면 배율 적용, 소모 없음) */
-  const payoutPreview = (S, amount) => (sealActive(S) ? sealedGold(amount) : amount);
+  /**
+   * 지금 판매·납품하면 받을 골드(소모 없음). 순서: 기본 → 검의 상인 특성(sword가 있을 때) → 감정 인장(m2-traits §3.1).
+   * 실제 지급(payWithSeal)도 이 함수로 계산하므로 미리보기와 지급이 항상 같다
+   */
+  function payoutPreview(S, amount, sword) {
+    const traded = sword ? tradeGold(sword, amount) : amount;
+    return sealActive(S) ? sealedGold(traded) : traded;
+  }
 
-  /** 인장이 켜져 있으면 골드에 배율을 걸고 1장 소모 (판매·납품 공통) */
-  function payWithSeal(S, amount) {
-    if (!sealActive(S)) return { gold: amount, sealed: false };
-    S.inv.seal--;
-    S.use.seal = false;
-    return { gold: sealedGold(amount), sealed: true };
+  /** payoutPreview 금액을 지급액으로 확정하고, 인장이 켜져 있었으면 1장 소모 (판매·납품 공통) */
+  function payWithSeal(S, amount, sword) {
+    const sealed = sealActive(S);
+    const gold = payoutPreview(S, amount, sword);
+    if (sealed) {
+      S.inv.seal--;
+      S.use.seal = false;
+    }
+    return { gold, sealed };
   }
 
   /** 감정 인장 켜기/끄기(트레이 토글과 달리 판매·납품에 쓰인다) */
@@ -161,7 +192,7 @@
     const sw = findSword(S, id);
     if (!sw) return fail('notFound');
     if (sw.lv === 0) return fail('zeroLv');
-    const pay = payWithSeal(S, sell(sw.lv));
+    const pay = payWithSeal(S, sell(sw.lv), sw);
     S.gold += pay.gold;
     S.stats.earned += pay.gold;
     const removed = removeSword(S, id);
@@ -367,7 +398,7 @@
         r.protLeft = sw.prot;
         return 'protected';
       }
-      r.shards = shardGain(sw.lv);
+      r.shards = Math.floor(traitScaled(shardGain(sw.lv), traitValue(sw, 'shard')));
       S.shards += r.shards;
       S.stats.shardsGained += r.shards;
       S.stats.destroy++;
@@ -407,6 +438,12 @@
     return { lv: l, gained: bonus - before, bonus, count: S.mastery[mi], max: C.MASTERY_REC_MAX[mi] };
   }
 
+  /** 대장장이 특성 검이면 rng 1회로 내구도 미소모를 판정한다. 특성이 없으면 rng를 쓰지 않는다(기존 호출 열 유지) */
+  function rollAnvilKeep(sw, rng) {
+    const v = traitValue(sw, 'anvil');
+    return v > 0 && Math.floor(rng() * C.PERCENT) < v;
+  }
+
   /** 강화 1회: 검증 → 시작 시점 소모 → 굴림 → 결과 적용(모두 동기). 연출은 호출 측 몫 */
   function attemptEnhance(S, rng) {
     const sw = activeSword(S);
@@ -432,6 +469,11 @@
     const roll = rng() * 100;
     const kind = roll < ch.succ ? 'success' : roll < ch.succ + ch.dest ? 'destroy' : 'fail';
     r.outcome = OUTCOME[kind](S, sw, r, use);
+    // 대장장이: 결과 롤 다음, 파손 판정 전. 파괴로 칸에서 빠져도 sw 객체의 특성을 읽는다(m2-traits §3.1-6)
+    if (anvil && rollAnvilKeep(sw, rng)) {
+      anvil.dura++;
+      r.anvilKept = true;
+    }
     r.to = r.outcome === 'destroy' ? null : sw.lv;
     r.pity = sw.pity;
     // 테스트 페이지의 강제 성공은 진행 기록이 아니다(m1.1 §3.1)
@@ -440,6 +482,132 @@
     // 이번 시도로 다 써서 자동으로 꺼진 트레이 소모품(화면 알림용)
     r.ranOut = cleanupUse(S).filter(id => C.TRAY_TOGGLES.includes(id));
     return r;
+  }
+
+  // ============================================================ 검 특성 각인·관리 (F14, m2-traits §5·§8·§9)
+  const sum = list => list.reduce((a, b) => a + b, 0);
+  const TIERS = C.TRAIT_TIER_WEIGHT.map((_, i) => i + 1);
+  const kindWeight = k => C.TRAIT_KIND_WEIGHT[k];
+  const tierWeight = t => C.TRAIT_TIER_WEIGHT[t - 1];
+
+  /** u ∈ [0,1)을 가중치 합에 펼쳐 누적 구간(r < 누적, 배열 순서)으로 고른다. 부동소수 끝값은 마지막 항목 */
+  function pickWeighted(items, weightOf, u) {
+    const r = u * sum(items.map(weightOf));
+    let acc = 0;
+    for (const item of items) {
+      acc += weightOf(item);
+      if (r < acc) return item;
+    }
+    return items[items.length - 1];
+  }
+
+  /**
+   * +5 이상인데 특성이 없는 모든 검에 배열 순서대로 무료 각인한다. 검마다 rng 정확히 2회(종류, 등급).
+   * 호출자(main)가 강화와 같은 rng를 넘긴다. 반환: 새로 각인된 [{ id, k, t }] (없으면 빈 배열, rng 0회)
+   */
+  function engravePending(S, rng) {
+    const engraved = [];
+    S.swords.forEach(sw => {
+      if (sw.lv < C.TRAIT_ROLL_LV || sw.trait) return;
+      const k = pickWeighted(C.TRAIT_KINDS, kindWeight, rng());
+      const t = pickWeighted(TIERS, tierWeight, rng());
+      sw.trait = { k, t };
+      S.stats.traitRolls++;
+      engraved.push({ id: sw.id, k, t });
+    });
+    return engraved;
+  }
+
+  /** 테스트 전용(test.html): 검의 특성을 직접 지정한다. index.html UI에서 부르지 않는다 */
+  function setTrait(S, id, k, t) {
+    const sw = findSword(S, id);
+    if (!sw) return fail('notFound');
+    if (!traitDef(k) || !Number.isInteger(t) || t < 1 || t > C.TRAIT_TIER_MAX) return fail('badTrait');
+    sw.trait = { k, t };
+    return { ok: true };
+  }
+
+  /** 사용처 가격의 기준 수입 H = huntReward(S.best) (m2-overview §C) */
+  const sinkPrice = (mult, l) => roundTo(mult * huntReward(l), C.TRAIT_PRICE_ROUND);
+  const traitRekindCost = S => sinkPrice(C.TRAIT_REKIND_MULT, S.best);
+  /** 현재 등급 t(1·2)에서 한 등급 올리는 가격. 그 외 t는 null */
+  const traitTierUpCost = (S, t) =>
+    (Number.isInteger(t) && t >= 1 && t <= C.TRAIT_TIER_UP_MULT.length ? sinkPrice(C.TRAIT_TIER_UP_MULT[t - 1], S.best) : null);
+
+  function paySink(S, price) {
+    S.gold -= price;
+    S.stats.sinkGold += price;
+  }
+
+  /** 특성 관리 공통 거절 사유(우선순위: notFound → locked → noTrait) */
+  function traitMgmtBlock(S, sw) {
+    if (!sw) return 'notFound';
+    if (S.best < C.TRAIT_MGMT_UNLOCK_BEST) return 'locked';
+    return sw.trait ? null : 'noTrait';
+  }
+
+  function rerollKindBlock(S, id) {
+    const sw = findSword(S, id);
+    const block = traitMgmtBlock(S, sw);
+    if (block) return block;
+    return S.gold < traitRekindCost(S) ? 'noGold' : null;
+  }
+
+  /** 종류 변경: 등급 유지, 현재 종류를 뺀 종류에서 가중치를 다시 맞춰 rng 1회로 고른다. 실패하면 상태·rng 불변 */
+  function rerollKind(S, id, rng) {
+    const block = rerollKindBlock(S, id);
+    if (block) return fail(block);
+    const sw = findSword(S, id);
+    const price = traitRekindCost(S);
+    const from = sw.trait.k;
+    const k = pickWeighted(C.TRAIT_KINDS.filter(x => x !== from), kindWeight, rng());
+    sw.trait = { k, t: sw.trait.t };
+    paySink(S, price);
+    S.stats.traitRolls++;
+    return { ok: true, price, from, k, t: sw.trait.t };
+  }
+
+  function upgradeTierBlock(S, id) {
+    const sw = findSword(S, id);
+    const block = traitMgmtBlock(S, sw);
+    if (block) return block;
+    if (sw.trait.t >= C.TRAIT_TIER_MAX) return 'maxTier';
+    return S.gold < traitTierUpCost(S, sw.trait.t) ? 'noGold' : null;
+  }
+
+  /** 등급 올리기: 결정적 t → t+1 (rng 없음) */
+  function upgradeTier(S, id) {
+    const block = upgradeTierBlock(S, id);
+    if (block) return fail(block);
+    const sw = findSword(S, id);
+    const price = traitTierUpCost(S, sw.trait.t);
+    sw.trait = { k: sw.trait.k, t: sw.trait.t + 1 };
+    paySink(S, price);
+    return { ok: true, price, k: sw.trait.k, t: sw.trait.t };
+  }
+
+  // ============================================================ 단계 기념비 (장식, m2-overview §C.3)
+  /** 기념비 L(정수 MONUMENT_FROM..MAX)의 S.monuments 인덱스, 아니면 -1 */
+  const monumentIndex = L =>
+    (Number.isInteger(L) && L >= C.MONUMENT_FROM && L < C.MONUMENT_FROM + C.MONUMENT_COUNT ? L - C.MONUMENT_FROM : -1);
+  const monumentCost = L => sinkPrice(C.MONUMENT_MULT, L);
+
+  /** 거절 사유(검사 순서: invalid → owned → notReached → noGold) */
+  function monumentBlock(S, L) {
+    const i = monumentIndex(L);
+    if (i < 0) return 'invalid';
+    if (S.monuments[i]) return 'owned';
+    if (S.best < L) return 'notReached';
+    return S.gold < monumentCost(L) ? 'noGold' : null;
+  }
+
+  function buyMonument(S, L) {
+    const block = monumentBlock(S, L);
+    if (block) return fail(block);
+    const price = monumentCost(L);
+    paySink(S, price);
+    S.monuments[monumentIndex(L)] = 1;
+    return { ok: true, price };
   }
 
   // ============================================================ 골드 부스터
@@ -522,6 +690,10 @@
     // 보관함
     findSword, activeSword, bestSword, topLv, createSword, removeSword, moveSword, buySword, setActive, sellSword,
     expandCost, expandSlots, sealActive, payoutPreview, payWithSeal, setSeal,
+    // 검 특성 (F14) / 골드 사용처 / 기념비
+    traitDef, traitValue, incomeSwords, incomeTraitValue, incomeTrait, traitScaled, tradeGold,
+    engravePending, setTrait, traitRekindCost, traitTierUpCost, rerollKindBlock, rerollKind, upgradeTierBlock, upgradeTier,
+    monumentIndex, monumentCost, monumentBlock, buyMonument,
     // 아이템
     findAnvil, equippedAnvil, addAnvil, capacityFor, grantItem,
     // 강화

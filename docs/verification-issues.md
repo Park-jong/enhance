@@ -6,14 +6,15 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 
 ## 🚨 반드시 지킬 규칙 (3회 이상 반복된 문제)
 
-### 🚨 V2. 규칙·코드 위치를 바꿀 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (3회)
+### 🚨 V2. 규칙·코드 위치를 바꿀 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (4회)
 - **예방 규칙**: **불변식(항상 존재, 항상 유효)을 깨는 규칙 변경은 grep으로 js/ 밖(tools/, tests/, docs/design)의 같은 API 사용처와 문서 서술까지 찾아 같은 변경에서 함께 고쳐라. 코드를 옮기거나 지우는 리팩터링도 같다: 소스 문자열을 정규식으로 보는 정적 테스트(tests/run-m1-round2-tests.js 등)를 grep으로 찾아 함께 고쳐라. 함수의 반환 형태를 바꾸면(예: SV.peek이 상태 대신 {state, corrupt, raw}를 반환) tests/ 아래 모든 스위트(run-m1*.js 포함)에서 그 함수 호출을 grep으로 찾아 같은 변경에서 고쳐라.**
 - 증상: tools/sim-late가 파괴 후 R.activeSword(S).lv에서 TypeError로 중단. QA 테스트 4건 실패. docs/design/m1-storage.md 16행과 154행이 옛 자동 활성 규칙을 그대로 서술.
 - 증상(3회째): SV.peek 반환 형태 변경 후 QA 소유 tests/run-m1.1-qa-tests.js 648-649행이 .gauge/.mastery를 읽어 1건 실패.
+- 증상(4회째): 저장 데이터 객체에 필드 추가(검 trait: null, 정규화 §10) 후 QA 소유 tests/run-m1.1-qa-tests.js:586의 deepStrictEqual이 1건 실패. docs/design/m1-storage.md 23·41·87행은 검이 {id,lv,prot,pity}라고 서술. **저장 객체에 필드를 더하면 tests/ 전체에서 그 객체의 deepStrictEqual 기대값과 m1-storage.md를 grep으로 찾아 같은 변경에서 고쳐라.**
 - 근본 원인: 변경 범위를 js/와 화면 호출처로만 잡았다.
 - 확인 방법: grep -rn "activeSword|S.active" tools tests docs, 그리고 옮기는 함수·식별자 이름(예: setLocked, resume(true))을 grep -rn 으로 tests/ 에서 찾는다 와 node tools/sim-late/selfcheck.js 를 실행한다. 사전 리뷰에 도구·문서 소비자 목록 항목을 넣는다.
 - 해소 기록: 2026-11-19 REQ-021·REQ-024로 tools/sim-late가 R.enhanceOpts(S)를 쓰도록 고쳐졌고 selfcheck 블록 G(13건)가 옵션 어긋남을 막는다. 남은 위험: 도구 자체 후보 A/B(S._gauge/S._mastery)를 켜면 게임 S.gauge/S.mastery와 함께 적용되어 이중 계산된다. A/B 후보를 쓰는 시뮬 전에 게임 쪽 값을 끄거나 후보를 폐기할 것.
-- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정), 2026-11-19 3단계 3-4 저장 안전 (SV.peek 계약 변경, tests/run-m1.1-qa-tests.js:648-649를 QA가 .state로 수정)
+- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정), 2026-11-19 3단계 3-4 저장 안전 (SV.peek 계약 변경, tests/run-m1.1-qa-tests.js:648-649를 QA가 .state로 수정), 2026-11-20 5단계 5-A (swords[].trait 추가 후 tests/run-m1.1-qa-tests.js:586 기대값, QA가 수정. docs/design/m1-storage.md는 미갱신)
 
 
 ## 문제 기록

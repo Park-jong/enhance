@@ -223,7 +223,7 @@ async function main() {
   // 납품: 요구 단계 검을 하나 만들어 두고 납품
   const q = quests[0];
   const st = saved(env);
-  st.swords.push({ id: 50, lv: q.lv, prot: 2, pity: 0 });
+  st.swords.push({ id: 50, lv: q.lv, prot: 2, pity: 0, trait: { k: 'hunt', t: 1 } });   // 상인 아님: 납품액 = 인장만 (부팅 각인 무작위 방지)
   st.nextSwordId = 51;
   st.slots = Math.max(st.slots, st.swords.length);
   st.quests.list[0].item = { id: 'bless', n: 2 };
@@ -412,6 +412,9 @@ async function main() {
   await stripDrag(ok);
   stripAutoScroll(ok);
 
+  // 7b-2) M2-A F14: 각인 배선(부팅·강화 성공·복귀), 토스트 1개로 합침, 판매 미리보기 = 지급
+  await traitsWiring(ok);
+
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
 
@@ -554,6 +557,73 @@ async function noActiveAfterDestroy(ok) {
   click(env, 'activate', 2);
   ok(saved(env).active === 2 && env.byId['#stageEmpty'].hidden === true && env.byId['#vCost'].textContent !== '-', 'one click picks the next sword');
   ok(!env.byId['#btnEnhance'].disabled && !env.byId['#btnSell'].disabled, 'enhance / sell enabled again');
+  scanRendered();
+}
+
+/** M2-A F14 (m2-traits AC 5, 10, 11, 12, 53, 54, 30a/52): main.js가 같은 rng로 engravePending을 부르는 세 지점과 알림 */
+async function traitsWiring(ok) {
+  const ENGRAVE = '검에 각인';
+  const engraveToasts = env => (env.byId['#toasts'] ? texts(env.byId['#toasts']) : []).filter(t => t.startsWith(ENGRAVE));   // 토스트가 없으면 #toasts도 아직 없다
+  const realRandom = Math.random;
+  /** main.js는 로드 시점의 Math.random을 잡으므로 로드하는 동안만 바꿔 둔다(잡힌 함수는 이후에도 vals를 이어서 낸다) */
+  const loadWithRandom = (vals, store) => {
+    let i = 0;
+    Math.random = () => vals[Math.min(i++, vals.length - 1)];
+    try { return makeEnv(store); } finally { Math.random = realRandom; }
+  };
+  const oldSave = (swords, fields) => {
+    const s = Object.assign(SG_default(), { gold: 4321 }, fields);
+    s.swords = swords.map(([id, lv]) => ({ id, lv, prot: 2, pity: 0 }));   // trait 필드 없음 = 옛 저장
+    s.nextSwordId = 10;
+    s.best = Math.max(...swords.map(x => x[1]));
+    return s;
+  };
+
+  // 부팅: 옛 저장의 +7·+9만 무료 각인(배열 순서, 검마다 rng 2회), 골드 불변, 토스트 1개로 합침
+  let env = loadWithRandom([0.99, 0.99, 0, 0, 0.5], { 'sword-enhance-v2': JSON.stringify(oldSave([[1, 7], [2, 2], [3, 9]])) });
+  let st = saved(env);
+  ok(JSON.stringify(st.swords.map(s => s.trait)) === JSON.stringify([{ k: 'anvil', t: 3 }, null, { k: 'hunt', t: 1 }]), 'boot engraves only +5 and above swords: ' + JSON.stringify(st.swords.map(s => s.trait)));
+  ok(st.gold === 4321 && st.stats.traitRolls === 2, 'boot engraving is free and counts traitRolls');
+  ok(engraveToasts(env).length === 1 && engraveToasts(env)[0] === '검에 각인: 완벽한 대장장이, 평범한 약탈자', 'one merged engrave toast: ' + engraveToasts(env).join(' | '));
+  scanRendered();
+  env = makeEnv(env.store);
+  ok(engraveToasts(env).length === 0 && saved(env).stats.traitRolls === 2, 'reloading an engraved save does not engrave again');
+
+  // 강화 성공 직후: +4 → +5 성공에 같은 rng로 각인, 알림은 결과 연출 뒤 1회. 이미 특성이 있으면 다시 굴리지 않음
+  env = loadWithRandom([0], { 'sword-enhance-v2': JSON.stringify(oldSave([[1, 4]], { gold: 1e6 })) });
+  ok(saved(env).swords[0].trait === null && engraveToasts(env).length === 0, '+4 sword is not engraved at boot');
+  await env.byId['#btnEnhance'].listeners.click[0]();
+  st = saved(env);
+  ok(st.swords[0].lv === 5 && JSON.stringify(st.swords[0].trait) === '{"k":"hunt","t":1}' && st.stats.traitRolls === 1, 'success to +5 engraves the sword and saves it');
+  ok(engraveToasts(env).length === 1 && engraveToasts(env)[0] === '검에 각인: 평범한 약탈자', 'engrave toast after the success');
+  await env.byId['#btnEnhance'].listeners.click[0]();
+  st = saved(env);
+  ok(st.swords[0].lv === 6 && JSON.stringify(st.swords[0].trait) === '{"k":"hunt","t":1}' && st.stats.traitRolls === 1 && engraveToasts(env).length === 1,
+    'a later success keeps the trait and shows no new toast');
+  scanRendered();
+
+  // 복귀(resume): 다른 탭이 쓴 더 최근 저장에 미각인 검이 있으면 이어받은 직후 각인
+  env = loadWithRandom([0.5], { 'sword-enhance-v2': JSON.stringify(oldSave([[1, 3]])) });
+  setVisible(env, false);
+  await sleep(10);
+  const newer = oldSave([[1, 3], [2, 6]], { gold: 9999 });
+  newer.idle.lastSeen = Date.now() + 5;
+  env.store['sword-enhance-v2'] = JSON.stringify(newer);
+  setVisible(env, true);
+  st = saved(env);
+  ok(st.gold === 9999 && st.swords[1].trait !== null && st.swords[0].trait === null && engraveToasts(env).length === 1, 'resume adopts the newer save and engraves its +6 sword');
+
+  // 판매 미리보기와 실제 지급이 같다(상인 {trade,2}, 인장 꺼짐)
+  const tradeSave = oldSave([[1, 12], [2, 9]], { gold: 1000 });
+  tradeSave.swords[1].trait = { k: 'trade', t: 2 };
+  tradeSave.swords[0].trait = { k: 'ore', t: 1 };
+  tradeSave.active = 2;
+  env = makeEnv({ 'sword-enhance-v2': JSON.stringify(tradeSave) });
+  const want = Math.floor(env.ctx.SG.rules.sell(9) * 120 / 100);
+  ok(env.byId['#stripActions']._html.includes(`판매 ${env.ctx.SG.fx.fmt(want)}G`), 'sell button preview includes the merchant bonus');
+  const before = saved(env).gold;
+  click(env, 'sellSel', 2); click(env, 'sellSel', 2);
+  ok(saved(env).gold - before === want, 'sell pays exactly the previewed amount');
   scanRendered();
 }
 

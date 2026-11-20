@@ -28,8 +28,9 @@
   const boostFactorAt = (S, t) => (R.boostActiveAt(S, t) ? C.BOOSTER_MULT : 1);
 
   // ============================================================ 수동 사냥
-  /** 수동 사냥 1회 골드: 부스터 중 ×1.5 (내림). 수확 보너스는 적용하지 않음 */
-  const manualHuntGold = (S, now) => Math.floor(R.huntReward(R.topLv(S)) * boostFactorAt(S, now));
+  /** 수동 사냥 1회 골드: 부스터 중 ×1.5, 약탈자 특성 ×(100+v)/100 (내림). 수확 보너스는 적용하지 않음 */
+  const manualHuntGold = (S, now) =>
+    Math.floor(R.traitScaled(R.huntReward(R.topLv(S)) * boostFactorAt(S, now), R.incomeTraitValue(S, 'hunt')));
 
   function manualHunt(S, now, rng) {
     const gold = manualHuntGold(S, now);
@@ -40,8 +41,9 @@
   }
 
   // ============================================================ 자동 사냥
-  /** 자동 1회 골드 = round(autoReward(lv) × 수확 보너스 × 부스터) */
-  const autoRunGold = (S, t) => Math.round(R.autoReward(R.topLv(S)) * goldUpFactor(S) * boostFactorAt(S, t));
+  /** 자동 1회 골드 = round(autoReward(lv) × 수확 보너스 × 부스터 × 일꾼 특성) */
+  const autoRunGold = (S, t) =>
+    Math.round(R.traitScaled(R.autoReward(R.topLv(S)) * goldUpFactor(S) * boostFactorAt(S, t), R.incomeTraitValue(S, 'work')));
 
   function setAutoOn(S, on) {
     if (on && !autoUnlocked(S)) return fail('locked');
@@ -87,7 +89,9 @@
     const runs = Math.floor(effGap / autoInterval(S));
     const overlap = Math.max(0, Math.min(S.idle.boostUntil - start, effGap));
     const boostFactor = effGap > 0 ? 1 + (C.BOOSTER_MULT - 1) * overlap / effGap : 1;
-    const gold = Math.floor(runs * R.autoReward(R.topLv(S)) * goldUpFactor(S) * C.OFFLINE_EFF * boostFactor);
+    // 정산 시점의 수입 검 구성으로 일꾼 특성을 적용한다(m2-traits §4)
+    const gold = Math.floor(R.traitScaled(runs * R.autoReward(R.topLv(S)) * goldUpFactor(S) * C.OFFLINE_EFF * boostFactor,
+      R.incomeTraitValue(S, 'work')));
     const ore = F.addOre(S, F.expectedOre(S, runs, C.OFFLINE_EFF));
     S.gold += gold;
     S.stats.offlineGold += gold;

@@ -122,3 +122,10 @@
 - 산출물: css/style.css (`.side > * { flex-shrink: 0; }`), tests/browser-strip.js (시나리오 d 추가, 14 -> 44건)
 - 결정 사항: min-height:120px로 자동 최소 높이가 빠져 카드만 눌리던 것이 원인. 자식이 줄지 않게 하고 .side가 스크롤하도록 함. 모바일/보호 모드 규칙은 그대로. 수정 전 12건 실패, 수정 후 전부 통과. 6개 테스트 파일 모두 통과.
 - 남은 문제: 없음
+
+## 2026-11-20 — 5-A 특성(F14)·골드 싱크 규칙/저장 계층 구현
+- 지시: 디렉터 / 관련 단계: 5단계 5-A / 처리한 요청: REQ-034 (in_progress 유지: 6~8단계 남음)
+- 참여 팀원: client-programmer
+- 산출물: js/constants.js, rules.js, idle.js, forge.js, quests.js, save.js, main.js, view.js, tests/run-tests.js(226→287), tests/smoke-dom.js(299→310)
+- 결정 사항: 정수 헬퍼 traitScaled(v=0이면 기존 식 그대로)로 §3.1 준수. payWithSeal이 payoutPreview를 호출해 미리보기=지급 보장. 시드 700회 골든 다이제스트(rng 2362회)가 변경 전후 동일. 각인은 resume()에서 정산 전에 수행. setTrait은 test-mode.js 로드 순서상 노출 불가(SG.rules.setTrait 콘솔 사용).
+- 남은 문제: QA 소유 run-m1.1-qa-tests.js:586이 trait:null 기대값 갱신 필요(188/189). UI는 5-B. 기획서 불일치(§4 vs §3.1 부동소수, AC15 하락 조건, m1-storage §2 요소 정의) 기획팀 피드백 필요.

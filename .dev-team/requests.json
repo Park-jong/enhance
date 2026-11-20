@@ -1179,5 +1179,26 @@
         "note": "우선순위 P3"
       }
     ]
+  },
+  {
+    "id": "REQ-039",
+    "from": "tech",
+    "to": "design",
+    "kind": "feedback",
+    "title": "5-A 구현 후 기획서 정리: m1-storage 검 객체 trait, m2-traits 불일치 3건",
+    "detail": "기획서 정리 2건.\n1) docs/design/m1-storage.md 23·41·87행이 검을 {id,lv,prot,pity}로 적고 있다. trait를 추가하거나, m2-overview §D 전체 표를 가리키는 문구를 넣는다.\n2) m2-traits.md에서 아래 3곳을 고친다. 코드는 이미 §3.1 정수 규칙을 따른다.\n- §4가 float incomeTrait 곱을 적고 있어 §3.1 정수 규칙과 맞지 않는다.\n- AC 15가 +6에서 +5로 떨어지는 경우를 적었지만, DROP_FROM이 10이라 그런 하락은 생기지 않는다.\n- §17이 setTrait를 test-mode.js에 노출하라고 적었지만, test-mode.js가 rules.js보다 먼저 로드돼서 불가능하다. 지금은 SG.rules.setTrait로 쓴다.",
+    "priority": "P2",
+    "priorityReason": "문서와 코드가 어긋나지만 동작은 확정돼 있다. 5단계 진행을 막지 않는 정리라서 6단계 기획 정리 때 함께 처리한다",
+    "milestone": "5단계",
+    "status": "open",
+    "createdAt": "2026-11-20",
+    "history": [
+      {
+        "at": "2026-11-20",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P2"
+      }
+    ]
   }
 ]

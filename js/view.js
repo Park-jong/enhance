@@ -187,7 +187,7 @@
       : '';
     const sw = R.activeSword(S);
     if (!sw) return `<div class="sel-name">활성 검 없음 · ${NO_ACTIVE_TEXT}</div>${seal}`;
-    const price = R.payoutPreview(S, R.sell(sw.lv));
+    const price = R.payoutPreview(S, R.sell(sw.lv), sw);
     const qSlot = Q.slotForSword(S, sw);
     const sellArmed = isArmed(ui, 'sell:' + sw.id, now);
     const delArmed = isArmed(ui, 'deliverSword:' + sw.id, now);
@@ -494,7 +494,7 @@
     if (!q) return `<div class="quest"><div class="q-head">${badge} 새 의뢰 준비 중</div><div class="q-sub">다음 의뢰까지 ${until(S.quests.readyAt[i])}</div></div>`;
     const cand = Q.candidate(S, q);
     const sealOn = R.sealActive(S);
-    const gold = R.payoutPreview(S, q.gold);
+    const gold = R.payoutPreview(S, q.gold, cand);
     const reward = `${ic('gold')} ${fmt(gold)}G${sealOn ? ` (인장 ×${C.SEAL_MULT})` : ''}${q.item ? ' + ' + itemLabel(q.item.id, q.item.n) : ''}`;
     const have = S.swords.map(s => '+' + s.lv).join(', ');
     let sub;
@@ -587,6 +587,9 @@
   const masteryToastText = m => `+${m.lv} 숙련! 이후 +${m.lv} 강화 성공률 +${m.gained}%p`;
   /** 다 써서 자동으로 꺼진 트레이 소모품 토스트(시도 1회당 1번) */
   const ranOutToastText = ids => `${ids.map(id => itemText(id)).join(', ')}을(를) 다 써서 사용을 껐습니다.`;
+  /** 새 특성 각인 토스트(여러 자루면 한 문장으로 합침). 문구는 5-B에서 확정(m2-traits §11, 잠정) */
+  const engraveToastText = list =>
+    `검에 각인: ${list.map(e => `${C.TRAIT_TIER_NAME[e.t - 1]} ${C.TRAITS[e.k].name}`).join(', ')}`;
 
   // ============================================================ 정적 요소
   /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지)하고, 저장 안전 배너·배지 문구를 채운다 */
@@ -671,7 +674,7 @@
 
   SG.view = {
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
-    NO_ACTIVE_TEXT, swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, SAVE_FAILED_TEXT,
+    NO_ACTIVE_TEXT, swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, engraveToastText, SAVE_FAILED_TEXT,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
