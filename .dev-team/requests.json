@@ -1079,7 +1079,7 @@
     "priority": "P1",
     "priorityReason": "4단계가 끝나 5단계(특성)가 현재 단계가 된다. 5단계 범위는 지금 처리하고 6~8단계 범위는 순서대로 진행한다",
     "milestone": "5~8단계",
-    "status": "open",
+    "status": "in_progress",
     "createdAt": "2026-11-20",
     "history": [
       {
@@ -1087,6 +1087,12 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P1"
+      },
+      {
+        "at": "2026-11-20",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "5단계 5-A(특성·싱크 규칙/저장 계층) 구현 착수. 6~8단계는 이후 진행."
       }
     ]
   },
