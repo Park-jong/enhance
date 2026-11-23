@@ -2,9 +2,15 @@
 
 > dev-team이 자동 생성하는 파일입니다. 직접 고치지 말고 `update_request` 도구로 상태를 바꾸세요.
 
-## 열린 요청 (우선순위 순, 0건)
+## 열린 요청 (우선순위 순, 1건)
 
-없음
+### REQ-044 [P1] m2-events.md를 7-1 구현에 맞추기
+- 보낸 팀: QA 팀 · 유형: 피드백 · 상태: 접수 · 접수: 2026-11-23 · 단계: 7단계
+- 우선순위 근거: 기획서가 7-2 화면 작업의 단일 출처이고 V5가 3회 반복돼 🚨가 됨. 7단계 안에서 맞춰야 함
+
+§18 불러오는 순서(events.js는 constants.js 바로 뒤), §6.2 advanceEvents 반환 {}·{started}·{ended}, 단조 시계 기준점 리셋은 resume·resetUiFor(takeOver는 resume을 거침, resume은 벽시계 기준점은 유지해 60초 미만 숨김 뒤 따라잡기 보너스 차단), §8에 eventValue(S,id,opts)의 noEvent, runAutoCatchup·rollOre·autoRunGold의 opts, rollAnvilKeep(S,sw,rng) 추가, 자동 수입 예시 1,341의 전제(풍년 업그레이드 Lv5) 명시, 이벤트 중 sinceMs가 상한을 한 틱만큼 넘을 수 있는지(또는 스폰 때 0으로) 명시, eventDescription 문구는 임시 문구. 근거: 7-1 QA 검증 S2, 🚨 V5 3회
+
+- 2026-11-23 메인 세션: 접수 — 우선순위 P1
 
 ## 닫힌 요청 (23건)
 

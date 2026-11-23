@@ -100,6 +100,8 @@ function makeEnv(initialStorage, opts = {}) {
     confirm: () => true,
     addEventListener: (t, f) => { (winListeners[t] = winListeners[t] || []).push(f); },
     devicePixelRatio: 1,
+    // opts.performance: 가짜 단조 시계({ now }). 없으면 main.js는 Date.now로 대체한다
+    performance: opts.performance,
   };
   ctx.globalThis = ctx;
   ctx.window = ctx;
@@ -147,7 +149,7 @@ async function main() {
 
   // 1) 새 게임: 로드·렌더·저장
   let env = makeEnv({});
-  ok(env.scripts.length === 15, 'all scripts loaded');
+  ok(env.scripts.length === 16, 'all scripts loaded');
   ok(!!env.ctx.M1_ICONS && !!env.ctx.M1_SFX_PLAY, 'content assets loaded');
   ok(env.byId['#tabbar']._html.includes('<svg'), 'content SVG icons used in tabs');
   ok(saved(env).v === 2, 'v2 saved on start');
@@ -422,6 +424,8 @@ async function main() {
   await achievementsWiring(ok);
   // 7b-5) 6-B F12 화면: 기록 탭 일일 과제·업적·칭호·탭 점, 수령 토스트
   await recordsUi(ok);
+  // 7b-6) 7-1 F13: 시간 이벤트 틱 배선(단조 시계·숨김·멈춘 탭·즉시 저장·catch-up 무보너스)
+  await eventsWiring(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -938,6 +942,205 @@ async function noActiveAfterDestroy(ok) {
   scanRendered();
 }
 
+/**
+ * 7-1 F13 틱 배선 (m2-events §6.2·§15, AC 22a·35·37a·37b·38~42): main.js가 단조 시계(performance.now) 경과만큼만 이벤트를 진행하고,
+ * 숨김·멈춘 탭은 진행·스폰·저장·rng가 없으며, 시작·종료를 그 틱에 저장한다. 토스트·헤더 표시(7-2)는 검사하지 않는다
+ */
+async function eventsWiring(ok) {
+  const KEY = 'sword-enhance-v2';
+  const C = require(path.join(ROOT, 'js', 'constants.js'));
+  const HOUR = 3600 * 1000;
+  const TICK = 500;
+  const DURATION = C.EVENTS.hunt.durationSec * 1000;
+  const GAP_MIN = C.EVENT_GAP_MIN_SEC * 1000;
+  const realRandom = Math.random;
+  /** best 13(사냥 대목·자동 풍년 후보), 이미 각인된 +13 검(부팅 각인 rng 없음), 주어진 events */
+  const evSave = (t, events, autoOn = true) => {
+    const s = Object.assign(SG_default(), { best: 13 });
+    s.swords = [{ id: 1, lv: 13, prot: 2, pity: 0, trait: { k: 'hunt', t: 1 } }];
+    s.idle.autoOn = autoOn;
+    s.idle.lastSeen = t;
+    s.events = events;
+    return s;
+  };
+  const running = (id, remainMs) => ({ active: { id, remainMs }, sinceMs: 0, nextAtMs: GAP_MIN });
+  const almostDue = sinceMs => ({ active: null, sinceMs, nextAtMs: GAP_MIN });
+  /** clk.t = 기기 시계, clk.m = 단조 시계. main.js는 로드 시점의 Math.random을 잡으므로 로드하는 동안만 호출 수를 세는 0.5로 고정(V6) */
+  const boot = (store, clk, withPerformance = true) => {
+    let api = null;
+    const rng = { n: 0 };
+    Math.random = () => { rng.n++; return 0.5; };
+    try {
+      const env = makeEnv(store, { now: () => clk.t, performance: withPerformance ? { now: () => clk.m } : undefined, extensions: [a => { api = a; }] });
+      return Object.assign(env, { rng, state: () => api.state() });
+    } finally { Math.random = realRandom; }
+  };
+  const bootSave = (save, clk, withPerformance) => boot({ [KEY]: JSON.stringify(save) }, clk, withPerformance);
+  const clock = () => ({ t: Date.now(), m: 1000 });
+  const step = (env, clk, wallMs, monoMs = TICK) => { clk.t += wallMs; clk.m += monoMs; env.tick(); };
+  const remain = env => env.state().events.active.remainMs;
+  const eventsJson = env => JSON.stringify(env.state().events);
+
+  // AC 37a: 기기 시계를 +1시간 / −1시간 / +1일 바꿔도 remainMs는 단조 시계 흐름(틱당 500ms)대로만 준다
+  {
+    const clk = clock();
+    const env = bootSave(evSave(clk.t, running('hunt', DURATION)), clk);
+    step(env, clk, TICK);
+    let want = DURATION - TICK;
+    ok(remain(env) === want, 'AC 37a: a tick advances remainMs by the mono dt: ' + remain(env));
+    for (const [name, wallMs] of [['+1h', HOUR], ['-1h', -HOUR], ['-1h (before start)', -HOUR], ['+1 day', 24 * HOUR]]) {
+      step(env, clk, wallMs);
+      want -= TICK;
+      ok(remain(env) === want, `AC 37a: device clock ${name} changes remainMs only by the mono dt: ${remain(env)}`);
+    }
+    ok(saved(env).events.active.remainMs === want, 'AC 37a: the offline settle on +1 day saves the event untouched');
+  }
+
+  // AC 37b: 단조 시계가 한 틱에 10분 뛰어도 그 틱에는 EVENT_DT_MAX_MS만 반영
+  {
+    const clk = clock();
+    const env = bootSave(evSave(clk.t, running('hunt', DURATION)), clk);
+    step(env, clk, TICK, 10 * 60 * 1000);
+    ok(remain(env) === DURATION - C.EVENT_DT_MAX_MS, `AC 37b: a 10 min mono jump advances only ${C.EVENT_DT_MAX_MS} ms: ${remain(env)}`);
+  }
+
+  // AC 35: 숨김 동안의 틱은 진행·스폰·저장·rng 없음. 10분 뒤 복귀해도 첫 틱은 자기 dt만
+  {
+    const clk = clock();
+    const env = bootSave(evSave(clk.t, running('hunt', DURATION)), clk);
+    step(env, clk, TICK);
+    setVisible(env, false);   // 숨길 때 1회 저장
+    const stored = env.store[KEY];
+    const calls = env.rng.n;
+    for (let i = 0; i < 4; i++) step(env, clk, TICK);
+    step(env, clk, 10 * 60 * 1000, 10 * 60 * 1000);
+    ok(remain(env) === DURATION - TICK, 'AC 35: hidden ticks do not advance the event: ' + remain(env));
+    ok(env.store[KEY] === stored && env.rng.n === calls, 'AC 35: hidden ticks neither persist nor draw rng');
+    setVisible(env, true);
+    ok(remain(env) === DURATION - TICK, 'AC 35: resume after 10 min (offline settle) does not advance the event');
+    step(env, clk, TICK);
+    ok(remain(env) === DURATION - 2 * TICK, 'AC 35: the first tick after resume counts only its own dt: ' + remain(env));
+  }
+  {
+    const clk = clock();
+    const env = bootSave(evSave(clk.t, almostDue(GAP_MIN - 1000)), clk);
+    setVisible(env, false);
+    const stored = env.store[KEY];
+    const calls = env.rng.n;
+    for (let i = 0; i < 4; i++) step(env, clk, TICK);
+    step(env, clk, 10 * 60 * 1000, 10 * 60 * 1000);
+    ok(eventsJson(env) === JSON.stringify(almostDue(GAP_MIN - 1000)) && env.state().stats.eventsSeen === 0, 'AC 35: no spawn and no sinceMs growth while hidden');
+    ok(env.store[KEY] === stored && env.rng.n === calls, 'AC 35: hidden spawn-due ticks neither persist nor draw rng');
+    setVisible(env, true);
+    step(env, clk, TICK);
+    ok(env.state().events.active === null && env.state().events.sinceMs === GAP_MIN - 1000 + TICK, 'AC 35: after resume sinceMs grows only by the first tick dt');
+  }
+
+  // AC 38~41: 탭 A가 스폰·저장하면 B는 멈춘다. 멈춘 B는 스폰 시점이 지나도 진행·스폰·저장·rng 없음, 메모리 events 불변.
+  // B가 이어받으면 A의 저장값(id, remainMs)을 쓰고 이후 B만 줄어든다. 저장소 공유는 storage 이벤트처럼 저장 문자열을 옮겨 흉내 낸다
+  {
+    const clkA = clock();
+    const clkB = { t: clkA.t, m: 50 };
+    const start = evSave(clkA.t, almostDue(GAP_MIN - TICK), false);
+    const A = bootSave(start, clkA);
+    const B = bootSave(start, clkB);
+    const both = (n, monoA = TICK, monoB = TICK) => {
+      for (let i = 0; i < n; i++) { step(A, clkA, TICK, monoA); clkB.t = clkA.t; clkB.m += monoB; B.tick(); }
+    };
+    step(A, clkA, TICK);
+    const spawned = saved(A).events.active;
+    ok(spawned && spawned.remainMs === DURATION && saved(A).stats.eventsSeen === 1, 'AC 38: tab A spawns and saves in the same tick');
+    B.store[KEY] = A.store[KEY];
+    fire(B, 'storage', { key: KEY });
+    ok(B.byId['#tabLock'].hidden === false, 'AC 38: tab B locks on the storage event');
+    const bEvents = eventsJson(B);
+    const bStored = B.store[KEY];
+    const bCalls = B.rng.n;
+    both(60);   // A 30초 진행. B의 sinceMs는 이미 nextAtMs - 500이라 한 틱만 흘러도 스폰한다
+    ok(eventsJson(B) === bEvents && B.state().stats.eventsSeen === 0, 'AC 39/41: locked tab B keeps its memory events (no advance, no second spawn)');
+    ok(B.store[KEY] === bStored && B.rng.n === bCalls, 'AC 38: locked tab B neither persists nor draws rng');
+    ok(remain(A) === DURATION - 60 * TICK, 'AC 39: tab A alone counted 30 s: ' + remain(A));
+    const fromA = JSON.parse(A.store[KEY]).events.active;
+    B.store[KEY] = A.store[KEY];
+    clkB.m += 60 * 1000;   // 잠긴 동안의 단조 시간은 이어받은 뒤에도 흐르지 않아야 한다
+    B.byId['#btnTakeover'].listeners.click[0]();
+    ok(B.byId['#tabLock'].hidden === true && JSON.stringify(B.state().events.active) === JSON.stringify(fromA) && fromA.remainMs < DURATION,
+      'AC 40: take over adopts the stored id/remainMs: ' + JSON.stringify(fromA));
+    A.store[KEY] = B.store[KEY];
+    fire(A, 'storage', { key: KEY });
+    const aEvents = eventsJson(A);
+    const aStored = A.store[KEY];
+    both(10);
+    ok(remain(B) === fromA.remainMs - 10 * TICK && B.state().stats.eventsSeen === 1, 'AC 40/41: after take over only tab B counts down, eventsSeen 1: ' + remain(B));
+    ok(A.byId['#tabLock'].hidden === false && eventsJson(A) === aEvents && A.store[KEY] === aStored, 'AC 40: tab A is locked and frozen');
+  }
+
+  // AC 42: 시작·종료는 그 틱에 저장(자동 저장 주기 전), 새로고침은 같은 id·remainMs·다음 간격을 rng 없이 복원
+  {
+    const clk = clock();
+    const env = bootSave(evSave(clk.t, almostDue(GAP_MIN - 2 * TICK), false), clk);
+    const atBoot = env.store[KEY];
+    step(env, clk, TICK);
+    ok(env.store[KEY] === atBoot && env.state().events.sinceMs === GAP_MIN - TICK, 'AC 42 setup: a tick without start/end does not save (autosave not due)');
+    step(env, clk, TICK);
+    const st = saved(env);
+    ok(st.events.active !== null && JSON.stringify(st.events.active) === JSON.stringify(env.state().events.active) && st.events.active.remainMs === DURATION && st.stats.eventsSeen === 1,
+      'AC 42: the start is saved in the same tick: ' + JSON.stringify(st.events.active));
+    const re = boot(env.store, clk);
+    ok(JSON.stringify(re.state().events.active) === JSON.stringify(st.events.active) && re.state().stats.eventsSeen === 1 && re.rng.n === 0,
+      `AC 42: reload restores the same id/remainMs without rng (rng calls ${re.rng.n})`);
+  }
+  {
+    const clk = clock();
+    const env = bootSave(evSave(clk.t, running('hunt', 2 * TICK), false), clk);
+    const atBoot = env.store[KEY];
+    step(env, clk, TICK);
+    ok(env.store[KEY] === atBoot && remain(env) === TICK, 'AC 42 setup: a running tick does not save');
+    step(env, clk, TICK);
+    const st = saved(env);
+    ok(st.events.active === null && st.events.sinceMs === 0 && st.events.nextAtMs === env.state().events.nextAtMs
+      && st.events.nextAtMs >= GAP_MIN && st.events.nextAtMs <= C.EVENT_GAP_MAX_SEC * 1000, 'AC 42: the end is saved in the same tick: ' + JSON.stringify(st.events));
+    const re = boot(env.store, clk);
+    ok(eventsJson(re) === JSON.stringify(st.events) && re.rng.n === 0, `AC 42: reload keeps the drawn next gap without rng (rng calls ${re.rng.n})`);
+  }
+
+  // AC 22a: 30초 숨김 뒤 첫 틱의 자동 사냥 catch-up은 이벤트 없는 값과 같고, 정상 틱(wallDt <= EVENT_DT_MAX_MS)은 보너스를 받는다
+  {
+    const run = (active, play) => {
+      const clk = clock();
+      const env = bootSave(evSave(clk.t, { active, sinceMs: 0, nextAtMs: C.EVENT_GAP_MAX_SEC * 1000 }), clk);
+      const g0 = env.state().gold;
+      play(env, clk);
+      const S = env.state();
+      return { gold: S.gold - g0, runs: S.stats.autoRuns, ore: JSON.stringify(S.ore), remainMs: S.events.active && S.events.active.remainMs };
+    };
+    const hide30 = (env, clk) => {
+      setVisible(env, false);
+      clk.t += 30 * 1000; clk.m += 30 * 1000;
+      setVisible(env, true);
+      step(env, clk, TICK);
+    };
+    const normal = (env, clk) => { for (let i = 0; i < 60; i++) step(env, clk, TICK); };
+    const auto = { id: 'auto', remainMs: DURATION };
+    const [hidEv, hidNo] = [run(auto, hide30), run(null, hide30)];
+    ok(hidEv.runs > 0 && hidEv.runs === hidNo.runs && hidEv.gold === hidNo.gold && hidEv.ore === hidNo.ore,
+      `AC 22a: catch-up after a 30 s hide pays the no-event gold/ore (${JSON.stringify([hidEv.runs, hidEv.gold, hidNo.gold])})`);
+    ok(hidEv.remainMs === DURATION - TICK, 'AC 22a: the hidden 30 s did not shorten the event: ' + hidEv.remainMs);
+    const [normEv, normNo] = [run(auto, normal), run(null, normal)];
+    ok(normEv.runs > 0 && normEv.runs === normNo.runs && normEv.gold > normNo.gold,
+      `AC 22a: normal ticks get the auto event bonus (${JSON.stringify([normEv.runs, normEv.gold, normNo.gold])})`);
+  }
+
+  // performance가 없는 환경: 단조 시계는 Date.now로 대체
+  {
+    const clk = clock();
+    const env = bootSave(evSave(clk.t, running('hunt', DURATION)), clk, false);
+    clk.t += TICK;
+    env.tick();
+    ok(env.state().events.active.remainMs === DURATION - TICK, 'without performance the event clock falls back to Date.now');
+  }
+}
+
 /** M2-A F14 (m2-traits AC 5, 10, 11, 12, 53, 54, 30a/52): main.js가 같은 rng로 engravePending을 부르는 세 지점과 알림 */
 async function traitsWiring(ok) {
   const ENGRAVE = '검에 각인';
@@ -1439,7 +1642,7 @@ async function testPage(ok) {
   const realUntouched = env => REAL_KEYS.every(k => env.store[k] === realStore[k]);
 
   let env = makeEnv(realStore, { page: 'test.html' });
-  ok(env.scripts.length === 17, 'test page loads all scripts');
+  ok(env.scripts.length === 18, 'test page loads all scripts');
   ok(env.ctx.SG.C.SAVE_KEY === TEST_KEY && env.ctx.SG.config.forceSuccess === true, 'test config applied');
   ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'test page starts its own new game (no v1 migration, no real save)');
   ok(realUntouched(env), 'real v2 / v1 / corrupt-backup keys untouched on test page start');
@@ -1868,7 +2071,7 @@ async function saveSafety(ok) {
   // 테스트 페이지: 조작판(commit/newGame) 경로도 보호 모드에서 테스트 저장 키에 쓰지 않는다
   {
     const env = makeEnv({ [TEST_KEY]: RAW }, { page: 'test.html', failKeys: [TEST_KEY + '-corrupt'] });
-    ok(env.scripts.length === 17 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
+    ok(env.scripts.length === 18 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
     click(env, 'testGold');
     click(env, 'testToggleForce');
     click(env, 'testReset');

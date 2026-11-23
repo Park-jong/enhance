@@ -332,6 +332,47 @@
     throw new Error('ACHIEVEMENTS / DAILY_* tables are inconsistent');
   }
 
+  // ---------------------------------------------------------------- M2-C. 시간 이벤트 (F13, m2-events §11)
+  const PERCENT_SQ = PERCENT * PERCENT;    // 1/10000 단위 정수 확률의 분모: (100+a) × (100+b)처럼 %p 두 개를 곱한 값 (m2-events §5.3)
+  const EVENT_UNLOCK_BEST = 5;
+  const EVENT_DT_MAX_MS = 2000;            // 틱당 반영하는 최대 dt (TICK 500ms의 4배)
+  const EVENT_GAP_MIN_SEC = 900;           // 직전 종료 후 다음 스폰까지 활성 플레이(초). 첫 이벤트도 이 값
+  const EVENT_GAP_MAX_SEC = 1800;
+  const EVENT_LUCK_MIN_LV = 5;             // 행운의 시간이 적용되는 활성 검 단계 범위
+  const EVENT_LUCK_MAX_LV = 19;
+  const EVENT_WEIGHT_TOTAL = 100;
+  const EVENT_DUTY_GAP_DIV = 3;            // durationSec ≤ GAP_MIN / 3 ⇔ 최대 가동률 D / (D + GAP_MIN) ≤ 25% (m2-events §6.3)
+  const EVENT_ORE_VALUE_STEP = 10;         // 광맥 값이 이 배수여야 rate1e4 = (rate × SCALE)(100+광부)(100+이벤트) / SCALE가 정수
+  const EVENT_ORE_SCALE = 2;               // ORE_PER_HUNT(0.5 단위)를 정수로 만드는 배수 (m2-events §5.3-3)
+  const EVENT_IDS = ['luck', 'hunt', 'auto', 'ore', 'anvil', 'quest'];   // 가중치 누적·UI 순서
+  // desc: 효과 문장(값 v로 만든다). need: 스폰 추가 조건 이름(events.js EVENT_NEEDS), 없으면 null
+  const eventEntry = (name, weight, minBest, durationSec, value, desc, need) =>
+    ({ name, weight, minBest, durationSec, value, desc: desc(value), need: need || null });
+  const EVENTS = {
+    luck:  eventEntry('행운의 시간', 12, 5, 300, 5, v => `강화 성공 확률 +${v}%p`),
+    hunt:  eventEntry('사냥 대목', 24, 13, 300, 40, v => `수동 사냥 골드 +${v}%`),
+    auto:  eventEntry('자동 풍년', 18, 13, 300, 50, v => `자동 사냥 골드 +${v}%`, 'autoOn'),
+    ore:   eventEntry('광맥 발견', 16, 5, 300, 50, v => `사냥 광석 +${v}%`),
+    anvil: eventEntry('모루 가호', 16, 5, 300, 40, v => `모루 사용 시 ${v}% 확률로 내구도 보존`, 'hasAnvil'),
+    quest: eventEntry('의뢰소 특가', 14, 5, 300, 50, v => `의뢰 새로고침 비용 −${v}%`),
+  };
+  // 스폰·효과 코드는 아래 성질을 전제로 하므로(누락 id = undefined 정의, 가동률 25% 상한, 광석 정수 계산) 로드 시점에 막는다
+  const eventKeys = Object.keys(EVENTS);
+  if (eventKeys.length !== EVENT_IDS.length || EVENT_IDS.some(id => !eventKeys.includes(id))) {
+    throw new Error('EVENT_IDS must match the EVENTS keys');
+  }
+  if (EVENT_IDS.reduce((s, id) => s + EVENTS[id].weight, 0) !== EVENT_WEIGHT_TOTAL) {
+    throw new Error('EVENTS weights must sum to EVENT_WEIGHT_TOTAL');
+  }
+  if (EVENT_IDS.some(id => EVENTS[id].durationSec > EVENT_GAP_MIN_SEC / EVENT_DUTY_GAP_DIV)) {
+    throw new Error('EVENTS durationSec must be <= EVENT_GAP_MIN_SEC / EVENT_DUTY_GAP_DIV');
+  }
+  if (EVENTS.ore.value % EVENT_ORE_VALUE_STEP !== 0 || ORES.some(k => !Number.isInteger(ORE_PER_HUNT[k] * EVENT_ORE_SCALE))) {
+    throw new Error('EVENTS.ore.value must be a multiple of EVENT_ORE_VALUE_STEP and ORE_PER_HUNT x EVENT_ORE_SCALE integers');
+  }
+  if (EVENT_GAP_MIN_SEC >= EVENT_GAP_MAX_SEC) throw new Error('EVENT_GAP_MIN_SEC must be < EVENT_GAP_MAX_SEC');
+  if (EVENT_LUCK_MAX_LV > MAX - 1) throw new Error('EVENT_LUCK_MAX_LV must be <= MAX - 1');
+
   // ---------------------------------------------------------------- 아이템 정의 (데이터 주도)
   // kind: consumable(inv 스택) / anvil(장비 인스턴스) / shard(파편)
   const ITEMS = {
@@ -404,6 +445,8 @@
     ACH_METRICS, ACHIEVEMENTS, ACH_BY_ID,
     DAILY_UNLOCK_BEST, DAILY_RESET_HOUR, DAY_MS, DAILY_TASKS, DAILY_BANDS, DAILY_POOL, DAILY_POOL_BY_ID,
     DAILY_TASK_K, DAILY_ALL_K, DAILY_ALL_SHARD_MULT, DAILY_ITEM_CHANCE_PCT, DAILY_ITEM_KINDS, DAILY_ITEM_SHARD_MULT, DAILY_ORE_N, DAILY_GOAL_MAX, DAILY_MAXDAY_CAP,
+    PERCENT_SQ, EVENT_UNLOCK_BEST, EVENT_DT_MAX_MS, EVENT_GAP_MIN_SEC, EVENT_GAP_MAX_SEC, EVENT_LUCK_MIN_LV, EVENT_LUCK_MAX_LV,
+    EVENT_WEIGHT_TOTAL, EVENT_ORE_VALUE_STEP, EVENT_ORE_SCALE, EVENT_IDS, EVENTS,
     ITEMS, ORE_NAMES, SHOP_ITEMS, ICONS, ICON_ASSET_KEYS,
   });
 });

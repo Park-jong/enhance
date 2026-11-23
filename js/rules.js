@@ -6,9 +6,10 @@
   'use strict';
   const SG = root.SG = root.SG || {};
   if (!SG.C && typeof require === 'function') require('./constants.js');
-  SG.rules = factory(SG.C, SG.config);
+  if (!SG.events && typeof require === 'function') require('./events.js');
+  SG.rules = factory(SG.C, SG.config, SG.events);
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.rules;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, config) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, config, E) {
   'use strict';
 
   const MIN_MS = 60 * 1000;
@@ -52,12 +53,14 @@
   const isGaugeFull = (S, l) => { const g = gaugeInfo(S, l); return !!g && g.full; };
 
   // 상한·천장·보정을 모두 건너뛰는 확정 결과(테스트 강제 / 확정 강화권 / 천장 게이지). flag: forced|sure|gaugeFull
+  // 이벤트 항(m2-events §5.2)은 확정·최대 단계에서 0이고 parts는 null 그대로다
   const certain = (l, flag) => ({
     succ: 100, dest: 0, fail: 0, base: C.RATE[l], parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0, [flag]: true,
+    event: 0, succNoEvent: 100, eventGain: 0, eventLost: 0,
   });
 
   /**
-   * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure, gaugeFull, mastery(성공 기록 횟수) }
+   * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure, gaugeFull, mastery(성공 기록 횟수), event(행운의 시간 %p) }
    * — m1-pity-cap §3, m1.1-late-correction §3.3. 규칙 모듈은 S를 모르므로 gaugeFull·mastery는 호출자가 주입한다.
    * config.forceSuccess(테스트 페이지 설정)가 켜져 있으면 모든 단계·옵션에서 성공 100%. 강화 굴림은 모두 이 값을 따른다
    * 주의: forceSuccess는 테스트 페이지(test.html, js/test-mode.js) 전용이다. 실제 페이지(index.html)에서는 절대 켜지 않는다
@@ -65,7 +68,10 @@
   function chances(sword, opts) {
     const l = sword.lv;
     const o = opts || {};
-    if (l >= C.MAX) return { succ: 0, dest: 0, fail: 0, base: 0, parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0 };
+    if (l >= C.MAX) {
+      return { succ: 0, dest: 0, fail: 0, base: 0, parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0,
+        event: 0, succNoEvent: 0, eventGain: 0, eventLost: 0 };
+    }
     if (config.forceSuccess) return certain(l, 'forced');
     if (o.sure && l < C.SURE_MAX_TARGET) return certain(l, 'sure');
     if (o.gaugeFull && gaugeIndex(l) >= 0) return certain(l, 'gaugeFull');
@@ -76,14 +82,23 @@
       anvil: C.ANVIL_BONUS[o.anvilGrade || 0] || 0,
       pity: pityBonus(l, sword.pity || 0),
     };
-    const raw = parts.bless + parts.anvil + parts.pity;
+    // 행운의 시간은 parts가 아닌 같은 보너스 합(raw)에 더해 BONUS_CAP이 한계다(m2-events §5.2)
+    const event = o.event || 0;
+    const rawNoEvent = parts.bless + parts.anvil + parts.pity;
+    const raw = rawNoEvent + event;
     const cap = C.BONUS_CAP[band];
     const bonus = Math.min(raw, cap);
     // 숙련은 BONUS_CAP 밖에서 더하지만 SUCC_CEIL은 적용된다
     const mastery = masteryBonus(l, o.mastery || 0);
-    const succ = Math.min(base + bonus + mastery, Math.max(base, C.SUCC_CEIL));
+    const succOf = b => Math.min(base + b + mastery, Math.max(base, C.SUCC_CEIL));
+    const succ = succOf(bonus);
     const dest = Math.max(0, Math.min(C.DESTROY[l], 100 - succ));
-    return { succ, dest, fail: 100 - succ - dest, base, parts, raw, bonus, cap, capped: raw > cap || succ < base + bonus + mastery, mastery };
+    const succNoEvent = event > 0 ? succOf(Math.min(rawNoEvent, cap)) : succ;
+    const eventGain = succ - succNoEvent;
+    return {
+      succ, dest, fail: 100 - succ - dest, base, parts, raw, bonus, cap, capped: raw > cap || succ < base + bonus + mastery, mastery,
+      event, succNoEvent, eventGain, eventLost: event - eventGain,
+    };
   }
 
   // ============================================================ 검 / 보관함 (F5)
@@ -112,7 +127,15 @@
    * x × (100+v) / 100 — 정수 %p를 곱하고 마지막에 한 번 나눈다(호출자가 그 뒤 기존 floor/round를 한다).
    * v가 0이면 x를 그대로 돌려줘 특성 없는 값이 이전과 비트 단위로 같다(m2-traits §3.1)
    */
-  const traitScaled = (x, v) => (v > 0 ? x * (C.PERCENT + v) / C.PERCENT : x);
+  const traitScaled = (x, v) => percentScaled(x, [v]);
+  /**
+   * x × Π(100+v) / 100^k — 0보다 큰 %p 값들(특성·이벤트, 곱연산 독립 인자)을 먼저 곱하고 마지막에 한 번 나눈다(m2-events §5.1).
+   * 0인 값은 곱하지 않으므로 이벤트 항이 0이면 특성만의 식(x × (100+v) / 100)과 같은 연산, 모두 0이면 x 그대로다
+   */
+  function percentScaled(x, values) {
+    const used = values.filter(v => v > 0);
+    return used.length ? used.reduce((p, v) => p * (C.PERCENT + v), x) / Math.pow(C.PERCENT, used.length) : x;
+  }
   /** 거래형(상인): 이 검의 판매·납품 기본 지급액 */
   const tradeGold = (sw, base) => Math.floor(traitScaled(base, traitValue(sw, 'trade')));
 
@@ -342,7 +365,7 @@
     const anvil = use.anvil ? equippedAnvil(S) : null;
     return {
       bless: use.bless, anvilGrade: anvil ? anvil.g : 0, sure: use.sure,
-      gaugeFull: isGaugeFull(S, lv), mastery: masteryCount(S, lv),
+      gaugeFull: isGaugeFull(S, lv), mastery: masteryCount(S, lv), event: E.luckBonus(S, lv),
     };
   }
   /** 지금 강화하면 적용될 확률(화면 표시와 실제 굴림이 같은 값을 쓰도록 한 곳에서 계산). 활성 검 없으면 null */
@@ -425,23 +448,29 @@
   /**
    * 계정 공통 천장 게이지·숙련 기록 갱신(시도 시작 단계 l 기준, m1.1 §2·§3.1).
    * 성공이 아니면(실패·하락·파괴·보호로 막은 파괴) 게이지 +1, 성공이면 0. 성공은 숙련 기록 +1(REC_MAX까지).
+   * assisted(행운의 시간 덕에 난 성공, m2-events §5.2)면 숙련 기록만 건너뛴다(게이지는 일반 성공과 같다).
    * 새 숙련 기록을 얻으면 { lv, gained(%p), bonus(%p), count, max }를 돌려준다
    */
-  function recordLateProgress(S, l, outcome) {
+  function recordLateProgress(S, l, outcome, assisted) {
     const success = outcome === 'success';
     const gi = gaugeIndex(l);
     if (gi >= 0) S.gauge[gi] = success ? 0 : Math.min(C.GAUGE_N[gi], S.gauge[gi] + 1);
     const mi = masteryIndex(l);
-    if (!success || mi < 0 || S.mastery[mi] >= C.MASTERY_REC_MAX[mi]) return null;
+    if (!success || assisted || mi < 0 || S.mastery[mi] >= C.MASTERY_REC_MAX[mi]) return null;
     const before = masteryBonus(l, S.mastery[mi]);
     S.mastery[mi]++;
     const bonus = masteryBonus(l, S.mastery[mi]);
     return { lv: l, gained: bonus - before, bonus, count: S.mastery[mi], max: C.MASTERY_REC_MAX[mi] };
   }
 
-  /** 대장장이 특성 검이면 rng 1회로 내구도 미소모를 판정한다. 특성이 없으면 rng를 쓰지 않는다(기존 호출 열 유지) */
-  function rollAnvilKeep(sw, rng) {
+  /**
+   * 모루가 적용된 시도의 내구도 미소모 판정. 모루 가호 중이면 대장장이 특성과 합성한 확률 1 − (1−a)(1−b)로 rng 1회(1/10000 단위,
+   * m2-events §5.3-4). 아니면 대장장이 특성 검일 때만 rng 1회, 특성이 없으면 rng를 쓰지 않는다(기존 호출 열 유지)
+   */
+  function rollAnvilKeep(S, sw, rng) {
     const v = traitValue(sw, 'anvil');
+    const ev = E.eventValue(S, 'anvil');
+    if (ev > 0) return Math.floor(rng() * C.PERCENT_SQ) < C.PERCENT_SQ - (C.PERCENT - v) * (C.PERCENT - ev);
     return v > 0 && Math.floor(rng() * C.PERCENT) < v;
   }
 
@@ -470,15 +499,17 @@
     const roll = rng() * 100;
     const kind = roll < ch.succ ? 'success' : roll < ch.succ + ch.dest ? 'destroy' : 'fail';
     r.outcome = OUTCOME[kind](S, sw, r, use);
-    // 대장장이: 결과 롤 다음, 파손 판정 전. 파괴로 칸에서 빠져도 sw 객체의 특성을 읽는다(m2-traits §3.1-6)
-    if (anvil && rollAnvilKeep(sw, rng)) {
+    // 행운의 시간이 없었으면 성공이 아니었던 롤(같은 결과 롤로 판정, m2-events §5.2)
+    r.eventAssist = r.outcome === 'success' && ch.event > 0 && roll >= ch.succNoEvent;
+    // 대장장이·모루 가호: 결과 롤 다음, 파손 판정 전. 파괴로 칸에서 빠져도 sw 객체의 특성을 읽는다(m2-traits §3.1-6)
+    if (anvil && rollAnvilKeep(S, sw, rng)) {
       anvil.dura++;
       r.anvilKept = true;
     }
     r.to = r.outcome === 'destroy' ? null : sw.lv;
     r.pity = sw.pity;
     // 테스트 페이지의 강제 성공은 진행 기록이 아니다(m1.1 §3.1)
-    r.mastery = ch.forced ? null : recordLateProgress(S, l, r.outcome);
+    r.mastery = ch.forced ? null : recordLateProgress(S, l, r.outcome, r.eventAssist);
     if (anvil && anvil.dura <= 0) r.anvilBroke = true;
     // 이번 시도로 다 써서 자동으로 꺼진 트레이 소모품(화면 알림용)
     r.ranOut = cleanupUse(S).filter(id => C.TRAY_TOGGLES.includes(id));
@@ -692,7 +723,7 @@
     findSword, activeSword, bestSword, topLv, createSword, removeSword, moveSword, buySword, setActive, sellSword,
     expandCost, expandSlots, sealActive, payoutPreview, payWithSeal, setSeal,
     // 검 특성 (F14) / 골드 사용처 / 기념비
-    traitDef, traitValue, incomeSwords, incomeTraitValue, incomeTrait, traitScaled, tradeGold,
+    traitDef, traitValue, incomeSwords, incomeTraitValue, incomeTrait, traitScaled, percentScaled, tradeGold,
     engravePending, setTrait, traitRekindCost, traitTierUpCost, rerollKindBlock, rerollKind, upgradeTierBlock, upgradeTier,
     monumentIndex, monumentCost, monumentBlock, buyMonument,
     // 아이템

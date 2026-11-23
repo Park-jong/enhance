@@ -13,6 +13,7 @@ const I = require(js('idle.js'));
 const Q = require(js('quests.js'));
 const SV = require(js('save.js'));
 const A = require(js('achievements.js'));
+const E = require(js('events.js'));
 
 // ------------------------------------------------------------ 하네스
 const results = { pass: 0, fail: 0 };
@@ -1162,7 +1163,7 @@ function loadTestModeSG() {
   const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  ['test-mode.js', 'constants.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js']
+  ['test-mode.js', 'constants.js', 'events.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js']
     .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
   return ctx.SG;
 }
@@ -3575,11 +3576,14 @@ describe('F12 regressions and naming (AC 52-54)', () => {
     A.syncAchievements(S);
     assert.strictEqual(rng.calls, 0, 'same-day / sync paths draw nothing');
   });
-  test('AC53: eventsSeen is a plain stats counter nothing increments yet (F13 hook)', () => {
+  test('AC53: eventsSeen is a stats counter only F13 spawns increment (F12 hunts/claims/daily never do)', () => {
     const S = withSet(stateWith({ sword: { lv: 13 } }), { done: true });
     I.manualHunt(S, NOW, () => 0.5); A.claimAll(S, ACTIVE);
     A.refreshDaily(S, dayStartMs(D0 + 1), countedSeq(0.5), tzEnv(KST));
     assert.strictEqual(S.stats.eventsSeen, 0);
+    S.events.sinceMs = S.events.nextAtMs - 1;
+    assert.strictEqual(E.advanceEvents(S, 1, countedSeq(0)).started, 'luck');
+    assert.strictEqual(S.stats.eventsSeen, 1);
     assert.strictEqual(norm({ stats: { eventsSeen: '4.7' } }).stats.eventsSeen, 4);
   });
   test('AC54: achievement names/titles and daily code never say 의뢰/퀘스트; quests.js has no 과제/일일; separate module SG.ach', () => {
@@ -3680,7 +3684,7 @@ describe('F12 daily table load guards', () => {
     try {
       vm.runInContext(patch(fs.readFileSync(js('constants.js'), 'utf8')), ctx, { filename: 'constants.js' });
       mutate(ctx.SG.C);
-      ['rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js', 'achievements.js']
+      ['events.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js', 'achievements.js']
         .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
       return null;
     } catch (e) {
@@ -3703,6 +3707,607 @@ describe('F12 daily table load guards', () => {
     const from = "{ id: 'dlv_l',   slot: 2, metric: 'delivered',";
     const patch = src => { assert.ok(src.includes(from)); return src.replace(from, "{ id: 'dlv_l',   slot: 2, metric: 'success',"); };
     assert.strictEqual(loadError(patch, keep), 'ACHIEVEMENTS / DAILY_* tables are inconsistent');
+  });
+});
+
+// ============================================================ M2-C F13 시간 이벤트 규칙 (m2-events §14 AC, §2.5 하드 규칙)
+// rng는 countedSeq(고정 값 + 호출 횟수)와 시드 LCG만 쓴다(V6)
+const EV_MS = C.EVENTS.luck.durationSec * 1000;
+const NEW_CHANCE_KEYS = ['event', 'succNoEvent', 'eventGain', 'eventLost'];
+/** 활성 이벤트 id를 지정한다(테스트 전용 setEvent, 실패하면 단언) */
+function withEvent(S, id, remainMs = EV_MS) {
+  assert.ok(E.setEvent(S, id, remainMs).ok, id);
+  return S;
+}
+/** 한 단계 검 + 넉넉한 골드. best = lv */
+const evState = (lv, trait = null) => stateWith({ swords: [sword(1, lv, trait)], top: { gold: 1e12 } });
+const clone = x => JSON.parse(JSON.stringify(x));
+/** 등급 g 모루 장착(토글 ON) + 축복 보유(bless면 토글 ON) */
+function enhanceState(lv, { g = 0, bless = false, trait = null, dura = 30 } = {}) {
+  const S = evState(lv, trait);
+  S.inv.bless = 5;
+  if (g) { S.anvils = [{ id: 1, g, dura }]; S.anvilEq = 1; S.nextAnvilId = 2; assert.ok(R.setUse(S, 'anvil', true).ok); }
+  if (bless) assert.ok(R.setUse(S, 'bless', true).ok);
+  return S;
+}
+
+describe('F13 spawn and progress (AC 1-6c)', () => {
+  const adv = (S, dt, rng) => E.advanceEvents(S, dt, rng);
+  test('AC1-2: 449 × adv(2000) → no spawn, sinceMs 898000, 0 rng; the 450th with rng [0] → luck 300000, 1 call, eventsSeen 1', () => {
+    const S = evState(5);
+    assert.deepStrictEqual(S.events, { active: null, sinceMs: 0, nextAtMs: 900000 });
+    const rng = countedSeq(0);
+    for (let i = 0; i < 449; i++) assert.deepStrictEqual(adv(S, 2000, rng), {});
+    assert.deepStrictEqual([S.events.active, S.events.sinceMs, rng.calls], [null, 898000, 0]);
+    assert.deepStrictEqual(adv(S, 2000, rng), { started: 'luck' });
+    assert.deepStrictEqual([S.events.active, rng.calls, S.stats.eventsSeen], [{ id: 'luck', remainMs: 300000 }, 1, 1]);
+  });
+  test('AC3: best 13 + autoOn + anvil → weights 12/36/54/70/86/100', () => {
+    const S = evState(13);
+    S.idle.autoOn = true; R.addAnvil(S, 1);
+    const vals = [0.11, 0.13, 0.35, 0.37, 0.53, 0.55, 0.69, 0.71, 0.85, 0.87, 0.99];
+    const rng = countedSeq(...vals);
+    assert.deepStrictEqual(vals.map(() => E.pickEvent(S, rng)), ['luck', 'hunt', 'hunt', 'auto', 'auto', 'ore', 'ore', 'anvil', 'anvil', 'quest', 'quest']);
+    assert.strictEqual(rng.calls, vals.length, 'one call per pick');
+  });
+  test('AC4: best 5, autoOff, no anvil → luck/ore/quest only (r = rng × 42)', () => {
+    const S = evState(5);
+    const rng = countedSeq(0.28, 0.30, 0.66, 0.70);
+    assert.deepStrictEqual([0, 1, 2, 3].map(() => E.pickEvent(S, rng)), ['luck', 'ore', 'ore', 'quest']);
+    assert.deepStrictEqual(E.eligibleEvents(S), ['luck', 'ore', 'quest']);
+    const seen = new Set();
+    for (let k = 0; k < 1000; k++) seen.add(E.pickEvent(S, () => k / 1000));
+    assert.deepStrictEqual([...seen].sort(), ['luck', 'ore', 'quest']);
+  });
+  test('AC5: active hunt 1000ms + adv(2000), rng [0.5] → ended, nextAtMs 1350000, 1 call, leftover dt dropped', () => {
+    const S = withEvent(evState(13), 'hunt', 1000);
+    const rng = countedSeq(0.5);
+    assert.deepStrictEqual(adv(S, 2000, rng), { ended: 'hunt' });
+    assert.deepStrictEqual([S.events, rng.calls], [{ active: null, sinceMs: 0, nextAtMs: 1350000 }, 1]);
+  });
+  test('AC6: drawGapMs 0 → 900000, 0.5 → 1350000, 0.9999 → 1800000; always a multiple of 1000 in range', () => {
+    assert.deepStrictEqual([0, 0.5, 0.9999].map(v => E.drawGapMs(() => v)), [900000, 1350000, 1800000]);
+    for (let k = 0; k < 2000; k++) {
+      const g = E.drawGapMs(() => k / 2000);
+      assert.ok(g % 1000 === 0 && g >= 900000 && g <= 1800000, String(g));
+    }
+  });
+  test('AC6a: while active, adv(2000) only lowers remainMs; sinceMs stays; 0 rng', () => {
+    const S = withEvent(evState(5), 'ore');
+    S.events.sinceMs = 0;
+    const rng = countedSeq(0);
+    assert.deepStrictEqual(adv(S, 2000, rng), {});
+    assert.deepStrictEqual([S.events.active.remainMs, S.events.sinceMs, rng.calls], [EV_MS - 2000, 0, 0]);
+  });
+  test('AC6b: best 4 → nothing changes, 0 rng; dt -5000 / NaN → 0, 3600000 → 2000', () => {
+    const L = evState(4);
+    L.events.sinceMs = 899999;
+    const before = clone(L);
+    const rng = countedSeq(0);
+    [2000, 3600000].forEach(dt => assert.deepStrictEqual(adv(L, dt, rng), {}));
+    assert.deepStrictEqual([clone(L), rng.calls], [before, 0]);
+    const S = evState(5);
+    [-5000, NaN, 'x', undefined].forEach(dt => adv(S, dt, rng));
+    assert.strictEqual(S.events.sinceMs, 0);
+    adv(S, 3600000, rng);
+    assert.deepStrictEqual([S.events.sinceMs, rng.calls], [2000, 0]);
+  });
+  test('AC6c: rng always 0, 12000 s of play in 2 s ticks → active share ≤ 25% + one tick, spawn gaps ≥ 900 s, one event at a time', () => {
+    const S = evState(5);
+    const rng = countedSeq(0);
+    const TICKS = 6000;
+    let activeMs = 0;
+    let lastEnd = 0;
+    let lastStart = null;
+    for (let i = 1; i <= TICKS; i++) {
+      if (S.events.active) activeMs += 2000;
+      const r = adv(S, 2000, rng);
+      assert.ok(!(r.started && r.ended), 'one transition per call');
+      if (r.ended) lastEnd = i;
+      if (r.started) {
+        assert.ok((i - lastEnd) * 2 >= C.EVENT_GAP_MIN_SEC, `gap ${(i - lastEnd) * 2}s`);
+        if (lastStart !== null) assert.ok((i - lastStart) * 2 >= C.EVENT_GAP_MIN_SEC);
+        lastStart = i;
+      }
+      assert.ok(S.events.active === null || typeof S.events.active.id === 'string');
+    }
+    assert.ok(activeMs / (TICKS * 2000) <= 0.25 + 2 / (TICKS * 2), String(activeMs / (TICKS * 2000)));
+    assert.strictEqual(S.stats.eventsSeen, 10);
+  });
+});
+
+describe('F13 lucky hour: cap, ceiling, invariants (AC 7-16, 53)', () => {
+  const sw = (lv, pity = 0) => ({ lv, pity, prot: 2 });
+  const pick = (c, keys) => keys.map(k => c[k]);
+  test('AC7: +13 bless + iron, event 5 → parts unchanged, raw 17, cap 14, bonus 14, capped, succ 44 / 42, gain 2', () => {
+    const c = R.chances(sw(13), { bless: true, anvilGrade: 1, event: 5 });
+    assert.deepStrictEqual(c.parts, { bless: 10, anvil: 2, pity: 0 });
+    assert.deepStrictEqual(pick(c, ['event', 'raw', 'cap', 'bonus', 'capped', 'succ', 'succNoEvent', 'eventGain', 'eventLost']),
+      [5, 17, 14, 14, true, 44, 42, 2, 3]);
+  });
+  test('AC8: +13 bless + mithril → 44 / 44, gain 0', () => {
+    assert.deepStrictEqual(pick(R.chances(sw(13), { bless: true, anvilGrade: 3, event: 5 }), ['succ', 'succNoEvent', 'eventGain', 'eventLost']), [44, 44, 0, 5]);
+  });
+  test('AC9 / §5.2.1: +7 bless+mithril 74→79; +13 none 30→35; +17 none 10→15; +19 bless+iron 17→19', () => {
+    const rows = [[7, { bless: true, anvilGrade: 3 }, 74, 79], [13, {}, 30, 35], [17, {}, 10, 15], [19, { bless: true, anvilGrade: 1 }, 17, 19]];
+    rows.forEach(([lv, o, before, after]) => {
+      const c = R.chances(sw(lv), Object.assign({ event: 5 }, o));
+      assert.deepStrictEqual([c.succNoEvent, c.succ, c.eventGain], [before, after, after - before], `+${lv}`);
+      assert.strictEqual(R.chances(sw(lv), o).succ, before, `+${lv} without the event`);
+    });
+  });
+  test('AC9a: +15 bless + steel, mastery 4 (12%p) → 45 → 46, gain 1 (mastery outside the cap)', () => {
+    const c = R.chances(sw(15), { bless: true, anvilGrade: 2, mastery: 4, event: 5 });
+    assert.deepStrictEqual(pick(c, ['succNoEvent', 'succ', 'eventGain', 'mastery']), [45, 46, 1, 12]);
+  });
+  test('AC10: 3,328 reachable combos (+5..+19 × bless × anvil 0..3 × pity 0..12 × mastery records) → dest same with event 5/0, succ+dest ≤ 100, fail ≥ 0', () => {
+    let n = 0;
+    for (let lv = 5; lv <= 19; lv++) {
+      const mi = lv - C.MASTERY_FROM;
+      const recMax = mi >= 0 ? C.MASTERY_REC_MAX[mi] : 0;
+      for (const bless of [false, true]) for (let g = 0; g <= 3; g++) for (let p = 0; p <= 12; p++) for (let m = 0; m <= recMax; m++) {
+        const o = { bless, anvilGrade: g, mastery: m };
+        const off = R.chances(sw(lv, p), o);
+        const on = R.chances(sw(lv, p), Object.assign({ event: 5 }, o));
+        const at = `+${lv} ${bless} ${g} ${p} ${m}`;
+        assert.strictEqual(on.dest, off.dest, at);
+        assert.ok(on.succ + on.dest <= 100 && on.fail >= 0 && on.succ + on.dest + on.fail === 100, at);
+        assert.ok(on.succ >= off.succ && on.succNoEvent === off.succ && on.eventGain === on.succ - off.succ, at);
+        n++;
+      }
+    }
+    assert.strictEqual(n, 3328);
+  });
+  test('AC11: injected event 50 at +13 bless+mithril → bonus 14, succ 44', () => {
+    assert.deepStrictEqual(pick(R.chances(sw(13), { bless: true, anvilGrade: 3, event: 50 }), ['bonus', 'succ']), [14, 44]);
+  });
+  test('AC12: event 50 at +5 bless+mithril+pity 6 → succ exactly 90 (SUCC_CEIL), gain 0', () => {
+    const c = R.chances(sw(5, 6), { bless: true, anvilGrade: 3, event: 50 });
+    assert.deepStrictEqual(pick(c, ['succ', 'eventGain']), [C.SUCC_CEIL, 0]);
+  });
+  test('AC13: +15 roll in [succNoEvent, succ) → success, eventAssist, +16, pity 0, gauge 0; spec setup (mastery 4 = REC_MAX) keeps mastery 4', () => {
+    const S = enhanceState(15, { g: 2, bless: true });
+    S.mastery[0] = 4; S.gauge[0] = 2; S.swords[0].pity = 0;
+    withEvent(S, 'luck');
+    const ch = R.currentChances(S);
+    assert.deepStrictEqual([ch.succNoEvent, ch.succ], [45, 46]);
+    const rng = countedSeq(0.455);
+    const r = R.attemptEnhance(S, rng);
+    assert.deepStrictEqual([r.outcome, r.eventAssist, S.swords[0].lv, S.swords[0].pity, S.gauge[0], S.mastery[0], r.mastery, rng.calls],
+      ['success', true, 16, 0, 0, 4, null, 1]);
+  });
+  test('AC13: mastery below REC_MAX — an assisted success does not record; a success below succNoEvent records +1 (eventAssist false)', () => {
+    const make = () => {
+      const S = enhanceState(15, { g: 2, bless: true });
+      S.mastery[0] = 2; S.gauge[0] = 3;
+      return withEvent(S, 'luck');
+    };
+    const A1 = make();
+    const ch = R.currentChances(A1);
+    assert.deepStrictEqual([ch.succNoEvent, ch.succ], [39, 40]);
+    const r1 = R.attemptEnhance(A1, countedSeq(0.395));
+    assert.deepStrictEqual([r1.outcome, r1.eventAssist, A1.mastery[0], r1.mastery, A1.gauge[0], A1.swords[0].pity], ['success', true, 2, null, 0, 0]);
+    const B = make();
+    const r2 = R.attemptEnhance(B, countedSeq(0.385));
+    assert.deepStrictEqual([r2.outcome, r2.eventAssist, B.mastery[0], r2.mastery && r2.mastery.count, B.gauge[0]], ['success', false, 3, 3, 0]);
+  });
+  test('AC14: failing roll with luck on → pity +1, gauge +1, mastery same — identical to no event; enhanceOpts inputs equal except event', () => {
+    const make = ev => {
+      const S = enhanceState(15, { g: 2, bless: true });
+      S.mastery[0] = 2; S.gauge[0] = 1; S.inv.keepdown = 5; R.setUse(S, 'keepdown', true);
+      return ev ? withEvent(S, 'luck') : S;
+    };
+    const on = make(true);
+    const off = make(false);
+    const oOn = R.enhanceOpts(on);
+    const oOff = R.enhanceOpts(off);
+    assert.deepStrictEqual([oOn.event, oOff.event], [5, 0]);
+    assert.deepStrictEqual(Object.assign({}, oOn, { event: 0 }), oOff);
+    const r1 = R.attemptEnhance(on, countedSeq(0.9999));
+    const r2 = R.attemptEnhance(off, countedSeq(0.9999));
+    assert.deepStrictEqual([r1.outcome, r1.eventAssist, on.swords[0].pity, on.gauge[0], on.mastery[0]], [r2.outcome, false, 1, 2, 2]);
+    delete on.events; delete off.events;
+    assert.deepStrictEqual(on, off);
+  });
+  test('AC15: gauge full / sure (≤ +9) / forceSuccess → certain(), parts null, event 0, gain 0, succNoEvent 100 even with luck; +20 → parts null, succNoEvent 0', () => {
+    const certainShape = c => [c.succ, c.parts, c.event, c.eventGain, c.eventLost, c.succNoEvent];
+    assert.deepStrictEqual(certainShape(R.chances(sw(15), { gaugeFull: true, event: 5 })), [100, null, 0, 0, 0, 100]);
+    assert.deepStrictEqual(certainShape(R.chances(sw(8), { sure: true, event: 5 })), [100, null, 0, 0, 0, 100]);
+    const T = loadTestModeSG();
+    assert.deepStrictEqual(certainShape(T.rules.chances(sw(12), { bless: true, event: 5 })), [100, null, 0, 0, 0, 100]);
+    const S = enhanceState(16);
+    S.gauge[1] = C.GAUGE_N[1];
+    withEvent(S, 'luck');
+    const c = R.currentChances(S);
+    assert.deepStrictEqual([c.gaugeFull].concat(certainShape(c)), [true, 100, null, 0, 0, 0, 100]);
+    const top = R.chances(sw(20), { event: 5, bless: true });
+    assert.deepStrictEqual([top.succ, top.parts, top.event, top.eventGain, top.eventLost, top.succNoEvent], [0, null, 0, 0, 0, 0]);
+  });
+  test('AC15a: luckBonus 0 at +4 and +20, 5 at +5 and +19; enhanceOpts.event 0 for a +4 active sword; no active sword → null', () => {
+    const S = withEvent(stateWith({ swords: [sword(1, 4), sword(2, 9)], active: 1 }), 'luck');
+    assert.deepStrictEqual([4, 5, 19, 20].map(lv => E.luckBonus(S, lv)), [0, 5, 5, 0]);
+    assert.strictEqual(R.enhanceOpts(S).event, 0);
+    R.setActive(S, 2);
+    assert.strictEqual(R.enhanceOpts(S).event, 5);
+    S.active = null;
+    assert.strictEqual(R.enhanceOpts(S), null);
+  });
+  test('AC15b: luck off → every old field unchanged (event 0 / undefined), event 0, gain 0, lost 0, succNoEvent = succ', () => {
+    for (let lv = 0; lv <= C.MAX; lv++) for (const bless of [false, true]) for (let g = 0; g <= 3; g++) for (const p of [0, 3, 12]) for (const m of [0, 2]) {
+      const o = { bless, anvilGrade: g, mastery: m };
+      const plain = R.chances(sw(lv, p), o);
+      assert.deepStrictEqual(R.chances(sw(lv, p), Object.assign({ event: 0 }, o)), plain);
+      assert.deepStrictEqual([plain.event, plain.eventGain, plain.eventLost, plain.succNoEvent], [0, 0, 0, plain.succ], `+${lv}`);
+      assert.ok(plain.parts === null || json(Object.keys(plain.parts)) === json(['bless', 'anvil', 'pity']));
+    }
+  });
+  test('AC15c: luck on, anvil off → exactly 1 rng call; anvil on without smith/guard → still 1', () => {
+    const S = withEvent(enhanceState(12, { bless: true }), 'luck');
+    const rng = countedSeq(0.5);
+    R.attemptEnhance(S, rng);
+    assert.strictEqual(rng.calls, 1);
+    const T = withEvent(enhanceState(12, { g: 3 }), 'luck');
+    const rt = countedSeq(0.5);
+    R.attemptEnhance(T, rt);
+    assert.strictEqual(rt.calls, 1);
+  });
+  test('AC16: +13 mithril + pity 3 + bless + luck → bonusWasted(bless) true; luck off → false', () => {
+    const make = ev => {
+      const S = enhanceState(13, { g: 3, bless: true });
+      S.swords[0].pity = 3;
+      return ev ? withEvent(S, 'luck') : S;
+    };
+    assert.strictEqual(R.currentChances(make(true)).raw, 25);
+    assert.strictEqual(R.bonusWasted(make(true), 'bless'), true);
+    assert.strictEqual(R.bonusWasted(make(false), 'bless'), false);
+  });
+  test('AC53: +15 luck + full gauge → certain success, eventAssist false, mastery records +1 as before, 1 rng call', () => {
+    const S = enhanceState(15, { g: 2, bless: true });
+    S.gauge[0] = C.GAUGE_N[0]; S.mastery[0] = 1;
+    withEvent(S, 'luck');
+    const rng = countedSeq(0.999);
+    const r = R.attemptEnhance(S, rng);
+    assert.deepStrictEqual([r.chances.gaugeFull, r.outcome, r.eventAssist, S.mastery[0], r.mastery.count, rng.calls], [true, 'success', false, 2, 2, 1]);
+  });
+});
+
+describe('F13 income, ore, anvil, quest effects (AC 20-31)', () => {
+  test('AC20: best 13 hunt event, no trait/booster → 3746; none → 2676', () => {
+    const S = evState(13);
+    assert.strictEqual(I.manualHuntGold(S, NOW), 2676);
+    withEvent(S, 'hunt');
+    assert.strictEqual(I.manualHuntGold(S, NOW), 3746);
+    assert.strictEqual(I.manualHunt(S, NOW, () => 0.9).gold, 3746);
+  });
+  test('AC21: hunt + {hunt,3} + booster → 7305; without booster 4870', () => {
+    const S = withEvent(evState(13, tr('hunt', 3)), 'hunt');
+    assert.strictEqual(I.manualHuntGold(S, NOW), 4870);
+    S.idle.boostUntil = NOW + MIN;
+    assert.strictEqual(I.manualHuntGold(S, NOW), 7305);
+  });
+  test('AC22: best 15, harvest lv5, auto event → 3222; + {work,3} 4672; + booster 7008; none 2148', () => {
+    const S = evState(15);
+    S.idle.up.gold = 5; S.idle.autoOn = true;
+    assert.strictEqual(I.autoRunGold(S, NOW), 2148);
+    withEvent(S, 'auto');
+    assert.strictEqual(I.autoRunGold(S, NOW), 3222);
+    S.swords[0].trait = tr('work', 3);
+    assert.strictEqual(I.autoRunGold(S, NOW), 4672);
+    S.idle.boostUntil = NOW + MIN;
+    assert.strictEqual(I.autoRunGold(S, NOW), 7008);
+  });
+  test('AC22a (rules): runAutoCatchup {noEvent:true} with auto / ore active equals the no-event run; without opts the bonus applies; events untouched', () => {
+    const make = id => {
+      const S = evState(15);
+      S.idle.up.gold = 5; S.idle.autoOn = true;
+      return id ? withEvent(S, id) : S;
+    };
+    const run = (S, opts) => {
+      const rng = countedSeq(0.3);
+      const out = I.runAutoCatchup(S, NOW, NOW - 30 * 1000, rng, opts);
+      return { out, calls: rng.calls, gold: S.gold, ore: clone(S.ore) };
+    };
+    const base = run(make(null));
+    assert.ok(base.out.runs > 0 && base.out.runs <= C.AUTO_CATCHUP_MAX);
+    ['auto', 'ore'].forEach(id => {
+      const S = make(id);
+      const ev = clone(S.events);
+      assert.deepStrictEqual(run(S, { noEvent: true }), base, id);
+      assert.deepStrictEqual(S.events, ev, `${id}: catch-up does not touch events`);
+      assert.notDeepStrictEqual(run(make(id)), base, `${id}: a normal tick gets the bonus`);
+    });
+    assert.strictEqual(run(make('auto')).out.gold, base.out.runs * 3222);
+    assert.deepStrictEqual(run(make(null), { noEvent: true }), base, 'no event: opts change nothing');
+  });
+  test('AC23 / AC37: settleOffline (8 h, auto on) pays exactly the no-event amount for every event; S.events untouched', () => {
+    const make = id => {
+      const S = evState(15);
+      S.idle.autoOn = true; S.idle.up.gold = 5; S.idle.lastSeen = NOW - 8 * HOUR; S.idle.boostUntil = NOW - 7 * HOUR;
+      return id ? withEvent(S, id, 240000) : S;
+    };
+    const plain = make(null);
+    const want = I.settleOffline(plain, NOW);
+    assert.ok(want.gold > 0);
+    C.EVENT_IDS.forEach(id => {
+      const S = make(id);
+      const ev = clone(S.events);
+      assert.deepStrictEqual(I.settleOffline(S, NOW), want, id);
+      assert.deepStrictEqual([S.events, S.gold, S.ore], [ev, plain.gold, plain.ore], id);
+    });
+  });
+  test('AC24: best 20 hunt → 277846; + booster 416770; + {hunt,3} + booster 541801', () => {
+    const S = withEvent(evState(20), 'hunt');
+    assert.strictEqual(I.manualHuntGold(S, NOW), 277846);
+    S.idle.boostUntil = NOW + MIN;
+    assert.strictEqual(I.manualHuntGold(S, NOW), 416770);
+    S.swords[0].trait = tr('hunt', 3);
+    assert.strictEqual(I.manualHuntGold(S, NOW), 541801);
+  });
+  test('AC25: ore event, no miner — iron always 3; silver .49 → 2, .51 → 1; mithril .74 → 1, .76 → 0; 1 rng call per ore kind', () => {
+    const S = withEvent(evState(12), 'ore');
+    [0, 0.5, 0.9999].forEach(v => assert.strictEqual(F.rollOre(S, () => v).iron, 3));
+    assert.deepStrictEqual([0.49, 0.51].map(v => F.rollOre(S, () => v).silver), [2, 1]);
+    assert.deepStrictEqual([0.74, 0.76].map(v => F.rollOre(S, () => v).mithril), [1, 0]);
+    const rng = countedSeq(0.5);
+    F.rollOre(S, rng);
+    assert.strictEqual(rng.calls, 3);
+  });
+  test('AC26: ore event + {ore,3} → iron 48000 (4.8), silver 24000, mithril 12000; event off = traits AC27 values', () => {
+    const S = withEvent(evState(12, tr('ore', 3)), 'ore');
+    assert.deepStrictEqual([0.79, 0.81].map(v => F.rollOre(S, () => v).iron), [5, 4]);
+    assert.deepStrictEqual([0.39, 0.41].map(v => F.rollOre(S, () => v).silver), [3, 2]);
+    assert.deepStrictEqual([0.19, 0.21].map(v => F.rollOre(S, () => v).mithril), [2, 1]);
+    S.events.active = null;
+    assert.deepStrictEqual([0.19, 0.21].map(v => F.rollOre(S, () => v).iron), [4, 3]);
+    assert.deepStrictEqual([0.79, 0.81].map(v => F.rollOre(S, () => v).mithril), [1, 0]);
+  });
+  test('AC26a: expectedOre (offline) ignores the ore event; locked ores stay locked', () => {
+    const S = evState(12, tr('ore', 2));
+    const want = F.expectedOre(S, 999, 0.25);
+    withEvent(S, 'ore');
+    assert.deepStrictEqual(F.expectedOre(S, 999, 0.25), want);
+    const low = withEvent(evState(6), 'ore');
+    assert.deepStrictEqual(Object.keys(F.rollOre(low, () => 0)), ['iron']);
+    assert.deepStrictEqual(Object.keys(F.expectedOre(low, 10, 1)), ['iron']);
+  });
+  test('AC27: anvil guard, no smith — 2nd rng .39 keeps durability, .41 spends 1; exactly 2 calls', () => {
+    [[0.39, C.ANVIL_DURA[3], true], [0.41, C.ANVIL_DURA[3] - 1, undefined]].forEach(([v, dura, kept]) => {
+      const S = withEvent(anvilState(12, null), 'anvil');
+      const rng = countedSeq(0.9999, v);
+      const r = R.attemptEnhance(S, rng);
+      assert.deepStrictEqual([S.anvils[0].dura, r.anvilKept, rng.calls], [dura, kept, 2], String(v));
+    });
+  });
+  test('AC28: anvil guard + {anvil,3} → saveP1e4 6700: .66 keeps, .68 spends; 2 calls (one combined roll)', () => {
+    [[0.66, C.ANVIL_DURA[3]], [0.68, C.ANVIL_DURA[3] - 1]].forEach(([v, dura]) => {
+      const S = withEvent(anvilState(12, tr('anvil', 3)), 'anvil');
+      const rng = countedSeq(0.9999, v);
+      R.attemptEnhance(S, rng);
+      assert.deepStrictEqual([S.anvils[0].dura, rng.calls], [dura, 2], String(v));
+    });
+  });
+  test('AC29: anvil guard but toggle off / no anvil / full gauge → no guard roll (1 call); dura 1 kept → no anvilBroke', () => {
+    const off = withEvent(anvilState(12, null), 'anvil');
+    R.setUse(off, 'anvil', false);
+    const none = withEvent(evState(12), 'anvil');
+    const full = withEvent(anvilState(16, null), 'anvil');
+    full.gauge[1] = C.GAUGE_N[1];
+    [off, none, full].forEach((S, i) => {
+      const rng = countedSeq(0.9999, 0);
+      R.attemptEnhance(S, rng);
+      assert.strictEqual(rng.calls, 1, String(i));
+    });
+    assert.deepStrictEqual([off.anvils[0].dura, full.anvils[0].dura], [C.ANVIL_DURA[3], C.ANVIL_DURA[3]]);
+    const one = withEvent(anvilState(12, null, 1), 'anvil');
+    const r = R.attemptEnhance(one, countedSeq(0.9999, 0.1));
+    assert.deepStrictEqual([one.anvils[0].dura, r.anvilKept, r.anvilBroke], [1, true, undefined]);
+  });
+  test('AC29a: quest sale at best 15 → rerollCost 21480 (none 42960), rerollQuest charges it, 21479 gold → noGold; best 5 → 270', () => {
+    const S = evState(15);
+    S.quests.list[0] = { id: 9, tier: 'easy', lv: 4, gold: Q.questGold('easy', 4), item: null };
+    assert.strictEqual(Q.rerollCost(S), 42960);
+    withEvent(S, 'quest');
+    assert.strictEqual(Q.rerollCost(S), 21480);
+    S.gold = 21479;
+    assert.strictEqual(Q.rerollBlock(S, 0), 'noGold');
+    S.gold = 100000;
+    const r = Q.rerollQuest(S, 0, () => 0.5);
+    assert.deepStrictEqual([r.ok, r.price, S.gold], [true, 21480, 100000 - 21480]);
+    assert.strictEqual(Q.rerollCost(withEvent(evState(5), 'quest')), 270);
+  });
+  test('AC29b: quest sale leaves quest rewards, levels, cooldowns and generation unchanged', () => {
+    const play = ev => {
+      const S = stateWith({ swords: [sword(1, 15), sword(2, 6), sword(3, 9)], top: { gold: 1e9 } });
+      if (ev) withEvent(S, 'quest');
+      const rng = countedSeq(0.1, 0.7, 0.3, 0.9, 0.5);
+      const out = [Q.refreshQuests(S, NOW, rng)];
+      Q.deliverableSlots(S).forEach(slot => out.push(Q.deliver(S, slot, NOW, { confirmActive: true })));
+      out.push(Q.refreshQuests(S, NOW + C.QUEST_COOLDOWN_SEC * 1000, rng));
+      const rr = Q.rerollQuest(S, 0, rng);
+      out.push(rr.ok && rr.quest);
+      return { out, quests: S.quests, calls: rng.calls };
+    };
+    assert.deepStrictEqual(play(true), play(false));
+  });
+  test('AC30: with any event active, trait/monument/booster prices and cost/sell/huntReward are unchanged', () => {
+    const prices = S => [R.traitRekindCost(S), R.traitTierUpCost(S, 1), R.traitTierUpCost(S, 2), R.monumentCost(10), R.monumentCost(20),
+      R.boosterPrice(S.best), R.cost(S.best), R.sell(S.best), R.huntReward(S.best)];
+    const want = prices(evState(17));
+    C.EVENT_IDS.forEach(id => assert.deepStrictEqual(prices(withEvent(evState(17), id)), want, id));
+  });
+  test('AC31: payoutPreview / sellSword / deliver are unchanged by any event', () => {
+    const run = id => {
+      const S = stateWith({ swords: [sword(1, 15), sword(2, 9, tr('trade', 2)), sword(3, 8)], top: { gold: 1000 }, inv: { seal: 2 } });
+      if (id) withEvent(S, id);
+      R.setSeal(S, true);
+      const pre = R.payoutPreview(S, R.sell(9), R.findSword(S, 2));
+      const sold = R.sellSword(S, 2);
+      S.quests.list[0] = { id: 9, tier: 'easy', lv: 8, gold: Q.questGold('easy', 8), item: null };
+      const d = Q.deliver(S, 0, NOW, { confirmActive: true });
+      return json([pre, sold, d, S.gold, S.inv, S.stats]);
+    };
+    const want = run(null);
+    C.EVENT_IDS.forEach(id => assert.strictEqual(run(id), want, id));
+  });
+});
+
+describe('F13 save fields and test hook (AC 43-48, 50, 52)', () => {
+  const norm = d => SV.normalize(Object.assign(fresh(), d), NOW);
+  const DEF = { active: null, sinceMs: 0, nextAtMs: 900000 };
+  test('AC43: new game → events default, eventsSeen 0', () => {
+    assert.deepStrictEqual([fresh().events, fresh().stats.eventsSeen], [DEF, 0]);
+  });
+  test('AC44: events missing / [] / 5 / "x" / null → default', () => {
+    const S = fresh();
+    delete S.events;
+    assert.deepStrictEqual(SV.normalize(S, NOW).events, DEF);
+    [[], 5, 'x', null].forEach(v => assert.deepStrictEqual(norm({ events: v }).events, DEF, json(v)));
+  });
+  test('AC45: active normalization — bad id / prototype ids / ≤ 0 / non-numeric → null; clamp to own duration; numeric strings; floor; extra fields dropped', () => {
+    const act = a => norm({ events: { active: a, sinceMs: 0, nextAtMs: 900000 } }).events.active;
+    [{ id: 'x' }, { id: 'constructor', remainMs: 1000 }, { id: '__proto__', remainMs: 1000 }, { id: 'toString', remainMs: 1000 },
+      { id: 'luck', remainMs: -5 }, { id: 'luck', remainMs: 'abc' }, { id: 'luck', remainMs: 0 }, { id: 'luck' }, { remainMs: 1000 },
+      'luck', 7, [], null].forEach(a => assert.strictEqual(act(a), null, json(a)));
+    assert.deepStrictEqual(act({ id: 'luck', remainMs: 99999999 }), { id: 'luck', remainMs: 300000 });
+    assert.deepStrictEqual(act({ id: 'hunt', remainMs: '120000' }), { id: 'hunt', remainMs: 120000 });
+    assert.deepStrictEqual(act({ id: 'luck', remainMs: 1000.9, extra: 1, def: { value: 99 } }), { id: 'luck', remainMs: 1000 });
+    assert.strictEqual(act(JSON.parse('{"id":"__proto__","remainMs":1000}')), null);
+  });
+  test('AC46: sinceMs -1 / 1e12 / "500" → 0 / 1800000 / 500; nextAtMs 100 / 9e9 / missing → 900000 / 1800000 / 900000', () => {
+    const ev = e => norm({ events: e }).events;
+    assert.deepStrictEqual([-1, 1e12, '500'].map(v => ev({ sinceMs: v }).sinceMs), [0, 1800000, 500]);
+    assert.deepStrictEqual([100, 9e9, undefined].map(v => ev({ nextAtMs: v }).nextAtMs), [900000, 1800000, 900000]);
+    assert.deepStrictEqual(Object.keys(ev({ sinceMs: 5, junk: 1 })), ['active', 'sinceMs', 'nextAtMs']);
+  });
+  test('AC47: eventsSeen missing / negative / text / fraction → integer ≥ 0', () => {
+    const S = fresh();
+    delete S.stats.eventsSeen;
+    assert.strictEqual(SV.normalize(S, NOW).stats.eventsSeen, 0);
+    assert.deepStrictEqual([-3, 'abc', 2.9, '7'].map(v => norm({ stats: { eventsSeen: v } }).stats.eventsSeen), [0, 0, 2, 7]);
+  });
+  test('AC48: save → load keeps events and eventsSeen; stored v stays 2', () => {
+    const S = withEvent(evState(13), 'auto', 123456);
+    S.events.sinceMs = 0; S.events.nextAtMs = 1350000; S.stats.eventsSeen = 7;
+    const st = memStorage();
+    assert.ok(SV.save(st, S, NOW));
+    const raw = JSON.parse(st.dump[C.SAVE_KEY]);
+    assert.strictEqual(raw.v, 2);
+    const L = SV.load(st, NOW).state;
+    assert.deepStrictEqual([L.events, L.stats.eventsSeen], [{ active: { id: 'auto', remainMs: 123456 }, sinceMs: 0, nextAtMs: 1350000 }, 7]);
+    const T = evState(5);
+    T.events.sinceMs = 4321;
+    SV.save(st, T, NOW);
+    assert.deepStrictEqual(SV.load(st, NOW).state.events, { active: null, sinceMs: 4321, nextAtMs: 900000 });
+  });
+  test('AC50: setEvent(luck, 120000) sets active; bad id / time → badEvent / badTime with state unchanged', () => {
+    const S = evState(5);
+    assert.deepStrictEqual(E.setEvent(S, 'luck', 120000), { ok: true });
+    assert.deepStrictEqual(S.events.active, { id: 'luck', remainMs: 120000 });
+    const before = clone(S);
+    [['x', 1000, 'badEvent'], ['constructor', 1000, 'badEvent'], ['__proto__', 1000, 'badEvent'], ['luck', 0, 'badTime'], ['luck', 300001, 'badTime'], ['luck', 1.5, 'badTime']]
+      .forEach(([id, ms, reason]) => assert.deepStrictEqual(E.setEvent(S, id, ms), { ok: false, reason }, `${id} ${ms}`));
+    assert.deepStrictEqual(clone(S), before);
+    const noHook = src => !/\bsetEvent\b/.test(src);
+    ['main.js', 'view.js'].forEach(f => assert.ok(noHook(fs.readFileSync(js(f), 'utf8')), `no setEvent entry point in ${f}`));
+    assert.ok(noHook(fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')), 'none in index.html');
+    assert.ok(!noHook('E.setEvent(S)') && noHook('resetEventMono()'), 'the pattern itself');
+  });
+  test('AC52: best 4 with a tampered active event → every effect is 0', () => {
+    C.EVENT_IDS.forEach(id => {
+      const S = stateWith({ swords: [sword(1, 4)], top: { gold: 1e9 } });
+      S.idle.autoOn = true; S.quests.list[0] = { id: 9, tier: 'easy', lv: 1, gold: 100, item: null };
+      const plain = clone(S);
+      S.events.active = { id, remainMs: 100000 };
+      assert.strictEqual(E.activeEvent(S), null, id);
+      assert.deepStrictEqual([E.eventValue(S, id), E.luckBonus(S, 10)], [0, 0], id);
+      const outs = T => json([I.manualHuntGold(T, NOW), I.autoRunGold(T, NOW), F.rollOre(T, () => 0.3), Q.rerollCost(T), R.currentChances(T)]);
+      assert.strictEqual(outs(S), outs(plain), id);
+    });
+  });
+});
+
+describe('F13 hard rule §2.5: no active event = pre-F13 values and rng call sequence', () => {
+  function lcgCounted(seed) {
+    let s = seed >>> 0;
+    const f = () => { f.calls++; s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+    f.calls = 0;
+    return f;
+  }
+  // 시드 고정 900회 강화(축복·모루·보호·하락 방지·확정권·특성 교체) + 사냥 + 자동 catch-up + 판매·납품·새로고침 + 오프라인.
+  // 기대값은 F13 도입 전 코드(커밋 dda600f의 js/)를 별도 VM에 올려 같은 시나리오로 한 번 계산해 박아 둔 것이다.
+  // 새 결과 필드(eventAssist, chances의 event·succNoEvent·eventGain·eventLost)와 S.events만 빼고 비교한다
+  const PRE_EVENT_SHA = '0d0f092c185c812c8952ec6e4dcb4833ef90b91dd4d0bda1199d538791ab3119';
+  const PRE_EVENT_MARKS_SHA = 'cb896f43abcf13b95d9f91490017fc65e0dbfa85d4d33e093655945e4c5c9fa7';
+  function eventIdentityScenario(seed) {
+    const rng = lcgCounted(seed);
+    const S = SV.defaultState(NOW);
+    let t = NOW;
+    S.gold = 8e7; S.slots = 5;
+    Object.assign(S.inv, { bless: 90, protect: 99, keepdown: 40, sure: 12, seal: 6, booster: 2 });
+    R.addAnvil(S, 3); R.addAnvil(S, 1);
+    let nextAuto = t;
+    const results = [];
+    const flow = [];
+    const marks = [];
+    let assists = 0;
+    for (let i = 0; i < 900; i++) {
+      if (!R.activeSword(S)) R.setActive(S, R.bestSword(S).id);
+      if (i % 60 === 0) S.swords.forEach((s, j) => { s.trait = { k: C.TRAIT_KINDS[(i / 60 + j) % C.TRAIT_KINDS.length], t: 1 + ((i + j) % 3) }; });
+      R.setUse(S, 'bless', i % 3 !== 1);
+      R.setUse(S, 'anvil', i % 5 !== 4);
+      R.setUse(S, 'protect', i % 2 === 0);
+      R.setUse(S, 'keepdown', i % 4 !== 0);
+      R.setUse(S, 'sure', i % 13 === 0);
+      if (i % 17 === 0) F.equipAnvil(S, S.anvils[(i / 17) % S.anvils.length].id);
+      const r = R.attemptEnhance(S, rng);
+      const p = Object.assign({}, r);
+      if (p.eventAssist) assists++;
+      delete p.eventAssist;
+      if (p.chances) { p.chances = Object.assign({}, p.chances); NEW_CHANCE_KEYS.forEach(k => delete p.chances[k]); }
+      results.push(p);
+      S.anvils.forEach(a => { if (a.dura <= 0) { C.ORES.forEach(k => { S.ore[k] = Math.max(S.ore[k], 300); }); F.repairAnvil(S, a.id); } });
+      if (i % 50 === 25) R.setActive(S, S.swords.reduce((lo, s) => (s.lv < lo.lv ? s : lo), S.swords[0]).id);
+      if (i % 50 === 45) R.setActive(S, R.bestSword(S).id);
+      if (i === 40 || i === 500) R.useBoosterFromInv(S, t);
+      if (i % 4 === 0) flow.push(['h', I.manualHunt(S, t, rng)]);
+      if (i % 6 === 0) {
+        if (!S.idle.autoOn) I.setAutoOn(S, true);
+        const a = I.runAutoCatchup(S, t, nextAuto, rng);
+        nextAuto = a.nextAutoAt;
+        flow.push(['a', a]);
+      }
+      if (S.swords.length < S.slots && R.activeSword(S) && R.activeSword(S).lv >= 11) R.buySword(S);
+      const spare = S.swords.find(s => s.id !== S.active && s.lv >= 6 && s.lv <= 9);
+      if (spare && i % 11 === 0) { R.setSeal(S, i % 22 === 0); flow.push(['s', R.sellSword(S, spare.id)]); }
+      Q.refreshQuests(S, t, rng);
+      if (i % 37 === 0) flow.push(['q', Q.rerollCost(S), Q.rerollBlock(S, 0), Q.rerollQuest(S, 0, rng)]);
+      Q.deliverableSlots(S).forEach(slot => { R.setSeal(S, slot === 1); flow.push(['d', Q.deliver(S, slot, t, { confirmActive: true })]); });
+      marks.push(rng.calls);
+      t += 2500;
+    }
+    S.idle.boostUntil = t + 30 * 60 * 1000;
+    S.idle.lastSeen = t;
+    const off = I.settleOffline(S, t + 5 * 3600 * 1000);
+    const state = JSON.parse(JSON.stringify(S));
+    delete state.events;
+    return { digest: { calls: rng.calls, marks, results, flow, off, state }, assists, events: S.events, eventsSeen: S.stats.eventsSeen };
+  }
+  const sha = x => require('crypto').createHash('sha256').update(JSON.stringify(x)).digest('hex');
+  let cached = null;
+  const scenario = () => cached || (cached = eventIdentityScenario(20261123));
+  test('seeded 900-attempt scenario (events unlocked, active null) matches the pre-F13 digest', () => {
+    const d = scenario().digest;
+    assert.deepStrictEqual([d.calls, d.state.best, d.state.gold, d.state.stats.tries, d.state.mastery], [2955, 16, 81162031, 900, [2, 0, 0, 0, 0]]);
+    assert.strictEqual(sha(d), PRE_EVENT_SHA);
+  });
+  test('rng call sequence: total 2955 calls and the per-iteration call counts match pre-F13', () => {
+    const { marks } = scenario().digest;
+    assert.strictEqual(marks.length, 900);
+    assert.strictEqual(sha(marks), PRE_EVENT_MARKS_SHA);
+  });
+  test('no event ever started or assisted: events stay default, eventsSeen 0, eventAssist always false', () => {
+    const run = scenario();
+    assert.deepStrictEqual([run.assists, run.events, run.eventsSeen], [0, { active: null, sinceMs: 0, nextAtMs: 900000 }, 0]);
   });
 });
 

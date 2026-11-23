@@ -1099,6 +1099,12 @@
         "by": "개발 팀장",
         "status": "in_progress",
         "note": "6단계 6-A(업적·일일 과제 규칙+저장) 진행 중"
+      },
+      {
+        "at": "2026-11-23",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "7-1 완료(규칙·저장·틱 연결). 7-2 화면 남음."
       }
     ]
   },
@@ -1312,6 +1318,27 @@
         "by": "기획 팀장",
         "status": "done",
         "note": "docs/design/m2-achievements.md 갱신: 범례, §6, §10.3(확정), §12(확정)·12.1~12.3, 신설 §12.4(연출 전 노출 범위 판정), AC 56·59·60, §17(섹션 순서, 연출 전 결과 노출). 코드와 지시 목록 불일치 없음."
+      }
+    ]
+  },
+  {
+    "id": "REQ-044",
+    "from": "qa",
+    "to": "design",
+    "kind": "feedback",
+    "title": "m2-events.md를 7-1 구현에 맞추기",
+    "detail": "§18 불러오는 순서(events.js는 constants.js 바로 뒤), §6.2 advanceEvents 반환 {}·{started}·{ended}, 단조 시계 기준점 리셋은 resume·resetUiFor(takeOver는 resume을 거침, resume은 벽시계 기준점은 유지해 60초 미만 숨김 뒤 따라잡기 보너스 차단), §8에 eventValue(S,id,opts)의 noEvent, runAutoCatchup·rollOre·autoRunGold의 opts, rollAnvilKeep(S,sw,rng) 추가, 자동 수입 예시 1,341의 전제(풍년 업그레이드 Lv5) 명시, 이벤트 중 sinceMs가 상한을 한 틱만큼 넘을 수 있는지(또는 스폰 때 0으로) 명시, eventDescription 문구는 임시 문구. 근거: 7-1 QA 검증 S2, 🚨 V5 3회",
+    "priority": "P1",
+    "priorityReason": "기획서가 7-2 화면 작업의 단일 출처이고 V5가 3회 반복돼 🚨가 됨. 7단계 안에서 맞춰야 함",
+    "milestone": "7단계",
+    "status": "open",
+    "createdAt": "2026-11-23",
+    "history": [
+      {
+        "at": "2026-11-23",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P1"
       }
     ]
   }

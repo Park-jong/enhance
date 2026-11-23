@@ -6,15 +6,25 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 
 ## 🚨 반드시 지킬 규칙 (3회 이상 반복된 문제)
 
-### 🚨 V2. 규칙·코드 위치를 바꿀 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (4회)
-- **예방 규칙**: **불변식(항상 존재, 항상 유효)을 깨는 규칙 변경은 grep으로 js/ 밖(tools/, tests/, docs/design)의 같은 API 사용처와 문서 서술까지 찾아 같은 변경에서 함께 고쳐라. 코드를 옮기거나 지우는 리팩터링도 같다: 소스 문자열을 정규식으로 보는 정적 테스트(tests/run-m1-round2-tests.js 등)를 grep으로 찾아 함께 고쳐라. 함수의 반환 형태를 바꾸면(예: SV.peek이 상태 대신 {state, corrupt, raw}를 반환) tests/ 아래 모든 스위트(run-m1*.js 포함)에서 그 함수 호출을 grep으로 찾아 같은 변경에서 고쳐라.**
+### 🚨 V2. 규칙·코드 위치를 바꿀 때 JS 밖 소비자(도구·QA 테스트·설계 문서)가 갱신되지 않는다 (5회)
+- **예방 규칙**: **새 js 파일을 추가하거나 로드 순서를 바꾸면 index.html·test.html뿐 아니라 tests/ 아래 VM·스크립트 목록(run-m1*.js의 로드 배열)과 tools/를 grep으로 찾아 같은 변경에서 고쳐라. 불변식(항상 존재, 항상 유효)을 깨는 규칙 변경은 grep으로 js/ 밖(tools/, tests/, docs/design)의 같은 API 사용처와 문서 서술까지 찾아 같은 변경에서 함께 고쳐라. 코드를 옮기거나 지우는 리팩터링도 같다: 소스 문자열을 정규식으로 보는 정적 테스트(tests/run-m1-round2-tests.js 등)를 grep으로 찾아 함께 고쳐라. 함수의 반환 형태를 바꾸면(예: SV.peek이 상태 대신 {state, corrupt, raw}를 반환) tests/ 아래 모든 스위트(run-m1*.js 포함)에서 그 함수 호출을 grep으로 찾아 같은 변경에서 고쳐라.**
 - 증상: tools/sim-late가 파괴 후 R.activeSword(S).lv에서 TypeError로 중단. QA 테스트 4건 실패. docs/design/m1-storage.md 16행과 154행이 옛 자동 활성 규칙을 그대로 서술.
 - 증상(3회째): SV.peek 반환 형태 변경 후 QA 소유 tests/run-m1.1-qa-tests.js 648-649행이 .gauge/.mastery를 읽어 1건 실패.
 - 증상(4회째): 저장 데이터 객체에 필드 추가(검 trait: null, 정규화 §10) 후 QA 소유 tests/run-m1.1-qa-tests.js:586의 deepStrictEqual이 1건 실패. docs/design/m1-storage.md 23·41·87행은 검이 {id,lv,prot,pity}라고 서술. **저장 객체에 필드를 더하면 tests/ 전체에서 그 객체의 deepStrictEqual 기대값과 m1-storage.md를 grep으로 찾아 같은 변경에서 고쳐라.**
+- 증상(5회째): 새 파일 js/events.js 추가 후 QA 소유 tests/run-m1.1-qa-tests.js:677의 VM 스크립트 목록에 events.js가 없어 21건 실패(luckBonus undefined). QA가 목록에 추가해 189/189.
 - 근본 원인: 변경 범위를 js/와 화면 호출처로만 잡았다.
 - 확인 방법: grep -rn "activeSword|S.active" tools tests docs, 그리고 옮기는 함수·식별자 이름(예: setLocked, resume(true))을 grep -rn 으로 tests/ 에서 찾는다 와 node tools/sim-late/selfcheck.js 를 실행한다. 사전 리뷰에 도구·문서 소비자 목록 항목을 넣는다.
 - 해소 기록: 2026-11-19 REQ-021·REQ-024로 tools/sim-late가 R.enhanceOpts(S)를 쓰도록 고쳐졌고 selfcheck 블록 G(13건)가 옵션 어긋남을 막는다. 남은 위험: 도구 자체 후보 A/B(S._gauge/S._mastery)를 켜면 게임 S.gauge/S.mastery와 함께 적용되어 이중 계산된다. A/B 후보를 쓰는 시뮬 전에 게임 쪽 값을 끄거나 후보를 폐기할 것.
-- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정), 2026-11-19 3단계 3-4 저장 안전 (SV.peek 계약 변경, tests/run-m1.1-qa-tests.js:648-649를 QA가 .state로 수정), 2026-11-20 5단계 5-A (swords[].trait 추가 후 tests/run-m1.1-qa-tests.js:586 기대값, QA가 수정. docs/design/m1-storage.md는 미갱신)
+- 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정), 2026-11-19 3단계 3-4 저장 안전 (SV.peek 계약 변경, tests/run-m1.1-qa-tests.js:648-649를 QA가 .state로 수정), 2026-11-20 5단계 5-A (swords[].trait 추가 후 tests/run-m1.1-qa-tests.js:586 기대값, QA가 수정. docs/design/m1-storage.md는 미갱신), 2026-11-23 7단계 7-1 (tests/run-m1.1-qa-tests.js:677 VM 로드 목록에 events.js 누락, QA가 수정)
+
+### 🚨 V5. 설계 문서의 합계·식·반환 형태가 자기 표나 현재 코드와 어긋난다 (3회, 문서 정리 후 옛 서술 잔존 포함)
+- **예방 규칙**: **설계 문서에 쓰는 합계·조합 수·공식은 표에서 다시 합산하고(node 한 줄), 기존 함수의 반환 필드(예: `chances()`의 `parts`가 `certain()`에서는 `null`)를 확장할 때는 모든 반환 분기(확정·최대 단계 포함)의 현재 형태를 코드에서 읽고 AC를 그에 맞춰 써라. 해금·완료 가능성이 있는 일일 과제는 풀의 항목마다 "불가능해지는 상태"(예: 모루 보유 칸 가득)를 게이트로 막아라. 구현 중 설계와 다르게 정한 사항(로드 순서, 반환 형태, 함수 인자)은 같은 변경에서 해당 설계 문서 절에 반영하거나 문서 갱신 요청을 함께 낸다.**
+- 증상: 업적 파편 합계가 표 합산 30인데 문서와 AC 31은 27. `eventGain` 공식이 같은 문서의 표와 다름. 조합 수 10,400이 실제 곱과 다름. `certain()`의 `parts`가 null인데 AC가 `parts.event=0`을 요구. `craft_m` 과제가 모루 6개 보유 시 달성 불가.
+- 근본 원인: 손으로 쓴 요약 수치를 표와 코드로 재검증하지 않았다.
+- 확인 방법: 문서 검토 때 합계 줄마다 표를 node로 재합산, `grep -n "parts" js/rules.js js/view.js`로 반환 형태 확인, 과제·이벤트 풀의 항목별 "불가능 상태" 점검. 사전 리뷰에 "표 합계 재계산 + 기존 반환 형태 + 불가능 과제" 항목을 넣는다.
+- 발생: 2026-11-20 4단계 묶음 B (docs/design/m2-achievements.md §5·AC 31·§8.2, docs/design/m2-events.md §5.2·AC 10·AC 15), 2026-11-23 7단계 7-1 (m2-events.md §18·§6.2·§8 구현 변경 미반영), 2026-11-23 6단계 6-A 문서 정리 (m2-traits.md:295 결정표가 AC15와 반대, :310 incomeTrait 곱 서술, :174, m2-achievements.md:556 래치 범위, m2-rebirth.md:287 setTrait 위치)
+- 증상(2회째): 규칙을 고친 절만 갱신하고 같은 규칙을 반복 서술한 결정표·Tech 요청·다른 문서가 옛 내용으로 남았다. 예방 보강: 규칙 문장을 바꾸면 그 키워드(예: 하락 시 특성, incomeTrait, 래치, setTrait)를 grep -rn docs/design 으로 모두 찾아 같은 변경에서 고쳐라. 확인 방법 보강: 사전 리뷰에 "바꾼 규칙의 키워드 grep 결과가 전부 갱신됐는가"를 넣는다.
+- 증상(3회째): 7-1에서 events.js 로드 순서(§18), advanceEvents 반환 형태(§6.2), eventValue opts(§8)를 구현에서 바꿨으나 m2-events.md가 옛 서술로 남음.
 
 
 ## 문제 기록
@@ -55,20 +65,13 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 - 확인 방법: 탭 내용·행 수를 늘리는 변경은 브라우저 테스트 시나리오 (d)(5탭 x 1280x800/1280x600)를 실행한다. 사전 리뷰에 스크롤 컨테이너 안 flex 자식의 shrink와 min-height 상호작용 항목을 넣는다.
 - 발생: 2026-11-19 4단계 전 버그 수정 (css/style.css .side > *, 수정 및 tests/browser-strip.js 시나리오 d로 해소)
 
-### ⚠️ V5. 설계 문서의 합계·식·반환 형태가 자기 표나 현재 코드와 어긋난다 (2회, 문서 정리 후 옛 서술 잔존 포함)
-- **예방 규칙**: 설계 문서에 쓰는 합계·조합 수·공식은 표에서 다시 합산하고(node 한 줄), 기존 함수의 반환 필드(예: `chances()`의 `parts`가 `certain()`에서는 `null`)를 확장할 때는 모든 반환 분기(확정·최대 단계 포함)의 현재 형태를 코드에서 읽고 AC를 그에 맞춰 써라. 해금·완료 가능성이 있는 일일 과제는 풀의 항목마다 "불가능해지는 상태"(예: 모루 보유 칸 가득)를 게이트로 막아라.
-- 증상: 업적 파편 합계가 표 합산 30인데 문서와 AC 31은 27. `eventGain` 공식이 같은 문서의 표와 다름. 조합 수 10,400이 실제 곱과 다름. `certain()`의 `parts`가 null인데 AC가 `parts.event=0`을 요구. `craft_m` 과제가 모루 6개 보유 시 달성 불가.
-- 근본 원인: 손으로 쓴 요약 수치를 표와 코드로 재검증하지 않았다.
-- 확인 방법: 문서 검토 때 합계 줄마다 표를 node로 재합산, `grep -n "parts" js/rules.js js/view.js`로 반환 형태 확인, 과제·이벤트 풀의 항목별 "불가능 상태" 점검. 사전 리뷰에 "표 합계 재계산 + 기존 반환 형태 + 불가능 과제" 항목을 넣는다.
-- 발생: 2026-11-20 4단계 묶음 B (docs/design/m2-achievements.md §5·AC 31·§8.2, docs/design/m2-events.md §5.2·AC 10·AC 15), 2026-11-23 6단계 6-A 문서 정리 (m2-traits.md:295 결정표가 AC15와 반대, :310 incomeTrait 곱 서술, :174, m2-achievements.md:556 래치 범위, m2-rebirth.md:287 setTrait 위치)
-- 증상(2회째): 규칙을 고친 절만 갱신하고 같은 규칙을 반복 서술한 결정표·Tech 요청·다른 문서가 옛 내용으로 남았다. 예방 보강: 규칙 문장을 바꾸면 그 키워드(예: 하락 시 특성, incomeTrait, 래치, setTrait)를 grep -rn docs/design 으로 모두 찾아 같은 변경에서 고쳐라. 확인 방법 보강: 사전 리뷰에 "바꾼 규칙의 키워드 grep 결과가 전부 갱신됐는가"를 넣는다.
-
-### V8. 런타임 값이 로드 시 정규화 상한과 달라 재시작마다 같은 보상이 반복된다 (1회)
+### ⚠️ V8. 런타임 값이 로드 시 정규화 상한과 달라 재시작마다 같은 보상이 반복된다 (2회)
 - **예방 규칙**: 저장 정규화에서 상한(clamp)을 두는 필드는 런타임에서 그 값을 쓰는 곳도 같은 상한을 넘으면 거부하거나 같은 상한으로 자르고, 상한 초과 입력 테스트(시계 먼 미래)를 추가하라.
 - 증상: 시계가 약 4708년 이후이면 daily.maxDay가 로드에서 1,000,000으로 잘려 다음 로드마다 새 일일 세트(16H)가 생성된다 (js/achievements.js:162-166, js/save.js:160). 코드 리뷰에서 발견.
 - 근본 원인: refreshDaily가 maxDay를 무상한으로 저장하고 로드만 상한을 적용했다.
 - 확인 방법: 시계를 Date.UTC(5000,0,1)로 주입해 save→normalize→refreshDaily를 반복하고 created가 한 번만 true인지 확인. 사전 리뷰에 "정규화 상한과 런타임 값 범위 일치" 항목을 넣는다.
-- 발생: 2026-11-23 6단계 6-A (js/achievements.js:162-166)
+- 증상(2회째, 낮음): 스폰 틱에서 events.sinceMs가 EVENT_GAP_MAX_MS를 최대 dt(2초)만큼 넘어 저장되고 로드가 잘라낸다. 동작 영향 없음(이벤트 중 미사용, 종료 시 0).
+- 발생: 2026-11-23 6단계 6-A (js/achievements.js:162-166), 2026-11-23 7단계 7-1 (js/events.js:100)
 
 ### V9. 애니메이션 뒤로 미룬 콜백(지연 토스트)이 실행 시점의 상태(탭 정지·상태 교체·이미 수령)를 다시 검사하지 않는다 (1회)
 - **예방 규칙**: 연출이 끝난 뒤 실행하도록 미룬 알림·보상 콜백은 실행 시점에 (1) isSuspended()가 아닌지 (2) 대상이 아직 유효한지(예: achState===REACHED) 다시 확인하고, 막힌 알림은 버리지 말고 ui에 보관했다가 resume()에서 내보내라. 같은 연출 중에 눌릴 수 있는 버튼(수령 등)은 ui.busy 동안 비활성화하거나 콜백에서 대상 상태를 필터링하라.

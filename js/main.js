@@ -2,11 +2,14 @@
 (function (root) {
   'use strict';
   const SG = root.SG;
-  const { C, rules: R, forge: F, idle: I, quests: Q, save: SV, ach: A, fx: FX, view: V } = SG;
+  const { C, rules: R, forge: F, idle: I, quests: Q, save: SV, ach: A, events: E, fx: FX, view: V } = SG;
   const $ = sel => document.querySelector(sel);
   const fmt = FX.fmt;
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const now = () => Date.now();
+  // 시간 이벤트의 흐름(m2-events §6.2)은 기기 시계 변경에 영향받지 않는 단조 시계로 잰다. 없는 환경에서는 now()
+  const perf = root.performance;
+  const mono = perf && typeof perf.now === 'function' ? () => perf.now() : now;
   // 일일 과제 생성도 이 rng를 쓴다: 브라우저 Math.random은 시드가 없어 재현할 순서가 없고, 생성(9회)은 새 세트를 만들 때만
   // 각 동작의 기존 rng 사용(각인·의뢰·자동 사냥) 뒤에서 일어나므로 기존 호출 순서를 바꾸지 않는다
   const rng = Math.random;
@@ -47,9 +50,11 @@
   const sfx = cue => audio.play(cue);
 
   // epoch: 상태를 통째로 바꿀 때(resetUiFor)마다 증가. 진행 중인 강화 연출이 바뀐 상태에 결과를 적용하지 않게 한다
+  // eventLastMono·eventLastWall: 직전 틱의 단조 시계·기기 시계(이벤트 dt와 catch-up 보너스 판정, stepEventClock)
   const ui = {
     tab: 'shop', dragId: null, armed: {}, busy: false, view: null, epoch: 0,
     huntUntil: 0, nextAutoAt: now() + I.autoInterval(S), nextEnhanceAt: 0,
+    eventLastMono: mono(), eventLastWall: now(),
   };
   let lastSaveAt = 0;
   let saveFailNoticed = false;
@@ -517,8 +522,11 @@
     ui.epoch++;
     FX.setSwordAnim(null);
     // 이 탭의 옛 자동 사냥 시각을 두면, 다른 탭이 이미 지급한 몫을 catch-up으로 다시 지급한다
-    Object.assign(ui, { view: null, busy: false, armed: {}, nextEnhanceAt: 0, nextAutoAt: t + I.autoInterval(state) });
+    Object.assign(ui, { view: null, busy: false, armed: {}, nextEnhanceAt: 0, nextAutoAt: t + I.autoInterval(state), eventLastWall: t });
+    resetEventMono();
   }
+  /** 틱이 건너뛴 구간(숨김·탭 잠금·상태 교체)의 시간을 이벤트에 흘리지 않도록 단조 시계 기준점을 지금으로 옮긴다 */
+  function resetEventMono() { ui.eventLastMono = mono(); }
   /**
    * 저장소의 유효한 v2 상태를 이어받는다. force가 아니면 다른 탭이 더 나중에 저장했을 때(lastSeen이 더 최근)만.
    * 오래된 탭이 옛 lastSeen으로 오프라인 보상을 다시 받고 최신 저장을 덮어쓰는 것을 막는다.
@@ -541,6 +549,8 @@
   function resume() {
     if (isSuspended()) return;
     const t = now();
+    // 기기 시계 기준점(eventLastWall)은 옮기지 않는다: 숨김 동안 밀린 자동 사냥 catch-up이 이벤트 보너스를 받지 않게(m2-events AC 22a)
+    resetEventMono();
     adoptStoredSave(t, false);
     // 부팅·이어받기·복귀로 들어온 상태(옛 저장 포함)의 미각인 검. 오프라인 정산보다 먼저(정산 시점 구성, m2-traits §4)
     announceEngraved(engravePending());
@@ -553,18 +563,36 @@
     render();
     if (off && off.gold > 0) showOffline(off);
   }
+  /**
+   * 시간 이벤트 한 틱(m2-events §6.2): 단조 시계 경과(dt)만큼 이벤트를 진행한다(상한은 advanceEvents가 자른다).
+   * 기기 시계 경과(wallDtMs)는 이번 틱의 자동 사냥 catch-up이 이벤트 보너스를 받을지 판정하는 데만 쓴다
+   */
+  function stepEventClock(t) {
+    const m = mono();
+    const dtMs = m - ui.eventLastMono;
+    const wallDtMs = t - ui.eventLastWall;
+    ui.eventLastMono = m;
+    ui.eventLastWall = t;
+    return { res: E.advanceEvents(S, dtMs, rng), wallDtMs };
+  }
   function tick() {
     if (isSuspended() || document.hidden) return;   // 숨김 동안은 복귀 정산(resume)이 처리
     const t = now();
-    // 탭 동결 등으로 visibilitychange 없이 오래 멈췄다 깨어난 경우도 복귀 정산으로 처리
+    // 오프라인 판정보다 먼저: 이번 틱의 자동·수동 사냥은 갱신된 이벤트 상태를 읽는다
+    const ev = stepEventClock(t);
+    // 7-2: 이벤트 시작·종료 토스트 (ev.res.started / ev.res.ended)
+    const eventChanged = !!(ev.res.started || ev.res.ended);
+    // 탭 동결 등으로 visibilitychange 없이 오래 멈췄다 깨어난 경우도 복귀 정산으로 처리(복귀 정산이 저장한다)
     if (t - S.idle.lastSeen >= C.OFFLINE_MIN_SEC * 1000) return resume();
-    const auto = I.runAutoCatchup(S, t, ui.nextAutoAt, rng);
+    // 벽시계로 따라잡는 실행은 이벤트 시계가 멈춰 있던 시간이라 이벤트 보너스 없음(m2-events §2-3)
+    const auto = I.runAutoCatchup(S, t, ui.nextAutoAt, rng, { noEvent: ev.wallDtMs > C.EVENT_DT_MAX_MS });
     ui.nextAutoAt = auto.nextAutoAt;
     const created = Q.refreshQuests(S, t, rng);
     // 틱마다 불러도 싸다(오프셋 1회 + 비교). 04:00 경계와 +5 해금 직후 세트를 여기서 만든다
     const newDaily = refreshDaily(t, true);
     if (auto.runs) FX.floatGold(auto.gold);
-    if (auto.runs || created.length || newDaily || t - lastSaveAt >= AUTOSAVE_MS) persist();
+    // 이벤트 시작·종료는 즉시 저장: 새로고침으로 이벤트 종류·다음 간격을 다시 뽑지 못하게
+    if (eventChanged || auto.runs || created.length || newDaily || t - lastSaveAt >= AUTOSAVE_MS) persist();
     render();
   }
 

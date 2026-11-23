@@ -5,9 +5,10 @@
   'use strict';
   const SG = root.SG = root.SG || {};
   if (!SG.forge && typeof require === 'function') require('./forge.js');
-  SG.idle = factory(SG.C, SG.rules, SG.forge);
+  if (!SG.events && typeof require === 'function') require('./events.js');
+  SG.idle = factory(SG.C, SG.rules, SG.forge, SG.events);
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.idle;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R, F) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R, F, E) {
   'use strict';
 
   const HOUR_MS = 3600 * 1000;
@@ -28,9 +29,13 @@
   const boostFactorAt = (S, t) => (R.boostActiveAt(S, t) ? C.BOOSTER_MULT : 1);
 
   // ============================================================ 수동 사냥
-  /** 수동 사냥 1회 골드: 부스터 중 ×1.5, 약탈자 특성 ×(100+v)/100 (내림). 수확 보너스는 적용하지 않음 */
+  /**
+   * 수동 사냥 1회 골드: 부스터 중 ×1.5, 약탈자 특성·사냥 대목 이벤트 ×(100+v)/100씩(곱연산, 마지막에 한 번 내림, m2-events §5.3-1).
+   * 수확 보너스는 적용하지 않음
+   */
   const manualHuntGold = (S, now) =>
-    Math.floor(R.traitScaled(R.huntReward(R.topLv(S)) * boostFactorAt(S, now), R.incomeTraitValue(S, 'hunt')));
+    Math.floor(R.percentScaled(R.huntReward(R.topLv(S)) * boostFactorAt(S, now),
+      [R.incomeTraitValue(S, 'hunt'), E.eventValue(S, 'hunt')]));
 
   function manualHunt(S, now, rng) {
     const gold = manualHuntGold(S, now);
@@ -42,9 +47,13 @@
   }
 
   // ============================================================ 자동 사냥
-  /** 자동 1회 골드 = round(autoReward(lv) × 수확 보너스 × 부스터 × 일꾼 특성) */
-  const autoRunGold = (S, t) =>
-    Math.round(R.traitScaled(R.autoReward(R.topLv(S)) * goldUpFactor(S) * boostFactorAt(S, t), R.incomeTraitValue(S, 'work')));
+  /**
+   * 자동 1회 골드 = round(autoReward(lv) × 수확 보너스 × 부스터 × 일꾼 특성 × 자동 풍년 이벤트) (m2-events §5.3-2).
+   * opts.noEvent(벽시계 따라잡기 실행)면 이벤트를 빼고 계산한다
+   */
+  const autoRunGold = (S, t, opts) =>
+    Math.round(R.percentScaled(R.autoReward(R.topLv(S)) * goldUpFactor(S) * boostFactorAt(S, t),
+      [R.incomeTraitValue(S, 'work'), E.eventValue(S, 'auto', opts)]));
 
   function setAutoOn(S, on) {
     if (on && !autoUnlocked(S)) return fail('locked');
@@ -52,18 +61,21 @@
     return { ok: true };
   }
 
-  /** 절대시각 기반 catch-up: nextAutoAt이 지난 만큼(최대 AUTO_CATCHUP_MAX회) 지급. 남은 몫은 버린다 */
-  function runAutoCatchup(S, now, nextAutoAt, rng) {
+  /**
+   * 절대시각 기반 catch-up: nextAutoAt이 지난 만큼(최대 AUTO_CATCHUP_MAX회) 지급. 남은 몫은 버린다.
+   * opts.noEvent: 이벤트 시계가 멈췄던 구간을 따라잡는 실행이라 자동 풍년·광맥 발견을 받지 않는다(m2-events §2.3·§6.2)
+   */
+  function runAutoCatchup(S, now, nextAutoAt, rng, opts) {
     const interval = autoInterval(S);
     const out = { runs: 0, gold: 0, ore: {}, nextAutoAt };
     if (!S.idle.autoOn || !autoUnlocked(S)) return out;
     let next = nextAutoAt;
     while (now >= next && out.runs < C.AUTO_CATCHUP_MAX) {
-      const gold = autoRunGold(S, next);
+      const gold = autoRunGold(S, next, opts);
       S.gold += gold;
       S.stats.huntGold += gold;
       out.gold += gold;
-      const ore = F.addOre(S, F.rollOre(S, rng));
+      const ore = F.addOre(S, F.rollOre(S, rng, opts));
       Object.keys(ore).forEach(k => { out.ore[k] = (out.ore[k] || 0) + ore[k]; });
       next += interval;
       out.runs++;

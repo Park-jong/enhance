@@ -141,3 +141,10 @@
 - 산출물: docs/verification-issues.md (V9 추가)
 - 결정 사항: APPROVED. 전 스위트 통과(run-tests 372, smoke-dom 463, m1-qa 29, round2 36, m1.1 189, browser-strip 149, selfcheck 13). 결과 노출(dot/의뢰 배지)은 기존과 동일 유형이라 이번 범위에서 수용.
 - 남은 문제: 지연 토스트 정지/교체 시 유실(S2), 연출 중 받기 가능(S3), 분 단위 재렌더 포커스 손실(S4), 문서 동기화.
+
+## 2026-11-23 — 7단계 7-1 검증 (F13 이벤트 규칙·저장·tick)
+- 지시: 디렉터 / 관련 단계: 7단계 7-1 / 처리한 요청: 없음
+- 참여 팀원: tester(독립 스크립트 77,811건 통과, HEAD 기준선과 이벤트 없음 경로 rng 순서까지 동일), code-reviewer(must fix 없음, should fix 2)
+- 산출물: tests/run-m1.1-qa-tests.js:677 (VM 목록에 events.js 추가, 189/189), docs/verification-issues.md (V2 5회, V5 3회 🚨, V8 2회 ⚠️)
+- 결정 사항: Verdict APPROVED. 테스트 423/495/29/36/189/149/13 전부 통과. 7-2 전에는 배포 금지(화면 설명 없이 효과만 적용, breakdownHTML 합계 불일치).
+- 남은 문제: m2-events.md §18·§6.2·§8 갱신 요청(Design), sinceMs 스폰 틱 초과(낮음), EVENT_IDS 집합 검사 약함(낮음)

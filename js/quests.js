@@ -3,9 +3,10 @@
   'use strict';
   const SG = root.SG = root.SG || {};
   if (!SG.rules && typeof require === 'function') require('./rules.js');
-  SG.quests = factory(SG.C, SG.rules);
+  if (!SG.events && typeof require === 'function') require('./events.js');
+  SG.quests = factory(SG.C, SG.rules, SG.events);
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.quests;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R, E) {
   'use strict';
 
   const COOLDOWN_MS = C.QUEST_COOLDOWN_SEC * 1000;
@@ -72,7 +73,13 @@
     return created;
   }
 
-  const rerollCost = S => Math.max(C.QUEST_REROLL_MIN, C.QUEST_REROLL_COST_MULT * R.cost(S.best));
+  const rerollCostBase = S => Math.max(C.QUEST_REROLL_MIN, C.QUEST_REROLL_COST_MULT * R.cost(S.best));
+  /** 새로고침 비용. 의뢰소 특가 중에는 기본 비용에서 v% 할인(최소 QUEST_REROLL_MIN 유지, m2-events §5.3-5) */
+  function rerollCost(S) {
+    const ev = E.eventValue(S, 'quest');
+    const base = rerollCostBase(S);
+    return ev > 0 ? Math.max(C.QUEST_REROLL_MIN, Math.floor(base * (C.PERCENT - ev) / C.PERCENT)) : base;
+  }
 
   function rerollBlock(S, slot) {
     if (!unlocked(S)) return 'locked';

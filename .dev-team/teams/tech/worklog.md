@@ -164,3 +164,10 @@
 - 산출물: js/achievements.js(미리보기·msToNextDay 순수 함수), js/view.js, js/main.js(syncAchievements 헬퍼·토스트), css/style.css, index.html, test.html, tests/run-tests.js(372), tests/smoke-dom.js(463), tests/browser-strip.js(149, 시나리오 h)
 - 결정 사항: 로그는 기념비와 업적 사이로 배치, 강화 중 업적 토스트는 결과 공개 후 표시, 신규 세트 토스트는 생성 시마다(새 저장은 잠금이라 첫 로드 제외), 모두 받기는 합산 토스트 1개.
 - 남은 문제: 강화 애니메이션 중 기록 탭 점이 먼저 뜰 수 있음. 설계서 §10.3에 모두 받기·noDaily 문구 추가 필요(기획팀).
+
+## 2026-11-23 — 7-1 시간 이벤트 규칙·저장·틱 연결 (UI 제외)
+- 지시: 디렉터 / 관련 단계: 7단계 7-1 / 처리한 요청: REQ-034 (in_progress 유지, 7-2 남음)
+- 참여 팀원: client-programmer(규칙 A, 저장·틱 B, 규칙 테스트, smoke 테스트 — 4회 호출)
+- 산출물: js/events.js(신규), js/constants.js, rules.js, idle.js, forge.js, quests.js, save.js, main.js, index.html, test.html, docs/design/m1-storage.md, tests/run-tests.js(423), tests/smoke-dom.js(495)
+- 결정 사항: events.js는 constants만 의존하므로 constants 바로 뒤·rules 앞에 로드(기획서 §18과 다름). catch-up은 opts {noEvent} 인자로 제외. resume은 eventLastMono만 리셋하고 eventLastWall은 유지(AC 22a 유지 위해). 이벤트 없음 경로는 구 모듈과 비교한 고정 시드 동일성 검사(23만 건)와 테스트로 확인.
+- 남은 문제: run-m1.1-qa-tests.js:677 VM 로더에 events.js 추가 필요(QA 소유, 21건 실패). 기획서 §18 로드 순서·§6.2 반환형·AC13 예시(숙련 4=최대라 검증 불가) 정정 필요. sinceMs가 활성 중 최대 +2초 상한 초과(무해).

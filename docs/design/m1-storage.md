@@ -76,7 +76,7 @@
 }
 ```
 
-> 위 JSON은 M1 기준 예시다. M2부터 각 검에 `"trait": null`이 추가된다(m2-overview §D). JSON에는 주석을 쓸 수 없어 예시 안의 주석을 이 문장으로 옮겼다 (2026-11-23 변경).
+> 위 JSON은 M1 기준 예시다. M2부터 각 검에 `"trait": null`이 추가된다(m2-overview §D). M2의 최상위 필드(`achievements`·`title`·`daily`·`events`)와 `stats` 신규 키(`hunts`…`eventsSeen`)는 아래 필드 표에 있다. JSON에는 주석을 쓸 수 없어 예시 안의 주석을 이 문장으로 옮겼다 (2026-11-23 변경).
 
 ### 필드 정의/기본값
 | 필드 | 타입/범위 | 기본값 | 설명 | 참조 문서 |
@@ -109,10 +109,14 @@
 | `settings.skipFx` | bool | false | 연출 스킵 | idle(F9) |
 | `stats.*` | 정수 | 0 | v1 5개 + 신규 | |
 | `stats.hunts/sells/autoRuns/dailyDone/dailyAll/rewardGold` | 정수 ≥0 | 0 | M2 F12 카운터: 수동 사냥 성공, +`SELL_COUNT_MIN_LV` 이상 판매, 접속 중 자동 사냥 실행, 일일 과제 수령, 일일 보너스 수령, 업적·일일 보상 골드. 정규화는 다른 `stats`와 같음 (2026-11-23 추가) | m2-achievements §4·§13 |
-| `stats.eventsSeen` | 정수 ≥0 | 0 | M2 F13 이벤트 스폰 횟수(업적 훅). 6-A에서 키만 추가, 아직 올리는 코드 없음 (2026-11-23 추가) | m2-events |
+| `stats.eventsSeen` | 정수 ≥0 | 0 | M2 F13 시간 이벤트 스폰 횟수(종류 무관, 스폰마다 +1, 업적 훅). 6-A에서 키 추가, 7-1부터 `advanceEvents`가 올린다. 정규화는 다른 `stats`와 같음 (2026-11-23 변경) | m2-events §10 |
 | `achievements` | 객체 `{ [업적 id]: 1\|2 }`(희소) | `{}` | 1 = 달성(받기 가능), 2 = 수령 완료. 표에 없는 키·0은 버림 (2026-11-23 추가) | m2-achievements §6·§13 |
 | `title` | 문자열 | `''` | 선택한 칭호 = 수령 완료(2)한 업적 id, 아니면 `''` (2026-11-23 추가) | m2-achievements §13 |
 | `daily` | `{ maxDay, tasks, bonus }` | `{maxDay:0, tasks:[], bonus:0}` | 일일 과제 세트. `maxDay` 0..`DAILY_MAXDAY_CAP`(단조), `tasks`는 `{e,goal,base,item,claimed}` 3개 또는 `[]`(하나라도 무효면 `[]`), `base`는 현재 지표값 이하로 자름, `bonus` 0/1 (2026-11-23 추가) | m2-achievements §8·§13 |
+| `events` | `{ active, sinceMs, nextAtMs }` | `{active:null, sinceMs:0, nextAtMs:EVENT_GAP_MIN_SEC×1000}` | M2 F13 시간 이벤트 상태(시간은 모두 정수 ms, 활성 플레이 시간 기준). 객체가 아니면(없음·배열·숫자·문자열) 기본값, 아래 3필드는 각자 정규화 (2026-11-23 추가) | m2-events §6.2·§10 |
+| `events.active` | `{id, remainMs}` 또는 `null` | `null` | 진행 중 이벤트. `id`가 `EVENTS`의 자기 속성(`hasOwn`, `'constructor'`·`'__proto__'` 거부)이 아니면 `null`. `remainMs`는 정수화 후 `0..durationSec×1000`으로 clamp, 0이면 만료로 보고 `null`. `{id, remainMs}` 외 필드는 버림 (2026-11-23 추가) | m2-events §10 |
+| `events.sinceMs` | 정수 `0..EVENT_GAP_MAX_SEC×1000` | 0 | 직전 이벤트 종료(또는 최초)부터 쌓인 활성 플레이 ms (2026-11-23 추가) | m2-events §6.2·§10 |
+| `events.nextAtMs` | 정수 `EVENT_GAP_MIN_SEC×1000..EVENT_GAP_MAX_SEC×1000` | `EVENT_GAP_MIN_SEC×1000` | 다음 스폰 임계값 ms. 이벤트 종료 때 뽑아 저장(새로고침으로 다시 뽑지 못함). 범위 밖은 clamp, 없거나 비수치면 최소값 (2026-11-23 추가) | m2-events §6.2·§10 |
 
 ### 로드 규칙(`load()`)
 1. `sword-enhance-v2`가 있으면 파싱 후 기본값 병합(M0 `load()`와 같은 얕은 병합 + 중첩 객체별 병합). 
@@ -120,6 +124,7 @@
 3. 둘 다 없거나 파싱 실패 시 기본 상태.
 4. 로드 후 **정합성 보정**: `swords`가 비면 무료 +0 추가; `active`는 저장된 값이 **숫자 0이면 그대로 0 유지**(활성 검 없음, 최고 검으로 바꾸지 않음), 그 외에 정수가 아니거나(없음·문자열·소수 등) `swords`에 없는 id면 최고 단계 검(`bestSword`)으로 대체(js/save.js `normalize`); 각 `lv`는 0..20, `prot`는 0..`PROTECT_USES`로 clamp; `inv`/`ore`/`gold`/`shards`는 음수면 0; `anvilEq`가 존재하지 않는 id면 null; `swords.length > slots`면 `slots`를 올려 맞춤.
 5. (M1.1) `gauge`/`mastery`: 없거나 배열이 아니면 `[0,0,0,0,0]`; 길이를 5로 맞추고(부족은 0, 초과는 자름), 칸마다 정수화 후 `gauge`는 `0..GAUGE_N[i]`, `mastery`는 `0..MASTERY_REC_MAX[i]`로 clamp. 버전(`v`)은 2 유지, 마이그레이션 없음.
+6. (M2 F13) `events`: 위 필드 표의 정규화(`js/save.js` `normEvents`). 옛 저장(필드 없음)과 v1 마이그레이션은 기본값으로 시작한다. 버전(`v`)은 2 유지. 오프라인 정산(`settleOffline`)은 `events`를 읽지도 쓰지도 않는다 (2026-11-23 추가, m2-events §10).
 
 ### v1 → v2 마이그레이션 매핑 (`migrate`)
 | v1 필드 | v2 위치 | 변환 |

@@ -12,7 +12,11 @@
 
   const SAVE_VERSION = 2;
   const CORRUPT_BACKUP_KEY = C.SAVE_KEY + '-corrupt';
-  const MIN_MS = 60 * 1000;
+  const SEC_MS = 1000;
+  const MIN_MS = 60 * SEC_MS;
+  // 시간 이벤트 다음 스폰 임계값 범위(m2-events §10): 변조로 간격을 줄여도 최소 간격은 지킨다
+  const EVENT_GAP_MIN_MS = C.EVENT_GAP_MIN_SEC * SEC_MS;
+  const EVENT_GAP_MAX_MS = C.EVENT_GAP_MAX_SEC * SEC_MS;
   const STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned',
     'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold', 'sinkGold', 'traitRolls',
     'hunts', 'sells', 'autoRuns', 'dailyDone', 'dailyAll', 'rewardGold', 'eventsSeen'];
@@ -25,6 +29,7 @@
   const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
   const obj = v => (isObj(v) ? v : {});
   const emptyDaily = maxDay => ({ maxDay, tasks: [], bonus: 0 });
+  const defaultEvents = () => ({ active: null, sinceMs: 0, nextAtMs: EVENT_GAP_MIN_MS });
 
   /** 숫자로 읽을 수 있으면 정수로 내리고 [min,max]로 자름, 아니면 기본값. 범위는 항상 안전 정수 안 */
   function int(v, def, min, max) {
@@ -69,6 +74,7 @@
       achievements: {},
       title: C.TITLE_NONE,
       daily: emptyDaily(0),
+      events: defaultEvents(),
     };
   }
 
@@ -166,6 +172,23 @@
     return { maxDay, tasks, bonus: d.bonus ? 1 : 0 };
   }
 
+  /** 진행 중 시간 이벤트: 이벤트 표의 자기 속성 id만, 남은 시간은 그 이벤트 지속 시간 안. 0이면 만료로 보고 null. {id, remainMs}만 남긴다 */
+  function normActiveEvent(v) {
+    if (!isObj(v) || typeof v.id !== 'string' || !R.hasOwn(C.EVENTS, v.id)) return null;
+    const remainMs = int(v.remainMs, 0, 0, C.EVENTS[v.id].durationSec * SEC_MS);
+    return remainMs > 0 ? { id: v.id, remainMs } : null;
+  }
+
+  /** 시간 이벤트 상태(m2-events §10): 객체가 아니면 기본값, 아니면 세 필드를 각자 보정 */
+  function normEvents(v) {
+    if (!isObj(v)) return defaultEvents();
+    return {
+      active: normActiveEvent(v.active),
+      sinceMs: int(v.sinceMs, 0, 0, EVENT_GAP_MAX_MS),
+      nextAtMs: int(v.nextAtMs, EVENT_GAP_MIN_MS, EVENT_GAP_MIN_MS, EVENT_GAP_MAX_MS),
+    };
+  }
+
   /** 저장 데이터(부분/손상 포함)를 기본값과 병합하고 정합성을 맞춘다 (m1-storage §3 로드 규칙 4·5) */
   function normalize(d, now) {
     const S = defaultState(now);
@@ -214,6 +237,7 @@
     S.achievements = normAchievements(d.achievements);
     S.title = normTitle(d.title, S.achievements);
     S.daily = normDaily(d.daily, S.stats);
+    S.events = normEvents(d.events);
 
     R.cleanupUse(S);
     return S;

@@ -3,9 +3,10 @@
   'use strict';
   const SG = root.SG = root.SG || {};
   if (!SG.rules && typeof require === 'function') require('./rules.js');
-  SG.forge = factory(SG.C, SG.rules);
+  if (!SG.events && typeof require === 'function') require('./events.js');
+  SG.forge = factory(SG.C, SG.rules, SG.events);
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.forge;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (C, R, E) {
   'use strict';
 
   const fail = reason => ({ ok: false, reason });
@@ -37,12 +38,28 @@
     return whole + (Math.floor(rng() * C.PERCENT) < rate100 % C.PERCENT ? 1 : 0);
   }
 
-  /** 사냥 1회분 광석(해금된 광석마다 rng 1회). 광부 특성은 수입 검 중 최댓값 */
-  function rollOre(S, rng) {
+  /**
+   * 광맥 발견 이벤트(ev>0): 1/10000 단위 정수 rate1e4 = rate × (100+v) × (100+ev)로 정수부 + 소수부 확률 (m2-events §5.3-3).
+   * ORE_PER_HUNT는 0.5 단위라 EVENT_ORE_SCALE을 곱해 정수로 만든 뒤 나눈다. rng 횟수는 같다
+   */
+  function rollEventOre(rate, v, ev, rng) {
+    const rate1e4 = (rate * C.EVENT_ORE_SCALE) * (C.PERCENT + v) * (C.PERCENT + ev) / C.EVENT_ORE_SCALE;
+    const whole = Math.floor(rate1e4 / C.PERCENT_SQ);
+    return whole + (Math.floor(rng() * C.PERCENT_SQ) < rate1e4 % C.PERCENT_SQ ? 1 : 0);
+  }
+
+  /**
+   * 사냥 1회분 광석(해금된 광석마다 rng 1회). 광부 특성은 수입 검 중 최댓값.
+   * 광맥 발견이 꺼져 있거나 opts.noEvent(벽시계 따라잡기 실행)면 기존 경로 그대로
+   */
+  function rollOre(S, rng, opts) {
     const gains = {};
     const v = R.incomeTraitValue(S, 'ore');
+    const ev = E.eventValue(S, 'ore', opts);
     unlockedOres(S).forEach(k => {
-      gains[k] = v > 0 ? rollMinerOre(C.ORE_PER_HUNT[k], v, rng) : rollPlainOre(C.ORE_PER_HUNT[k], rng);
+      const rate = C.ORE_PER_HUNT[k];
+      if (ev > 0) gains[k] = rollEventOre(rate, v, ev, rng);
+      else gains[k] = v > 0 ? rollMinerOre(rate, v, rng) : rollPlainOre(rate, rng);
     });
     return gains;
   }
