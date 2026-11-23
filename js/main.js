@@ -77,16 +77,31 @@
     saveFailNoticed = true;
     FX.toast(V.SAVE_FAILED_TEXT, 'bad');
   }
-  function render() { V.render(S, ui, now()); }
+  function render() { V.render(S, ui, now(), dailyEnv); }
   function afterChange() {
     R.cleanupUse(S);
     Q.refreshQuests(S, now(), rng);
-    A.syncAchievements(S);
+    syncAchievements();
     persist();
     render();
   }
-  function reject(reason) {
-    FX.toast(V.REASON[reason] || '지금은 사용할 수 없습니다.', 'bad');
+  /**
+   * 업적 동기화(새로 조건을 만족한 업적을 달성으로 래치)의 유일한 호출 길. 활성 탭 경로에서만 불린다(멈춘 탭은 resume·tick·입력이 먼저 막힘).
+   * 새 달성은 토스트 1개로 알린다(여러 개면 합침, skipFx와 무관). announceNow=false면 알림 없이 목록만 돌려준다(강화: 결과 공개 뒤에 알림)
+   */
+  function syncAchievements(announceNow = true) {
+    const fresh = A.syncAchievements(S);
+    if (announceNow) announceAchieved(fresh);
+    return fresh;
+  }
+  function announceAchieved(ids) {
+    if (!ids.length) return;
+    const msg = V.achReachedText(ids);
+    FX.toast(msg, 'special');
+    FX.log(msg, 'good');
+  }
+  function reject(reason, texts = V.REASON) {
+    FX.toast(texts[reason] || '지금은 사용할 수 없습니다.', 'bad');
     if (reason === 'noGold') FX.denyGold();
     sfx('error');
     render();
@@ -232,7 +247,7 @@
     // 결과·소모·각인은 여기서 확정·저장되고, 연출은 표시만 늦춘다 (새로고침해도 다시 굴릴 수 없음)
     const engraved = r.outcome === 'success' ? engravePending() : [];
     Q.refreshQuests(S, startedAt, rng);
-    A.syncAchievements(S);
+    const achieved = syncAchievements(false);   // 달성 알림은 결과 공개 뒤(연출 전에 성공·파괴가 드러나지 않게)
     persist();
     const fx = pickFx(r);
     const outcome = OUTCOME_FX[r.outcome];
@@ -260,6 +275,7 @@
       FX.log(msg, 'good');
     }
     announceEngraved(engraved);
+    announceAchieved(achieved);
     if (r.anvilBroke) { FX.toast('모루가 파손되었습니다 (수리 필요)', 'bad'); sfx('anvilBreak'); }
     if (r.ranOut.length) FX.toast(V.ranOutToastText(r.ranOut));
     announceUnlocks(prevBest);
@@ -281,7 +297,7 @@
     FX.floatGold(r.gold);
     sfx('coin');
     if (Object.keys(r.ore).some(k => r.ore[k] > 0)) sfx('oreGain');
-    A.syncAchievements(S);
+    syncAchievements();
     persist();
     render();
     tickHunt();
@@ -377,16 +393,28 @@
     };
     return { active: !isSuspended(), storedClaimed };
   }
-  /** 오늘 세트 갱신(해금·날 바뀜일 때만 새 세트). 새로 만들었으면 true */
-  const refreshDaily = t => A.refreshDaily(S, t, rng, dailyEnv).created;
   /**
-   * 수령 결과 처리. 성공하면 플래그와 보상이 함께 들어간 상태를 즉시 저장한다(디바운스 없음).
+   * 오늘 세트 갱신(해금·날 바뀜일 때만 새 세트). 새로 만들었으면 true. announce면 도착 토스트(시계 역행 등 만들지 않은 경우는 조용히)
+   */
+  function refreshDaily(t, announce) {
+    const created = A.refreshDaily(S, t, rng, dailyEnv).created;
+    if (created && announce) FX.toast(V.NEW_DAILY_TEXT, 'special');
+    return created;
+  }
+  /**
+   * 수령 결과 처리. 성공하면 보상 토스트(message(r), 빈 문자열이면 생략) 뒤 플래그와 보상이 함께 들어간 상태를 즉시 저장한다(디바운스 없음).
    * stale(단일 수령, 또는 claimAll 결과의 stale: true)은 settleStale로: 옛 날 세트를 저장하지 않는다
    */
-  function settleClaim(r) {
+  function settleClaim(r, message) {
     if (r.reason === 'stale' || (r.ok && r.stale)) return settleStale();
-    if (r.ok) return afterChange();
-    reject(r.reason);
+    if (!r.ok) return reject(r.reason, V.CLAIM_REASON);
+    const msg = message(r);
+    if (msg) {
+      FX.toast(msg, 'special');
+      FX.log(msg, 'gold');
+      sfx('coin');
+    }
+    afterChange();
   }
   /**
    * 다른 탭이 새 날 세트로 교체함: 더 최근 저장이면 이어받아 다시 그린다. 이어받은 뒤 날이 또 바뀌어 새 세트를 만들었을 때만 저장한다
@@ -396,10 +424,10 @@
   function settleStale() {
     const t = now();
     adoptStoredSave(t, false);
-    const created = refreshDaily(t);
-    A.syncAchievements(S);
+    const created = refreshDaily(t, false);   // 알림은 아래 stale 문구 하나만
+    syncAchievements();
     if (created) persist();
-    reject('stale');
+    reject('stale', V.CLAIM_REASON);
   }
   // data-id는 문자열: 정확한 정수 표기만 슬롯 번호로 바꾸고(범위는 claimDaily가 검사) 그 밖은 그대로 넘겨 invalid가 되게 한다
   const DAILY_SLOT_ID = /^(0|[1-9][0-9]*)$/;
@@ -442,10 +470,13 @@
     traitRekind: id => buySink('traitRekind', id, R.rerollKindBlock(S, +id), () => R.rerollKind(S, +id, rng), V.rekindText),
     traitTierUp: id => buySink('traitTierUp', id, R.upgradeTierBlock(S, +id), () => R.upgradeTier(S, +id), V.tierUpText),
     buyMonument: L => buySink('buyMonument', L, R.monumentBlock(S, +L), () => R.buyMonument(S, +L), r => V.monumentText(+L, r)),
-    // 수령·칭호: 화면 버튼은 6-B에서 붙는다(data-act claimAch/claimDaily/claimAll/setTitle)
-    claimAch: id => settleClaim(A.claimAchievement(S, id, claimCtx())),
-    claimDaily: id => settleClaim(A.claimDaily(S, dailyKeyOf(id), claimCtx())),
-    claimAll: () => settleClaim(A.claimAll(S, claimCtx())),
+    // 수령·칭호: 기록 탭의 받기·모두 받기·칭호 버튼 (view.js 일일 과제·업적 섹션)
+    claimAch: id => settleClaim(A.claimAchievement(S, id, claimCtx()), V.achClaimText),
+    claimDaily: id => {
+      const which = dailyKeyOf(id);
+      settleClaim(A.claimDaily(S, which, claimCtx()), which === A.BONUS ? V.bonusClaimText : V.dailyClaimText);
+    },
+    claimAll: () => settleClaim(A.claimAll(S, claimCtx()), V.claimAllText),
     setTitle: id => {
       const r = A.setTitle(S, id === undefined ? C.TITLE_NONE : id);
       if (!r.ok) return reject(r.reason);
@@ -516,8 +547,8 @@
     const off = I.settleOffline(S, t);
     if (off) ui.nextAutoAt = t + I.autoInterval(S);
     Q.refreshQuests(S, t, rng);
-    A.syncAchievements(S);
-    refreshDaily(t);   // 오프라인이 아무리 길어도 새 세트는 1개(maxDay 단조)
+    syncAchievements();   // 옛 저장을 처음 불러오면 여러 개가 한꺼번에 달성되므로 토스트 1개로 합친다
+    refreshDaily(t, true);   // 오프라인이 아무리 길어도 새 세트는 1개(maxDay 단조)
     persist();
     render();
     if (off && off.gold > 0) showOffline(off);
@@ -531,7 +562,7 @@
     ui.nextAutoAt = auto.nextAutoAt;
     const created = Q.refreshQuests(S, t, rng);
     // 틱마다 불러도 싸다(오프셋 1회 + 비교). 04:00 경계와 +5 해금 직후 세트를 여기서 만든다
-    const newDaily = refreshDaily(t);
+    const newDaily = refreshDaily(t, true);
     if (auto.runs) FX.floatGold(auto.gold);
     if (auto.runs || created.length || newDaily || t - lastSaveAt >= AUTOSAVE_MS) persist();
     render();

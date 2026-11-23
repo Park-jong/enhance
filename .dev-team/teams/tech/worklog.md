@@ -157,3 +157,10 @@
 - 산출물: js/achievements.js, main.js, constants.js, save.js(통계 키 가드), tests/run-tests.js(364), tests/smoke-dom.js(412)
 - 결정 사항: 먼 미래 시계(day > DAILY_MAXDAY_CAP)는 badClock. stale 시 이어받기 후 새 세트가 생기면 즉시 저장(resume 경유 안 함: 낡은 세트 덮어쓰기 방지). claimAll은 stale:true 반환, 저장하지 않음. dailyKeyOf는 정규 정수만 변환. 로드 가드 보강(save.js 포함). 클릭당 peek 1회. 7개 검사 통과(smoke 12회 반복).
 - 남은 문제: 기획서 §9.2/AC10c(badClock 범위)·§10 claimAll stale 반영 필요(기획팀).
+
+## 2026-11-23 — 6-B 기록 탭 업적·일일 과제 화면
+- 지시: 디렉터 / 관련 단계: 6단계 6-B / 처리한 요청: REQ-034 (in_progress 유지)
+- 참여 팀원: client-programmer, tools-engineer
+- 산출물: js/achievements.js(미리보기·msToNextDay 순수 함수), js/view.js, js/main.js(syncAchievements 헬퍼·토스트), css/style.css, index.html, test.html, tests/run-tests.js(372), tests/smoke-dom.js(463), tests/browser-strip.js(149, 시나리오 h)
+- 결정 사항: 로그는 기념비와 업적 사이로 배치, 강화 중 업적 토스트는 결과 공개 후 표시, 신규 세트 토스트는 생성 시마다(새 저장은 잠금이라 첫 로드 제외), 모두 받기는 합산 토스트 1개.
+- 남은 문제: 강화 애니메이션 중 기록 탭 점이 먼저 뜰 수 있음. 설계서 §10.3에 모두 받기·noDaily 문구 추가 필요(기획팀).

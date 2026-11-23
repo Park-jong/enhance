@@ -134,3 +134,10 @@
 - 산출물: 없음. 검증 이슈 로그 변경 없음(1차에서 V5 병합·V8 신규).
 - 결정 사항: 승인. run-tests 364, smoke-dom 412(10회 연속), m1-qa 29, round2 36, m1.1 189, browser-strip 91, selfcheck 13 통과. D1~D6·C1~C6 반영 확인.
 - 남은 문제: 없음(C4는 디렉터가 정규식 방식 수용)
+
+## 2026-11-23 — 6단계 6-B 기록 탭 UI 검증
+- 지시: 디렉터 / 관련 단계: 6단계 6-B / 처리한 요청: 없음
+- 참여 팀원: tester, code-reviewer
+- 산출물: docs/verification-issues.md (V9 추가)
+- 결정 사항: APPROVED. 전 스위트 통과(run-tests 372, smoke-dom 463, m1-qa 29, round2 36, m1.1 189, browser-strip 149, selfcheck 13). 결과 노출(dot/의뢰 배지)은 기존과 동일 유형이라 이번 범위에서 수용.
+- 남은 문제: 지연 토스트 정지/교체 시 유실(S2), 연출 중 받기 가능(S3), 분 단위 재렌더 포커스 손실(S4), 문서 동기화.

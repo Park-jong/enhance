@@ -3591,6 +3591,86 @@ describe('F12 regressions and naming (AC 52-54)', () => {
   });
 });
 
+describe('F12 6-B screen helpers: countdown, reward previews, display state', () => {
+  const DAY = C.DAY_MS;
+  test('msToNextDay: 04:00 boundary in KST / UTC / EST (AC 1-2 instants)', () => {
+    [[1795114800000, KST], [1795147200000, 0], [1795165200000, 300]].forEach(([b, off]) => {
+      assert.deepStrictEqual([A.msToNextDay(b - 1, off), A.msToNextDay(b, off), A.msToNextDay(b + HOUR, off)], [1, DAY, DAY - HOUR], String(off));
+    });
+  });
+  test('msToNextDay agrees with dayKey: now + left is the next day, one ms earlier is still today', () => {
+    [KST, 0, 300, 345, -720].forEach(off => {
+      for (let t = dayStartMs(D0, off) - 3 * HOUR; t < dayStartMs(D0 + 2, off); t += 37 * MIN + 13) {
+        const left = A.msToNextDay(t, off);
+        assert.ok(left > 0 && left <= DAY, `${off} ${t}: ${left}`);
+        assert.deepStrictEqual([A.dayKey(t + left, off), A.dayKey(t + left - 1, off)], [A.dayKey(t, off) + 1, A.dayKey(t, off)], `${off} ${t}`);
+      }
+    });
+  });
+  test('msToNextDay is safe for odd clocks (V8): non-finite → 0, far future / before 1970 stay in (0, DAY]', () => {
+    [NaN, Infinity, -Infinity, '1795114800000', undefined, null].forEach(t => assert.strictEqual(A.msToNextDay(t, KST), 0, String(t)));
+    assert.strictEqual(A.msToNextDay(1795114800000, NaN), 0);
+    [Date.UTC(5000, 0, 1), 8.64e15, -1e12, 0, Number.MAX_SAFE_INTEGER].forEach(t => {
+      const left = A.msToNextDay(t, KST);
+      assert.ok(Number.isFinite(left) && left > 0 && left <= DAY, `${t}: ${left}`);
+    });
+  });
+  test('dailyRewardPreview equals what claimDaily grants (slots with no item / shard / ore, bonus) at best 6, 13, 17, and does not change state', () => {
+    [6, 13, 17].forEach(best => [null, 'shard', 'ore'].forEach(item => [0, 1, 2, A.BONUS].forEach(which => {
+      const S = withSet(dailyState(best), { done: true });
+      S.daily.tasks.forEach(t => { t.item = item; });
+      const before = json(S);
+      const preview = A.dailyRewardPreview(S, which);
+      assert.strictEqual(json(S), before, 'preview is pure');
+      const r = A.claimDaily(S, which, ACTIVE);
+      assert.deepStrictEqual(preview, { gold: r.gold, shards: r.shards, ore: r.ore }, `${best} ${item} ${which}`);
+    })));
+  });
+  test('dailyRewardPreview: ore at ORE_MAX shows what would really be added; null without a set or for a bad key', () => {
+    const S = withSet(dailyState(13), { done: true, item: 'ore' });
+    S.ore.silver = C.ORE_MAX - 3;
+    assert.deepStrictEqual(A.dailyRewardPreview(S, 1).ore, { silver: 3 });
+    assert.deepStrictEqual(A.claimDaily(S, 1, ACTIVE).ore, { silver: 3 });
+    assert.strictEqual(A.dailyRewardPreview(dailyState(13), 0), null);
+    [3, -1, 'x', undefined, '0'].forEach(k => assert.strictEqual(A.dailyRewardPreview(withSet(dailyState(13)), k), null, String(k)));
+  });
+  test('achRewardPreview equals what claimAchievement grants for all 34 at best 10 and 20 (incl. ore cap), plus the title', () => {
+    [10, 20].forEach(best => C.ACHIEVEMENTS.forEach(a => {
+      const S = stateWith({ sword: { lv: best } });
+      S.ore.iron = C.ORE_MAX - 9;
+      S.achievements[a.id] = C.ACH_REACHED;
+      const before = json(S);
+      const preview = A.achRewardPreview(S, a.id);
+      assert.strictEqual(json(S), before, 'preview is pure');
+      const r = A.claimAchievement(S, a.id, ACTIVE);
+      assert.deepStrictEqual(preview, { gold: r.gold, shards: r.shards, ore: r.ore, title: r.title }, `${best} ${a.id}`);
+    }));
+    const S = stateWith({ sword: { lv: 17 } });
+    assert.deepStrictEqual(A.achRewardPreview(S, 'tries_3'), { gold: 188070, shards: 136, ore: {}, title: '전설의 대장장이' }, 'AC41 amounts');
+  });
+  test('dailyStatus comes from flags and progress (V7): progress → ready → claimed, bonus ready once all 3 are done; null without a set', () => {
+    const S = withSet(dailyState(13));
+    assert.deepStrictEqual([0, 1, 2, A.BONUS].map(w => A.dailyStatus(S, w)), ['progress', 'progress', 'progress', 'progress']);
+    S.stats.hunts = 10;
+    assert.deepStrictEqual([A.dailyStatus(S, 0), A.dailyStatus(S, A.BONUS)], ['ready', 'progress']);
+    A.claimDaily(S, 0, ACTIVE);
+    Object.assign(S.stats, { success: 4, delivered: 1 });
+    assert.deepStrictEqual([0, 1, 2, A.BONUS].map(w => A.dailyStatus(S, w)), ['claimed', 'ready', 'ready', 'ready']);
+    A.claimDaily(S, A.BONUS, ACTIVE);
+    assert.strictEqual(A.dailyStatus(S, A.BONUS), 'claimed');
+    assert.deepStrictEqual([A.dailyStatus(dailyState(13), 0), A.hasDailySet(dailyState(13)), A.hasDailySet(S)], [null, false, true]);
+  });
+  test('achProgress = min(metric, need); a latched achievement keeps its state even if the metric fell', () => {
+    const S = stateWith({ sword: { lv: 13 } });
+    S.stats.tries = 57;
+    assert.deepStrictEqual([A.achProgress(S, 'tries_1'), A.achProgress(S, 'best_1'), A.achProgress(S, 'perfect')], [57, 10, 0]);
+    S.swords = [sword(1, 6, tr('hunt', 1)), sword(2, 6, tr('work', 1)), sword(3, 6, tr('trade', 1))];
+    A.syncAchievements(S);
+    S.swords.pop();
+    assert.deepStrictEqual([A.achProgress(S, 'knd_1'), A.achState(S, 'knd_1')], [2, C.ACH_REACHED]);
+  });
+});
+
 describe('F12 daily table load guards', () => {
   /** constants.js 원문을 patch로 바꿔 새 VM 문맥에 올리고, mutate(C) 뒤 나머지 규칙 모듈을 올린다. 던진 오류 메시지(없으면 null) */
   function loadError(patch, mutate) {

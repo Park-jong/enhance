@@ -4,7 +4,7 @@
 (function (root) {
   'use strict';
   const SG = root.SG = root.SG || {};
-  const { C, rules: R, forge: F, idle: I, quests: Q, fx: FX } = SG;
+  const { C, rules: R, forge: F, idle: I, quests: Q, ach: A, fx: FX } = SG;
   const fmt = FX.fmt;
   /** 아이콘 HTML: 콘텐츠 팀 SVG가 로드돼 있으면 그것을, 아니면 이모지 */
   const ic = id => {
@@ -41,7 +41,15 @@
     owned: '이미 세운 기념비입니다.',
     notReached: '아직 그 단계에 도달하지 못했습니다.',
     invalid: '대상을 찾을 수 없습니다.',
+    // 업적·일일 과제 수령 (m2-achievements §10.3)
+    claimed: '이미 받은 보상입니다',
+    stale: '일일 과제가 갱신되었습니다',
+    notDone: '아직 달성하지 못했습니다',
+    noDaily: '오늘의 일일 과제가 아직 없습니다',
+    inactiveTab: '다른 탭에서 진행 중입니다',
   };
+  // 수령 실패 문구: 업적의 notReached는 기념비의 '그 단계에 도달하지 못함'과 뜻이 달라 수령에서만 바꿔 쓴다
+  const CLAIM_REASON = Object.assign({}, REASON, { notReached: REASON.notDone });
   // 검 특성 (m2-traits §11). income: 최고 단계 검들 중 종류별 최댓값만 적용되는 수입형, 나머지는 '이 검'에만 적용
   const TRAIT_TEXT = {
     hunt: { income: true, effect: v => `수동 사냥 골드 +${v}%` },
@@ -90,6 +98,7 @@
   const TAB_DOT = {
     forge: S => F.forgeActionable(S),
     idle: S => I.idleActionable(S),
+    records: S => A.claimableAny(S),
   };
   // 탭 이름 옆 개수 배지(0이면 숨김). 의뢰: 지금 납품할 수 있는 의뢰 수
   const TAB_COUNT = {
@@ -183,8 +192,8 @@
     if (price.gold) parts.push(`<span class="${S.gold < price.gold ? 'lack' : ''}">${ic('gold')} ${fmt(price.gold)}</span>`);
     return parts.join(' ');
   };
-  const lockedHTML = (best, desc) =>
-    `<div class="locked-msg"><b>${ic('lock')}</b>최고 강화 +${best} 달성 시 해금<br><small>${desc}</small></div>`;
+  const lockedBoxHTML = (head, desc) => `<div class="locked-msg"><b>${ic('lock')}</b>${head}<br><small>${desc}</small></div>`;
+  const lockedHTML = (best, desc) => lockedBoxHTML(`최고 강화 +${best} 달성 시 해금`, desc);
 
   // ============================================================ 헤더
   function renderHeader(S) {
@@ -665,7 +674,7 @@
     return TAB_DOT[id] && TAB_DOT[id](S) ? '<span class="dot"></span>' : '';
   }
 
-  function renderTabs(S, ui, now) {
+  function renderTabs(S, ui, now, env) {
     setHTML($('#tabbar'), TABS.map(t => {
       const locked = !tabUnlocked(S, t);
       return `<button class="tab-btn ${ui.tab === t.id ? 'on' : ''}" data-act="tab" data-id="${t.id}">
@@ -682,6 +691,7 @@
     setHTML($('#statsGrid'), STATS.map(([k, f]) => `<div><span>${k}</span><b>${f(S)}</b></div>`).join(''));
     setHTML($('#masteryList'), masteryRowsHTML(S));
     renderMonuments(S, ui, now);
+    renderRecords(S, now, env);
   }
 
   // ============================================================ 단계 기념비 (장식, m2-overview §C.3)
@@ -725,6 +735,171 @@
       const count = S.mastery[i];
       return `<li>+${lv} 숙련 <b>+${R.masteryBonus(lv, count)}%p</b> <span class="muted">(${count}/${max})</span></li>`;
     }).join('');
+  }
+
+  // ============================================================ 일일 과제·업적·칭호 (F12, m2-achievements §12)
+  // 일일 과제 한 줄 설명(§8.2). F4 의뢰와 섞이지 않게 '의뢰'·'퀘스트'라 쓰지 않는다(§2)
+  const DAILY_TEXT = {
+    hunt_s: n => `수동 사냥 ${fmt(n)}회`,
+    auto_s: n => `자동 사냥 ${fmt(n)}회 실행`,
+    tries_s: n => `강화 ${fmt(n)}회 시도`,
+    succ_m: n => `강화 ${fmt(n)}회 성공`,
+    gold_m: n => `사냥 골드 ${fmt(n)}G 벌기`,
+    sell_m: n => `검(+${C.SELL_COUNT_MIN_LV} 이상) ${fmt(n)}자루 팔기`,
+    craft_m: n => `모루 ${fmt(n)}개 제작`,
+    dlv_l: n => `납품하기 ${fmt(n)}회`,
+    hunt_l: n => `수동 사냥 ${fmt(n)}회`,
+    tries_l: n => `강화 ${fmt(n)}회 시도`,
+  };
+  const DAILY_TEXT_LOCKED = '매일 새벽 4시에 새 과제 3개가 도착합니다';
+  const DAILY_TEXT_WAITING = '오늘의 일일 과제가 아직 없습니다. 다음 갱신 때 도착합니다.';
+  // 업적 조건 문장: 지표별(§5)
+  const ACH_COND = {
+    tries: n => `강화 ${fmt(n)}회 시도`,
+    success: n => `강화 ${fmt(n)}회 성공`,
+    best: n => `최고 +${n} 달성`,
+    destroy: n => `검 파괴 ${fmt(n)}회`,
+    hunts: n => `수동 사냥 ${fmt(n)}회`,
+    delivered: n => `납품 ${fmt(n)}회`,
+    sinkGold: n => `특성 관리·기념비에 ${fmt(n)}G 사용`,
+    traitRolls: n => `특성 각인 ${fmt(n)}회 (종류 변경 포함)`,
+    traitKindCount: n => `보관함에 서로 다른 특성 ${n}종`,
+    monumentCount: n => `기념비 ${n}개 세우기`,
+    dailyDone: n => `일일 과제 보상 ${fmt(n)}회 받기`,
+    hasPerfectTrait: () => `${C.TRAIT_TIER_NAME[C.TRAIT_TIER_MAX - 1]} 등급 특성 검 보유`,
+  };
+  const ACH_TRACK_NAME = {
+    tries: '강화 시도', succ: '강화 성공', best: '최고 단계', dest: '파괴', hunt: '수동 사냥', dlv: '납품',
+    sink: '골드 사용', trt: '각인', knd: '특성 수집', mon: '기념비', day: '일일 과제', perfect: '완벽한 각인',
+  };
+  const ACH_TRACKS = [...new Set(C.ACHIEVEMENTS.map(a => a.track))];
+  const TIER_ROMAN = ['I', 'II', 'III'];
+  // 상태를 색만으로 구분하지 않는다(§12.3): 모든 상태에 글자를 함께 둔다
+  const CLAIM_STATE_TEXT = { progress: '진행 중', claimed: '✔ 받음' };
+  const ACH_STATUS = { 0: 'locked', [C.ACH_REACHED]: 'ready', [C.ACH_CLAIMED]: 'claimed' };
+  const ACH_CHIP_TEXT = { locked: '진행 중', ready: '받기 가능', claimed: '받음' };
+  const NEW_DAILY_TEXT = '새 일일 과제가 도착했습니다';
+
+  /** 지금 칭호 이름(없으면 '') */
+  const titleName = S => (S.title && R.hasOwn(C.ACH_BY_ID, S.title) ? C.ACH_BY_ID[S.title].title : '');
+  /** 보상 요약 "+2,680G · 파편 39 · 철광석 40 · 칭호 「…」"(0인 항목 생략). icon(id): 항목 앞에 붙일 글자(토스트는 없음) */
+  function rewardSummary(r, icon = () => '') {
+    const parts = [];
+    if (r.gold > 0) parts.push(`+${fmt(r.gold)}G`);
+    if (r.shards > 0) parts.push(`${icon('shard')}파편 ${fmt(r.shards)}`);
+    Object.keys(r.ore).filter(k => r.ore[k] > 0).forEach(k => parts.push(`${icon(k)}${C.ORE_NAMES[k]} ${fmt(r.ore[k])}`));
+    if (r.title) parts.push(`칭호 「${r.title}」`);
+    return parts.join(' · ');
+  }
+  const iconBefore = id => `${ic(id)} `;
+  const rewardHTML = r => `<span class="reward-text">${rewardSummary(r, iconBefore)}</span>`;
+  const progBarHTML = (cur, goal) => `<div class="prog-bar"><i style="width:${Math.round(Math.min(1, cur / goal) * 100)}%"></i></div>`;
+  const progNumHTML = (cur, goal) => `<span class="prog-num">${fmt(cur)}/${fmt(goal)}</span>`;
+  /** 달성·미수령이면 받기 버튼, 아니면 상태 글자 */
+  const claimStateHTML = (status, act, id) => (status === 'ready'
+    ? `<button class="small-btn gold claim-btn" data-act="${act}" data-id="${id}">받기</button>`
+    : `<span class="claim-state">${CLAIM_STATE_TEXT[status]}</span>`);
+  /** "HH:MM"(분 내림, 23:59를 넘지 않음) */
+  function fmtHourMin(ms) {
+    const min = Math.min(C.DAY_MS / 60000 - 1, Math.floor(Math.max(0, ms) / 60000));
+    const pad = v => String(v).padStart(2, '0');
+    return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+  }
+  const sectionHead = (title, side) => `<div class="sec-head"><h2>${title}</h2>${side}</div>`;
+
+  function dailyCardHTML(S, slot) {
+    const task = S.daily.tasks[slot];
+    const status = A.dailyStatus(S, slot);
+    const cur = A.dailyProgress(S, slot);
+    return `<div class="daily-card ${status}" data-slot="${slot}">
+      <div class="rec-line"><span class="daily-stars">${'★'.repeat(slot + 1)}</span><b class="daily-desc">${DAILY_TEXT[task.e](task.goal)}</b></div>
+      ${progBarHTML(cur, task.goal)}
+      <div class="rec-line">${progNumHTML(cur, task.goal)}${rewardHTML(A.dailyRewardPreview(S, slot))}${claimStateHTML(status, 'claimDaily', slot)}</div></div>`;
+  }
+  function dailyBonusHTML(S) {
+    const status = A.dailyStatus(S, A.BONUS);
+    const done = S.daily.tasks.filter((_, slot) => A.dailyDone(S, slot)).length;
+    const side = status === 'progress'
+      ? `<span class="claim-state">${done}/${C.DAILY_TASKS} 달성</span>`
+      : claimStateHTML(status, 'claimDaily', A.BONUS);
+    return `<div class="daily-bonus ${status}"><span class="reward-text">오늘 ${C.DAILY_TASKS}개 모두 달성: 보너스 ${rewardSummary(A.dailyRewardPreview(S, A.BONUS), iconBefore)}</span>${side}</div>`;
+  }
+  /** 일일 과제 섹션: 잠김 / 세트 없음 안내 / 카드 3장 + 보너스. 남은 시간은 refreshDaily와 같은 시계·시간대(env) */
+  function dailySectionHTML(S, now, env) {
+    if (S.best < C.DAILY_UNLOCK_BEST) {
+      return sectionHead('일일 과제', '') + lockedBoxHTML(`최고 +${C.DAILY_UNLOCK_BEST} 이상에서 열림`, DAILY_TEXT_LOCKED);
+    }
+    const head = sectionHead('일일 과제', `<span class="muted daily-reset">다음 갱신까지 ${fmtHourMin(A.msToNextDay(now, env.tzOffsetMin(now)))}</span>`);
+    if (!A.hasDailySet(S)) return `${head}<p class="panel-note daily-wait">${DAILY_TEXT_WAITING}</p>`;
+    return `${head}<div class="daily-list">${S.daily.tasks.map((_, slot) => dailyCardHTML(S, slot)).join('')}</div>${dailyBonusHTML(S)}`;
+  }
+
+  /** 업적 한 행: 잠김(막대·진행 중) / 달성(강조·받기) / 수령 완료(✔ 받음·칭호) */
+  function achRowHTML(S, a, single) {
+    const status = ACH_STATUS[A.achState(S, a.id)];
+    const tier = single ? '' : `<span class="ach-tier">${TIER_ROMAN[a.tier - 1]}</span>`;
+    const head = `<div class="rec-line"><b class="ach-name">${a.name}</b>${tier}<small class="ach-cond">${ACH_COND[a.metric](a.need)}</small></div>`;
+    if (status === 'claimed') {
+      return `<div class="ach-row claimed" data-ach="${a.id}">${head}
+        <div class="rec-line"><span class="reward-text">칭호 「${a.title}」</span>${claimStateHTML('claimed')}</div></div>`;
+    }
+    // 래치된 업적은 지표가 줄었어도(검 판매로 특성 종류 감소) 가득 찬 막대
+    const cur = status === 'ready' ? a.need : A.achProgress(S, a.id);
+    return `<div class="ach-row ${status}" data-ach="${a.id}">${head}${progBarHTML(cur, a.need)}
+      <div class="rec-line">${progNumHTML(cur, a.need)}${rewardHTML(A.achRewardPreview(S, a.id))}${claimStateHTML(status === 'ready' ? 'ready' : 'progress', 'claimAch', a.id)}</div></div>`;
+  }
+  function achTrackHTML(S, track) {
+    const list = C.ACHIEVEMENTS.filter(a => a.track === track);
+    const single = list.length === 1;
+    const chips = single ? '<span class="muted">단발</span>' : `<span class="ach-chips">${list.map(a => {
+      const status = ACH_STATUS[A.achState(S, a.id)];
+      return `<span class="ach-chip ${status}" title="${TIER_ROMAN[a.tier - 1]} · ${ACH_CHIP_TEXT[status]}">${status === 'claimed' ? '✔' : ''}${TIER_ROMAN[a.tier - 1]}</span>`;
+    }).join('')}</span>`;
+    return `<div class="ach-track" data-track="${track}"><div class="ach-track-head"><b>${ACH_TRACK_NAME[track]}</b>${chips}</div>
+      ${list.map(a => achRowHTML(S, a, single)).join('')}</div>`;
+  }
+  /** 칭호 선택: 없음 + 수령한 업적의 칭호 */
+  function titlePickerHTML(S) {
+    const claimed = C.ACHIEVEMENTS.filter(a => A.achState(S, a.id) === C.ACH_CLAIMED);
+    const option = (id, label) => `<button class="title-opt ${S.title === id ? 'on' : ''}" data-act="setTitle" data-id="${id}" aria-pressed="${S.title === id}">${label}</button>`;
+    const hint = claimed.length ? '' : '<small class="muted">업적 보상을 받으면 칭호를 고를 수 있습니다</small>';
+    return `<div class="title-pick"><span class="muted">칭호</span>${option(C.TITLE_NONE, '없음')}${claimed.map(a => option(a.id, `「${a.title}」`)).join('')}${hint}</div>`;
+  }
+  function achSectionHTML(S) {
+    const claimed = C.ACHIEVEMENTS.filter(a => A.achState(S, a.id) === C.ACH_CLAIMED).length;
+    // 모두 받기는 일일 과제 수령 가능 항목도 받는다(claimAll)
+    const all = `<button class="small-btn gold claim-all" data-act="claimAll" ${A.claimableAny(S) ? '' : 'disabled'}>모두 받기</button>`;
+    return sectionHead(`업적 <span class="muted ach-count">수령 ${claimed}/${C.ACHIEVEMENTS.length}</span>`, all) +
+      titlePickerHTML(S) + ACH_TRACKS.map(t => achTrackHTML(S, t)).join('');
+  }
+  /** 현재 칭호: 상단 바 배지와 기록 탭 제목 옆 */
+  function renderTitle(S) {
+    const name = titleName(S);
+    const text = name ? `「${name}」` : '';
+    [$('#titleBadge'), $('#recordsTitle')].forEach(el => {
+      el.hidden = !name;
+      el.textContent = text;
+    });
+    $('#titleBadge').title = name ? `칭호: ${name}` : '';
+  }
+  function renderRecords(S, now, env) {
+    setHTML($('#dailySection'), dailySectionHTML(S, now, env));
+    setHTML($('#achSection'), achSectionHTML(S));
+    renderTitle(S);
+  }
+
+  /** 알림 문구 (§10.3) */
+  const achReachedText = ids => (ids.length === 1
+    ? `업적 달성: ${C.ACH_BY_ID[ids[0]].name} — 기록 탭에서 보상을 받으세요`
+    : `업적 ${ids.length}개 달성`);
+  const achClaimText = r => `업적 보상: ${rewardSummary(r)}`;
+  const dailyClaimText = r => `일일 과제 보상: ${rewardSummary(r)}`;
+  const bonusClaimText = r => `오늘의 과제 완료! 보너스: ${rewardSummary(r)}`;
+  /** 모두 받기 합산 한 줄. 받은 것이 없으면 '' */
+  function claimAllText(r) {
+    if (!r.claimed.length) return '';
+    const titles = r.claimed.filter(c => c.kind === A.KIND_ACH).length;
+    return `보상 ${r.claimed.length}개를 받았습니다: ${rewardSummary(r)}${titles ? ` · 칭호 ${titles}개` : ''}`;
   }
 
   /** 새 숙련 기록 토스트 문구(기록 1회당 1번) */
@@ -799,13 +974,14 @@
     $('#foundCount').textContent = `(${S.found.filter(Boolean).length} / ${C.MAX + 1})`;
   }
 
-  function render(S, ui, now) {
+  /** env.tzOffsetMin: 일일 과제 날짜 경계와 같은 시간대 함수(main.js의 dailyEnv) */
+  function render(S, ui, now, env) {
     renderHeader(S);
     renderStrip(S, ui, now);
     renderSwordCard(S, ui);
     renderTray(S, ui);
     renderActions(S, ui, now);
-    renderTabs(S, ui, now);
+    renderTabs(S, ui, now, env);
     renderCollection(S);
     updateCountdowns(now);
   }
@@ -823,6 +999,7 @@
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
     NO_ACTIVE_TEXT, swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, engraveToastText, SAVE_FAILED_TEXT,
     traitName, rekindText, tierUpText, monumentText,
+    CLAIM_REASON, NEW_DAILY_TEXT, achReachedText, achClaimText, dailyClaimText, bonusClaimText, claimAllText,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

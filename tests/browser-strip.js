@@ -6,6 +6,7 @@
  *  (d) 우측 탭 패널(상점·대장간·의뢰·방치·기록)이 내용보다 작게 줄어들지 않는다(1280x800, 1280x600)
  *  (e) 골드 사용처가 열린 상태(best ≥ 13, 특성 검, 기념비 일부 보유)에서도 (d)와 같다 — 대장간 "각인"·기록 "기념비" 섹션 포함
  *  (f) 모바일 폭(360·375px)에서 특성 칩이 있는 보관함 카드가 늘어나거나 넘치지 않고 가로 스크롤이 생기지 않는다(m2-traits AC 51)
+ *  (h) 채워진 기록 탭(일일 과제·업적·긴 칭호·탭 점)이 360·375px·1280px에서 가로로 넘치지 않고, 1280x800·1280x600에서 5탭 높이 검사(V4)를 통과한다
  *  (g) index.html·test.html 모두 콘솔 오류·예외 없이 열린다
  * 실행: node tests/browser-strip.js  (브라우저 경로 직접 지정: BROWSER_PATH=...)
  * Chrome/Edge가 없으면 "SKIP: no Chrome/Edge"를 출력하고 0으로 끝난다. 외부 패키지 없음(Node 22 전역 WebSocket·fetch).
@@ -20,6 +21,7 @@ const { pathToFileURL } = require('url');
 const ROOT = path.join(__dirname, '..');
 const C = require(path.join(ROOT, 'js', 'constants.js'));
 const SV = require(path.join(ROOT, 'js', 'save.js'));
+const A = require(path.join(ROOT, 'js', 'achievements.js'));
 
 const BROWSER_CANDIDATES = [
   path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -40,6 +42,8 @@ const PANEL_VIEWPORTS = [{ width: 1280, height: 800 }, { width: 1280, height: 60
 const PANEL_TOLERANCE_PX = 1;     // (d) 소수점 반올림 오차 허용
 const MOBILE_WIDTHS = [360, 375];  // (f) AC 51 최소 폭과 일반 폰 폭
 const MOBILE_HEIGHT = 800;
+const RECORDS_VIEWPORTS = [{ width: 360, mobile: true }, { width: 375, mobile: true }, { width: 1280, mobile: false }];   // (h)
+const RECORDS_EDGE_PX = 1;        // (h) 카드·행이 패널 좌우 끝을 넘어도 되는 오차
 
 // ------------------------------------------------------------ 결과
 const results = { pass: 0, fail: 0 };
@@ -373,6 +377,100 @@ async function mobileTraitChips(cdp, page) {
   await cdp.send('Emulation.clearDeviceMetricsOverride');
 }
 
+/**
+ * (h) 기록 탭이 가득 찬 시드: best 17, 수령 완료 업적 5개(그중 가장 긴 칭호를 장착), 수령 가능 업적 4개(succ_2·hunt_2·dlv_2·best_2),
+ * 오늘 날짜의 일일 세트(수령 가능 1·수령 완료 1·진행 중 1). 날짜는 실제 시계로 잡아 부팅이 세트를 다시 만들지 않는다
+ */
+const RECORDS_CLAIMED = ['tries_1', 'succ_1', 'best_1', 'hunt_1', 'dlv_1'];
+const RECORDS_READY = ['succ_2', 'hunt_2', 'dlv_2', 'best_2'];
+const RECORDS_TITLE_ACH = C.ACHIEVEMENTS.filter(a => RECORDS_CLAIMED.includes(a.id)).sort((a, b) => b.title.length - a.title.length)[0];
+function recordsSeedSave() {
+  const now = Date.now();
+  const st = SV.defaultState(now);
+  st.swords = [{ id: 1, lv: 17, prot: C.PROTECT_USES, pity: 0, trait: null }];
+  st.nextSwordId = 2;
+  st.active = 1;
+  st.best = 17;
+  st.gold = 5e6;
+  st.found = st.found.map((f, l) => f || l <= st.best);
+  Object.assign(st.stats, { tries: 150, success: 600, hunts: 1100, delivered: 30 });
+  RECORDS_CLAIMED.forEach(id => { st.achievements[id] = C.ACH_CLAIMED; });
+  RECORDS_READY.forEach(id => { st.achievements[id] = C.ACH_REACHED; });
+  st.title = RECORDS_TITLE_ACH.id;
+  st.daily = {
+    maxDay: A.dayKey(now, new Date(now).getTimezoneOffset()),
+    tasks: [
+      { e: 'hunt_s', goal: 10, base: 1000, item: null, claimed: 0 },   // 수령 가능
+      { e: 'succ_m', goal: 4, base: 596, item: null, claimed: 1 },     // 수령 완료
+      { e: 'dlv_l', goal: 1, base: 30, item: null, claimed: 0 },       // 진행 중
+    ],
+    bonus: 0,
+  };
+  return JSON.stringify(st);
+}
+
+/** 기록 탭이 열린 상태에서 가로 넘침·카드 가장자리·칭호 배지·탭 점 겹침을 재는 식 */
+const RECORDS_MEASURE = `(() => {
+  const rect = el => el.getBoundingClientRect();
+  const panel = document.querySelector('[data-panel="records"]');
+  const pr = rect(panel);
+  const items = [...panel.querySelectorAll('.daily-card, .daily-bonus, .ach-track, .ach-row')];
+  const outside = items.filter(el => { const r = rect(el); return r.left < pr.left - ${RECORDS_EDGE_PX} || r.right > pr.right + ${RECORDS_EDGE_PX}; })
+    .map(el => el.className + ':' + Math.round(rect(el).left) + '..' + Math.round(rect(el).right));
+  const badge = document.getElementById('titleBadge');
+  const header = document.querySelector('header');
+  const headerH = rect(header).height;
+  const badgeVisible = !badge.hidden && rect(badge).width > 0 && rect(badge).height > 0;
+  const prevDisplay = badge.style.display;
+  badge.style.display = 'none';
+  const headerHNoBadge = rect(header).height;
+  badge.style.display = prevDisplay;
+  const tab = document.querySelector('[data-act="tab"][data-id="records"]');
+  const dot = tab.querySelector('.dot');
+  let dotOverlap = null;
+  if (dot) {
+    const d = rect(dot);
+    const hit = r => r.width > 0 && d.left < r.right && d.right > r.left && d.top < r.bottom && d.bottom > r.top;
+    const range = document.createRange();
+    const labelHit = [...tab.childNodes].some(n => n.nodeType === 3 && n.textContent.trim() && (range.selectNode(n), [...range.getClientRects()].some(hit)));
+    dotOverlap = { icon: hit(rect(tab.querySelector('.ti'))), label: labelHit };
+  }
+  const last = panel.lastElementChild;
+  return {
+    panelScroll: panel.scrollWidth, panelClient: panel.clientWidth,
+    pageScroll: document.documentElement.scrollWidth - window.innerWidth,
+    counts: { daily: panel.querySelectorAll('.daily-card').length, bonus: panel.querySelectorAll('.daily-bonus').length,
+      track: panel.querySelectorAll('.ach-track').length, row: panel.querySelectorAll('.ach-row').length,
+      claim: panel.querySelectorAll('.claim-btn').length, claimAll: panel.querySelectorAll('.claim-all').length,
+      hasDaily: !!document.getElementById('dailySection'), hasAch: !!document.getElementById('achSection') },
+    outside, badgeVisible, headerH, headerHNoBadge, badgeText: badge.textContent, dotOverlap,
+    panelBottom: pr.bottom, lastBottom: last ? rect(last).bottom : 0,
+  };
+})()`;
+
+async function recordsLayout(cdp, page) {
+  check('(h) index.html loads the populated records save', await openGame(cdp, page, { save: recordsSeedSave(), order: '1' }));
+  for (const vp of RECORDS_VIEWPORTS) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: vp.width, height: MOBILE_HEIGHT, deviceScaleFactor: 1, mobile: vp.mobile });
+    const shown = (await measurePanel(page, 'records')).shown;
+    const m = await page.evaluate(RECORDS_MEASURE);
+    const label = `(h) ${vp.width}px records`;
+    const detail = JSON.stringify(m);
+    check(`${label} panel is shown with daily and achievement sections`, shown && m.counts.hasDaily && m.counts.hasAch, detail);
+    check(`${label} has populated cards, rows and claim buttons`,
+      m.counts.daily === C.DAILY_TASKS && m.counts.bonus === 1 && m.counts.track > 0 && m.counts.row > 0 && m.counts.claim > 0 && m.counts.claimAll > 0, detail);
+    check(`${label} panel has no horizontal overflow (scrollWidth <= clientWidth)`, m.panelScroll <= m.panelClient + RECORDS_EDGE_PX, detail);
+    check(`${label} no horizontal page scroll`, m.pageScroll <= 0, detail);
+    check(`${label} daily cards, bonus, achievement tracks and rows stay within the panel edges`, m.outside.length === 0, detail);
+    check(`${label} title badge is visible with the long title`, m.badgeVisible && m.badgeText.includes(RECORDS_TITLE_ACH.title), detail);
+    check(`${label} title badge does not make the header taller`, m.headerH <= m.headerHNoBadge + RECORDS_EDGE_PX, detail);
+    check(`${label} records tab dot exists and overlaps neither icon nor label`, !!m.dotOverlap && !m.dotOverlap.icon && !m.dotOverlap.label, detail);
+    check(`${label} panel bottom is not above its last child`, m.panelBottom + PANEL_TOLERANCE_PX >= m.lastBottom, detail);
+  }
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+  await panelsContainContent(cdp, page, '(h)');
+}
+
 /** (g) 테스트 페이지(test.html)도 같은 후반 시드로 오류 없이 열리고 특성 지정 조작판이 채워진다 */
 async function testPageLoads(cdp, page) {
   const order = SINK_SWORDS.map(s => s.id).join();
@@ -408,6 +506,7 @@ async function main() {
     await panelsContainContent(cdp, page);
     await sinkPanelsContainContent(cdp, page);
     await mobileTraitChips(cdp, page);
+    await recordsLayout(cdp, page);
     await testPageLoads(cdp, page);
     check('(g) no uncaught page errors or console errors (index.html, test.html)', pageErrors.length === 0, pageErrors.join('\n      '));
   } catch (e) {

@@ -406,7 +406,7 @@ main {
 }
 .tab-btn .ti { font-size: 17px; line-height: 1; }
 .tab-btn.on { background: var(--panel2); color: var(--text); }
-.tab-btn .dot { position: absolute; top: 5px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.tab-btn .dot { position: absolute; top: 5px; right: calc(50% - 19px); width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
 .tab-btn .tab-count {
   position: absolute; top: 2px; right: calc(50% - 24px); min-width: 16px; height: 16px; padding: 0 4px;
   border-radius: 8px; background: var(--bad); color: #fff; font-size: 11px; line-height: 16px; text-align: center;
@@ -503,3 +503,49 @@ main {
 /* 칸이 좁아 확인 문구(한 번 더 누르면 구매 · 가격)는 버튼 안에서 줄바꿈 */
 .mon .small-btn { white-space: normal; word-break: keep-all; min-height: 32px; padding: 6px 8px; }
 .monument-badge { color: var(--gold); font-size: 12px; }
+
+/* ---------- 일일 과제·업적·칭호 (M2 F12) ---------- */
+/* 좁은 헤더(360px)에서도 한 줄 배지로 남게 길이를 자른다(전체 이름은 title 툴팁) */
+.title-badge {
+  min-width: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--gold); font-size: 12px; font-weight: 700;
+}
+.title-tag { margin-left: 4px; color: var(--gold); }
+.card h2.rec-sec { margin-top: 16px; }
+.ach-section { margin-top: 16px; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-bottom: 10px; }
+.card .sec-head h2 { margin: 0; }
+.daily-reset { font-size: 12px; font-variant-numeric: tabular-nums; }
+.daily-list { display: flex; flex-direction: column; gap: 6px; }
+/* 카드·행은 내용이 길어도 밖으로 넘치지 않고 줄바꿈한다(가로 스크롤 없음, V4·§12.3) */
+.daily-card, .daily-bonus, .ach-row {
+  min-width: 0; overflow: hidden; overflow-wrap: anywhere;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+}
+.daily-card.ready, .daily-bonus.ready, .ach-row.ready { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.daily-card.claimed, .daily-bonus.claimed, .ach-row.claimed { opacity: .55; }
+.daily-bonus { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 6px; font-size: 13px; }
+.rec-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 13px; }
+.daily-stars { flex: none; color: var(--gold); letter-spacing: -1px; }
+.daily-desc, .ach-name { font-weight: 700; }
+.ach-tier { font-size: 11px; font-weight: 800; color: var(--muted); }
+.ach-cond { flex: 1 1 100%; color: var(--muted); font-size: 12px; }
+.prog-bar { height: 6px; margin: 6px 0; border-radius: 3px; background: var(--bg); overflow: hidden; }
+.prog-bar i { display: block; height: 100%; background: var(--info); }
+.ready .prog-bar i { background: var(--accent); }
+.prog-num { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.reward-text { flex: 1 1 120px; min-width: 0; color: var(--gold); font-size: 12px; }
+.claim-state { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.claim-btn { margin-left: auto; }
+.ach-track { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.ach-track-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.ach-chips { display: inline-flex; gap: 4px; }
+.ach-chip { padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.ach-chip.ready { border-color: var(--accent); color: var(--text); }
+.ach-chip.claimed { border-color: var(--good); color: var(--good); }
+.title-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.title-opt {
+  max-width: 100%; min-height: 30px; padding: 4px 10px; overflow-wrap: anywhere; cursor: pointer;
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 999px; font-size: 12px;
+}
+.title-opt.on { border-color: var(--gold); color: var(--gold); }

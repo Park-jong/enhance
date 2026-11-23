@@ -46,14 +46,18 @@
   const shardReward = (S, m) => m * R.shardGain(Math.max(C.QUEST_SHARD_MIN_LV, S.best));
   const dailyOreKind = S => (S.best >= C.ORE_UNLOCK_LV.silver ? 'silver' : 'iron');
 
+  /** 지급할 보상 { gold, shards, ore }(지금 best 기준, 상태 불변). 광석은 ORE_MAX에 막힌 실제 지급량(addOre를 복사본에 적용) */
+  function rewardOf(S, k, m, ore) {
+    return { gold: rewardGold(S, k), shards: shardReward(S, m), ore: ore ? F.addOre({ ore: Object.assign({}, S.ore) }, ore) : {} };
+  }
+
   /** 골드·파편·광석 지급. 골드는 stats.rewardGold에만 기록(earned·huntGold·shardsGained 불변, §3) */
   function grantReward(S, k, m, ore) {
-    const gold = rewardGold(S, k);
-    const shards = shardReward(S, m);
-    S.gold += gold;
-    S.stats.rewardGold += gold;
-    S.shards += shards;
-    return { gold, shards, ore: ore ? F.addOre(S, ore) : {} };
+    const reward = rewardOf(S, k, m, null);
+    S.gold += reward.gold;
+    S.stats.rewardGold += reward.gold;
+    S.shards += reward.shards;
+    return Object.assign(reward, { ore: ore ? F.addOre(S, ore) : {} });
   }
 
   /** 검사 5(§10.1): 다른 탭이 이미 저장한 수령인지 저장소를 다시 본다. 주입이 없으면 확인을 생략한다 */
@@ -94,6 +98,14 @@
     return Object.assign({ ok: true }, grantReward(S, a.k, a.shard, a.ore), { title: a.title });
   }
 
+  /** 업적 진행 = min(지표, 목표). 래치된 업적은 지표가 줄었을 수 있으므로 화면은 상태(achState)로 먼저 나눈다 */
+  const achProgress = (S, id) => Math.min(C.ACH_BY_ID[id].need, achMetric(S, C.ACH_BY_ID[id].metric));
+  /** 수령하면 받을 보상(지금 best 기준, claimAchievement와 같은 계산) + 칭호 */
+  function achRewardPreview(S, id) {
+    const a = C.ACH_BY_ID[id];
+    return Object.assign(rewardOf(S, a.k, a.shard, a.ore), { title: a.title });
+  }
+
   /** 칭호 선택: 없음('') 또는 수령 완료한 업적 id. 장식이라 탭 잠금 검사는 하지 않는다(§10.2) */
   function setTitle(S, id) {
     const valid = id === C.TITLE_NONE || (typeof id === 'string' && R.hasOwn(C.ACH_BY_ID, id) && achState(S, id) === C.ACH_CLAIMED);
@@ -122,6 +134,12 @@
   /** 지역 DAILY_RESET_HOUR 기준 날 번호. offsetMin은 Date.getTimezoneOffset 규약(UTC 서쪽이 양수, KST = -540) */
   const dayKey = (nowMs, offsetMin) =>
     Math.floor((nowMs - offsetMin * MIN_MS - C.DAILY_RESET_HOUR * HOUR_MS) / C.DAY_MS);
+  /** 다음 날 경계(지역 DAILY_RESET_HOUR)까지 남은 ms, 범위 (0, DAY_MS]. 시계·오프셋이 유한하지 않으면 0 */
+  function msToNextDay(nowMs, offsetMin) {
+    if (!Number.isFinite(nowMs) || !Number.isFinite(offsetMin)) return 0;
+    const sinceStart = (nowMs - offsetMin * MIN_MS - C.DAILY_RESET_HOUR * HOUR_MS) % C.DAY_MS;
+    return C.DAY_MS - (sinceStart < 0 ? sinceStart + C.DAY_MS : sinceStart);
+  }
   /** 목표 밴드: DAILY_BANDS 중 best 이하인 개수 − 1 (미해금이면 -1) */
   const bandOf = best => C.DAILY_BANDS.filter(b => b <= best).length - 1;
 
@@ -192,6 +210,19 @@
     };
   }
 
+  /** 수령하면 받을 보상(지금 best 기준, claimDaily와 같은 계산). 세트가 없거나 잘못된 키면 null */
+  function dailyRewardPreview(S, which) {
+    if (!hasDailySet(S) || !validDailyKey(which)) return null;
+    const spec = dailyRewardSpec(S, which);
+    return rewardOf(S, spec.k, spec.m, spec.ore);
+  }
+  /** 화면 상태 'claimed' | 'ready'(달성·미수령) | 'progress'. 수령 실패 사유가 아니라 플래그·진행으로 판단한다(V7). 세트가 없으면 null */
+  function dailyStatus(S, which) {
+    if (!hasDailySet(S) || !validDailyKey(which)) return null;
+    if (dailyClaimedFlag(S, which)) return 'claimed';
+    return dailyReady(S, which) ? 'ready' : 'progress';
+  }
+
   /** which ∈ 0..2 | 'bonus'. 실패 사유 순서: inactiveTab → invalid → noDaily → claimed → stale → claimed(저장) → notDone */
   function claimDaily(S, which, ctx) {
     if (!isActive(ctx)) return fail('inactiveTab');
@@ -257,8 +288,9 @@
   return {
     KIND_ACH, KIND_DAILY, BONUS, DAILY_KEYS,
     monumentCount, traitKindCount, hasPerfectTrait, achMetric, rewardGold, shardReward,
-    achState, syncAchievements, claimAchievement, setTitle,
-    dayKey, bandOf, dailyCandidates, generateDaily, refreshDaily,
-    dailyProgress, dailyDone, dailyAllDone, claimDaily, claimAll, claimableCount, claimableAny, storedClaimedIn,
+    achState, achProgress, achRewardPreview, syncAchievements, claimAchievement, setTitle,
+    dayKey, msToNextDay, bandOf, dailyCandidates, generateDaily, refreshDaily,
+    hasDailySet, dailyProgress, dailyDone, dailyAllDone, dailyStatus, dailyRewardPreview,
+    claimDaily, claimAll, claimableCount, claimableAny, storedClaimedIn,
   };
 });

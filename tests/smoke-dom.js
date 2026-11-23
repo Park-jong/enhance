@@ -420,6 +420,8 @@ async function main() {
   await traitsUi(ok);
   // 7b-4) 6-A F12: 일일 세트 갱신(부팅·틱·복귀), 업적 동기화, 수령 즉시 저장, 두 탭 재확인·멈춘 탭
   await achievementsWiring(ok);
+  // 7b-5) 6-B F12 화면: 기록 탭 일일 과제·업적·칭호·탭 점, 수령 토스트
+  await recordsUi(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -444,27 +446,33 @@ async function main() {
  * 6-A F12 배선 (m2-achievements §6·§9·§10·§11, AC 10b·29·30·30b·30c·30d): main.js가 부팅·틱·복귀에서 일일 세트를 갱신하고
  * 업적을 동기화하며, 수령 직후 즉시 저장하고, 다른 탭의 저장을 다시 확인한다. 화면(6-B)은 검사하지 않는다
  */
-async function achievementsWiring(ok) {
-  const KEY = 'sword-enhance-v2';
+// F12 화면·배선 시나리오 공용: 주입 시계 기준 날짜, 고정 rng 로드, 저장 조립
+const F12 = (() => {
   const A = require(path.join(ROOT, 'js', 'achievements.js'));
   const HOUR = 3600 * 1000;
   const offAt = ms => new Date(ms).getTimezoneOffset();
-  const dayOf = ms => A.dayKey(ms, offAt(ms));
-  /** 이 기기 시간대에서 dayKey가 d로 바뀌는 시각(지역 04:00) */
-  const dayStart = d => { const t = d * 86400000 + 4 * HOUR; return t + offAt(t) * 60000; };
-  const D = 20777;
   const realRandom = Math.random;
-  /** main.js는 로드 시점의 Math.random을 잡으므로 로드하는 동안만 고정한다(일일 생성 9회도 이 값, V6) */
-  const loadWith = (store, opts) => {
-    Math.random = () => 0;
-    try { return makeEnv(store, opts); } finally { Math.random = realRandom; }
+  return {
+    KEY: 'sword-enhance-v2', A, HOUR, D: 20777,
+    dayOf: ms => A.dayKey(ms, offAt(ms)),
+    /** 이 기기 시간대에서 dayKey가 d로 바뀌는 시각(지역 04:00) */
+    dayStart: d => { const t = d * 86400000 + 4 * HOUR; return t + offAt(t) * 60000; },
+    /** main.js는 로드 시점의 Math.random을 잡으므로 로드하는 동안만 고정한다(일일 생성 9회·강화 굴림도 이 값, V6) */
+    loadWith: (store, opts, value = 0) => {
+      Math.random = () => value;
+      try { return makeEnv(store, opts); } finally { Math.random = realRandom; }
+    },
+    save: fields => Object.assign(SG_default(), fields),
+    setOf: (day, done) => ({ maxDay: day, tasks: [
+      { e: 'hunt_s', goal: 10, base: done ? 0 : 5, item: null, claimed: 0 },
+      { e: 'succ_m', goal: 4, base: 0, item: null, claimed: 0 },
+      { e: 'dlv_l', goal: 1, base: 0, item: null, claimed: 0 }], bonus: 0 }),
+    withLv: (s, lv) => { s.best = lv; s.swords = [{ id: 1, lv, prot: 2, pity: 0, trait: null }]; return s; },
   };
-  const save = fields => Object.assign(SG_default(), fields);
-  const setOf = (day, done) => ({ maxDay: day, tasks: [
-    { e: 'hunt_s', goal: 10, base: done ? 0 : 5, item: null, claimed: 0 },
-    { e: 'succ_m', goal: 4, base: 0, item: null, claimed: 0 },
-    { e: 'dlv_l', goal: 1, base: 0, item: null, claimed: 0 }], bonus: 0 });
-  const withLv = (s, lv) => { s.best = lv; s.swords = [{ id: 1, lv, prot: 2, pity: 0, trait: null }]; return s; };
+})();
+
+async function achievementsWiring(ok) {
+  const { KEY, A, HOUR, D, dayOf, dayStart, loadWith, save, setOf, withLv } = F12;
 
   // 부팅: best 4는 일일 잠김(세트·maxDay 없음), best 5는 오늘 세트 1개(첫 후보들, 고정 rng 0)
   const clk = { t: dayStart(D) + 5 * HOUR };
@@ -605,6 +613,203 @@ async function achievementsWiring(ok) {
   click(env, 'claimAll');
   ok(saved(env).achievements.tries_1 === 2, 'F12 claimAll on the active tab claims and saves');
   scanRendered();
+}
+
+/**
+ * 6-B F12 화면 (m2-achievements §12, §10.3, AC 55~59): 기록 탭 섹션 순서·일일 카드·업적 행·칭호·탭 점,
+ * 받기·모두 받기·stale·실패 문구, 달성·도착 토스트(강화는 결과 공개 뒤), 멈춘 탭 무알림
+ */
+async function recordsUi(ok) {
+  const { KEY, A, HOUR, D, dayStart, loadWith, save, setOf, withLv } = F12;
+  const toastTexts = env => (env.byId['#toasts'] ? texts(env.byId['#toasts']) : []);
+  const toastCount = (env, text) => toastTexts(env).filter(t => t === text).length;
+  const daily = env => env.byId['#dailySection']._html;
+  const achs = env => env.byId['#achSection']._html;
+  /** 마크업 조각: start 표시부터 다음 같은 종류 표시(또는 끝)까지 */
+  const piece = (html, start, next) => {
+    const i = html.indexOf(start);
+    if (i < 0) return '';
+    const j = html.indexOf(next, i + start.length);
+    return html.slice(i, j < 0 ? html.length : j);
+  };
+  const card = (env, slot) => piece(daily(env), `data-slot="${slot}"`, 'data-slot="').replace(/<div class="daily-bonus[\s\S]*$/, '');
+  const cardClass = (env, slot) => (daily(env).match(new RegExp(`class="daily-card (\\w+)" data-slot="${slot}"`)) || [])[1];
+  const bonus = env => piece(daily(env), 'class="daily-bonus', '\u0000');
+  const row = (env, id) => piece(achs(env), `data-ach="${id}"`, 'data-ach="');
+  const rowClass = (env, id) => (achs(env).match(new RegExp(`class="ach-row (\\w+)" data-ach="${id}"`)) || [])[1];
+  const recordsDot = env => /class="dot"/.test(env.byId['#tabbar']._html.split('<button').find(b => b.includes('data-id="records"')) || '');
+  const hasButton = (html, act, id) => html.includes(`data-act="${act}" data-id="${id}"`);
+  const fmt = env => env.ctx.SG.fx.fmt;
+  const clk = { t: dayStart(D) + 5 * HOUR };   // 다음 갱신(04:00)까지 19:00
+  const opts = extra => Object.assign({ now: () => clk.t }, extra);
+  /** +5 이상 검은 부팅 때 무료 각인되어 trt_1이 같이 달성되므로, 이미 특성이 있는 검으로 둔다 */
+  const engraved = s => { s.swords.forEach(sw => { sw.trait = { k: "anvil", t: 1 }; }); return s; };
+
+  // 마크업: 기록 탭 섹션 순서와 탭 5칸(새 탭 없음), test.html도 같은 순서 (AC 56)
+  ['index.html', 'test.html'].forEach(page => {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    const panel = html.match(/data-panel="records"[\s\S]*?<\/section>/)[0];
+    const at = id => panel.indexOf(`id="${id}"`);
+    const order = ['dailySection', 'statsGrid', 'masteryList', 'monumentList', 'achSection'].map(at);
+    ok(order.every((p, i) => p > 0 && (i === 0 || p > order[i - 1])), `${page}: records order 일일 과제 → 통계 → 숙련 → 기념비 → 업적: ${order}`);
+    ok(/<header>[\s\S]*id="titleBadge"[\s\S]*<\/header>/.test(html), `${page}: title badge lives in the header`);
+  });
+
+  // 새 게임(+0): 일일 잠김, 업적 34행·12묶음, 수령 0/34, 모두 받기 비활성, 칭호 없음, 점 없음
+  let env = loadWith({}, opts());
+  ok((env.byId['#tabbar']._html.match(/data-act="tab"/g) || []).length === 5, 'tab bar keeps 5 tabs');
+  ok(plain(daily(env)).includes(`최고 +${env.ctx.SG.C.DAILY_UNLOCK_BEST} 이상에서 열림`) && daily(env).includes('locked-msg') && !daily(env).includes('다음 갱신까지'),
+    'daily locked below +5 (lockedHTML style, no countdown)');
+  ok((achs(env).match(/class="ach-row /g) || []).length === 34 && (achs(env).match(/class="ach-track"/g) || []).length === 12,
+    'achievements: 34 rows in 11 tracks + 1 single');
+  ok(plain(achs(env)).includes('수령 0/34') && /data-act="claimAll" disabled/.test(achs(env)), 'nothing claimable: 수령 0/34, 모두 받기 disabled');
+  ok(rowClass(env, 'tries_1') === 'locked' && plain(row(env, 'tries_1')).includes('0/100') && plain(row(env, 'tries_1')).includes('진행 중')
+    && plain(row(env, 'tries_1')).includes('강화 100회 시도') && !row(env, 'tries_1').includes('data-act'), 'locked row: condition, progress, 진행 중, no button');
+  ok(plain(row(env, 'perfect')).includes('완벽한 등급 특성 검 보유') && piece(achs(env), 'data-track="perfect"', '\u0000').includes('단발'), 'single achievement shown as 단발');
+  ok(env.byId['#titleBadge'].hidden && env.byId['#recordsTitle'].hidden && hasButton(achs(env), 'setTitle', ''), 'no title: badges hidden, 없음 option only');
+  ok(!recordsDot(env), 'AC55: no records dot when nothing is claimable');
+  ok(!toastTexts(env).some(t => t.includes('업적') || t.includes('일일 과제')), 'fresh game: no F12 toasts');
+  scanRendered();
+
+  // 옛 저장 첫 로드: 여러 개가 한꺼번에 달성되면 토스트 1개로 합친다
+  const many = engraved(withLv(save({ gold: 1000, daily: setOf(D, true) }), 13));
+  Object.assign(many.stats, { tries: 100, hunts: 10 });
+  env = loadWith({ [KEY]: JSON.stringify(many) }, opts());
+  ok(toastCount(env, '업적 2개 달성') === 1 && !toastTexts(env).some(t => t.startsWith('업적 달성:')), 'old save: tries_1 + best_1 merged into one toast');
+
+  // 일일 카드: 설명·막대·진행·보상 미리보기·상태 (best 9, 슬롯 0 달성)
+  const one = engraved(withLv(save({ gold: 1000, daily: setOf(D, true) }), 9));
+  Object.assign(one.stats, { tries: 100, hunts: 10 });
+  let game = null;
+  env = loadWith({ [KEY]: JSON.stringify(one) }, opts({ extensions: [api => { game = api; }] }));
+  ok(toastCount(env, '업적 달성: 첫 단련 — 기록 탭에서 보상을 받으세요') === 1, 'one new achievement → its name in the toast');
+  ok(plain(daily(env)).includes('다음 갱신까지 19:00'), 'countdown to the next 04:00 from the injected clock: ' + plain(daily(env)).slice(0, 40));
+  ok((daily(env).match(/class="daily-card /g) || []).length === 3 && daily(env).includes('★★★'), '3 daily cards with stars');
+  const S9 = game.state();
+  const pv0 = A.dailyRewardPreview(S9, 0);
+  ok(cardClass(env, 0) === 'ready' && plain(card(env, 0)).includes('수동 사냥 10회') && plain(card(env, 0)).includes('10/10')
+    && plain(card(env, 0)).includes(`+${fmt(env)(pv0.gold)}G`) && hasButton(card(env, 0), 'claimDaily', 0), 'reached card: full progress, reward amount, 받기');
+  ok(cardClass(env, 1) === 'progress' && plain(card(env, 1)).includes('강화 4회 성공') && plain(card(env, 1)).includes('0/4')
+    && plain(card(env, 1)).includes('진행 중') && !card(env, 1).includes('data-act'), 'in-progress card: numbers and 진행 중, no button');
+  const pvB = A.dailyRewardPreview(S9, A.BONUS);
+  ok(plain(bonus(env)).includes(`오늘 3개 모두 달성: 보너스 +${fmt(env)(pvB.gold)}G · 파편 ${fmt(env)(pvB.shards)}`) && plain(bonus(env)).includes('1/3 달성')
+    && !bonus(env).includes('data-act'), 'bonus row: amounts and 1/3 달성');
+  ok(!/의뢰|퀘스트/.test(plain(daily(env))), 'AC54: daily section never says 의뢰/퀘스트');
+  ok(recordsDot(env) && !/data-act="claimAll" disabled/.test(achs(env)), 'AC55: dot and enabled 모두 받기 while something is claimable');
+  ok(rowClass(env, 'tries_1') === 'ready' && hasButton(row(env, 'tries_1'), 'claimAch', 'tries_1'), 'reached row: accent + 받기');
+  scanRendered();
+
+  // 받기: 일일 → 토스트(실제 지급액)·수령 표시, 업적 → 보상 토스트·✔ 받음·칭호
+  let gold = saved(env).gold;
+  click(env, 'claimDaily', '0');
+  ok(toastCount(env, `일일 과제 보상: +${fmt(env)(saved(env).gold - gold)}G`) === 1 && saved(env).gold - gold === pv0.gold, 'daily claim toast shows the paid amount (= preview)');
+  ok(cardClass(env, 0) === 'claimed' && plain(card(env, 0)).includes('✔ 받음') && !card(env, 0).includes('data-act'), 'claimed card: ✔ 받음, no button');
+  gold = saved(env).gold;
+  const pvT = A.achRewardPreview(game.state(), 'tries_1');
+  click(env, 'claimAch', 'tries_1');
+  ok(toastCount(env, `업적 보상: +${fmt(env)(pvT.gold)}G · 칭호 「견습 대장장이」`) === 1 && saved(env).gold - gold === pvT.gold, 'achievement claim toast (zero parts omitted)');
+  ok(rowClass(env, 'tries_1') === 'claimed' && plain(row(env, 'tries_1')).includes('✔ 받음') && plain(row(env, 'tries_1')).includes('칭호 「견습 대장장이」')
+    && plain(achs(env)).includes('수령 1/34'), 'claimed row: ✔ 받음 + title, count 1/34');
+  ok(piece(achs(env), 'data-track="tries"', 'data-track="').includes('class="ach-chip claimed"'), 'track chip I shows claimed');
+  ok(!recordsDot(env) && /data-act="claimAll" disabled/.test(achs(env)), 'AC55: dot gone once everything is claimed');
+
+  // 칭호: 선택 → 상단 바·기록 제목에 「칭호」, 없음 → 숨김
+  ok(hasButton(achs(env), 'setTitle', 'tries_1'), 'claimed title appears in the selector');
+  click(env, 'setTitle', 'tries_1');
+  ok(env.byId['#titleBadge'].textContent === '「견습 대장장이」' && !env.byId['#titleBadge'].hidden && env.byId['#recordsTitle'].textContent === '「견습 대장장이」'
+    && /class="title-opt on" data-act="setTitle" data-id="tries_1"/.test(achs(env)), 'title shown in header and records title, option marked');
+  click(env, 'setTitle', '');
+  ok(env.byId['#titleBadge'].hidden && env.byId['#recordsTitle'].hidden && saved(env).title === '', '없음 hides the title');
+
+  // 실패 문구 (§10.3): 미달성 일일·업적, 이미 받음
+  click(env, 'claimDaily', '1');
+  click(env, 'claimAch', 'tries_2');
+  ok(toastCount(env, '아직 달성하지 못했습니다') === 2, 'notDone / notReached → 아직 달성하지 못했습니다');
+  click(env, 'claimDaily', '0');
+  ok(toastCount(env, '이미 받은 보상입니다') === 1, 'claimed → 이미 받은 보상입니다');
+
+  // 3개 달성 → 남은 과제와 보너스 받기, 보너스 토스트
+  game.state().stats.success += 4;
+  game.state().stats.delivered += 1;
+  game.state().stats.dailyDone = 9;   // 다음 일일 수령으로 day_1(10회) 달성
+  click(env, 'claimDaily', '1');
+  ok(toastCount(env, '업적 달성: 성실한 하루 — 기록 탭에서 보상을 받으세요') === 1, 'a claim that reaches an achievement announces it');
+  click(env, 'claimDaily', '2');
+  ok(plain(bonus(env)).includes('받기') && hasButton(bonus(env), 'claimDaily', 'bonus') && /class="daily-bonus ready"/.test(daily(env)), 'bonus row becomes claimable');
+  gold = saved(env).gold;
+  click(env, 'claimDaily', 'bonus');
+  ok(toastCount(env, `오늘의 과제 완료! 보너스: +${fmt(env)(pvB.gold)}G · 파편 ${fmt(env)(pvB.shards)}`) === 1 && saved(env).gold - gold === pvB.gold,
+    'bonus claim toast');
+  ok(/class="daily-bonus claimed"/.test(daily(env)) && plain(bonus(env)).includes('✔ 받음'), 'bonus claimed');
+  scanRendered();
+
+  // 모두 받기: 업적 + 일일 합산 토스트 1개, 이후 점 없음
+  env = loadWith({ [KEY]: JSON.stringify(Object.assign(JSON.parse(JSON.stringify(many)), { stats: Object.assign({}, many.stats, { success: 4, delivered: 1 }) })) }, opts());
+  gold = saved(env).gold;
+  click(env, 'claimAll');
+  const st = saved(env);
+  const allToast = toastTexts(env).filter(t => t.startsWith('보상 '));
+  ok(allToast.length === 1 && allToast[0] === `보상 6개를 받았습니다: +${fmt(env)(st.gold - gold)}G · 파편 ${fmt(env)(st.shards)} · 칭호 2개`,
+    'claimAll: one merged toast: ' + allToast.join(' | '));
+  ok(!recordsDot(env) && st.daily.bonus === 1 && st.achievements.best_1 === 2, 'claimAll claimed achievements and daily, dot gone');
+
+  // stale: 다른 탭이 새 날 세트로 바꿈 → 갱신 문구, 새 세트로 다시 그림, 보상 토스트 없음
+  env = loadWith({ [KEY]: JSON.stringify(one) }, opts({ extensions: [api => { game = api; }] }));
+  const otherDay = JSON.parse(env.store[KEY]);
+  otherDay.daily = setOf(D + 1, false);
+  otherDay.daily.tasks[0].e = 'auto_s';
+  otherDay.idle.lastSeen = clk.t + 5;
+  env.store[KEY] = JSON.stringify(otherDay);
+  click(env, 'claimDaily', '0');
+  ok(toastCount(env, '일일 과제가 갱신되었습니다') === 1 && !toastTexts(env).some(t => t.startsWith('일일 과제 보상')) && plain(card(env, 0)).includes('자동 사냥 10회 실행'),
+    'stale → 일일 과제가 갱신되었습니다 and the adopted set is drawn');
+
+  // 새 세트 도착 토스트: 04:00 틱에서 1번, 시계 역행은 조용히
+  clk.t = dayStart(D + 1) - 1000;
+  env = loadWith({ [KEY]: JSON.stringify(withLv(save({ daily: setOf(D, false) }), 5)) }, opts());
+  ok(toastCount(env, '새 일일 과제가 도착했습니다') === 0, 'same day on load: no arrival toast');
+  clk.t = dayStart(D + 1) + 1000;
+  env.tick();
+  env.tick();
+  ok(toastCount(env, '새 일일 과제가 도착했습니다') === 1 && plain(daily(env)).includes('다음 갱신까지 23:59'), 'new day at 04:00: one arrival toast, countdown restarts');
+  const toastsBefore = toastTexts(env).length;
+  clk.t = dayStart(D + 1) - 5 * HOUR;
+  env.tick();
+  ok(toastTexts(env).length === toastsBefore && saved(env).daily.maxDay === D + 1, 'AC59: clock rollback shows no toast and keeps the set');
+  ok(/다음 갱신까지 \d\d:\d\d/.test(plain(daily(env))), 'AC59: countdown still renders on a rolled-back clock');
+  // 세트가 없는 동안(maxDay가 앞서 있고 세트가 비었음): 카드 대신 안내
+  clk.t = dayStart(D) + 5 * HOUR;
+  env = loadWith({ [KEY]: JSON.stringify(withLv(save({ daily: { maxDay: D + 3, tasks: [], bonus: 0 } }), 7)) }, opts());
+  ok(plain(daily(env)).includes('오늘의 일일 과제가 아직 없습니다') && !daily(env).includes('daily-card'), 'no set yet: notice instead of cards');
+  scanRendered();
+
+  // 멈춘 탭: 날이 바뀌어도 도착 토스트·달성 토스트 없음
+  env = loadWith({ [KEY]: JSON.stringify(one) }, opts());
+  fire(env, 'storage', { key: KEY });
+  const frozenToasts = toastTexts(env).length;
+  clk.t += 24 * HOUR;
+  env.tick();
+  setVisible(env, false);
+  setVisible(env, true);
+  ok(isLocked(env) && toastTexts(env).length === frozenToasts, 'suspended tab: no F12 toasts');
+  clk.t = dayStart(D) + 5 * HOUR;
+
+  // 강화로 달성: 토스트는 결과 공개 뒤(연출 중에는 없음). 성공 굴림 0으로 고정(V6)
+  const pre = withLv(save({ gold: 1e6 }), 3);
+  pre.stats.tries = 99;
+  env = loadWith({ [KEY]: JSON.stringify(pre) }, opts({ manualTimers: true }));
+  const reachedToast = '업적 달성: 첫 단련 — 기록 탭에서 보상을 받으세요';
+  env.byId['#btnEnhance'].listeners.click[0]();
+  ok(saved(env).achievements.tries_1 === 1 && toastCount(env, reachedToast) === 0, 'enhance: latched and saved, but no toast during the animation');
+  await env.runAllTimers();
+  ok(saved(env).swords[0].lv === 4 && toastCount(env, reachedToast) === 1, 'enhance: achievement toast after the outcome reveal');
+
+  // 좁은 화면 규칙(정적 CSS): 카드·행은 넘치지 않고 줄바꿈, 상단 칭호 배지는 길이 제한
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
+  const block = (css.match(/\.daily-card, \.daily-bonus, \.ach-row \{([^}]*)\}/) || [])[1] || '';
+  ok(/overflow:\s*hidden/.test(block) && /overflow-wrap:\s*anywhere/.test(block) && /min-width:\s*0/.test(block), 'cards/rows clip and wrap instead of overflowing');
+  const badge = (css.match(/\.title-badge \{([^}]*)\}/) || [])[1] || '';
+  ok(/max-width/.test(badge) && /text-overflow:\s*ellipsis/.test(badge) && /white-space:\s*nowrap/.test(badge), 'header title badge is length-capped');
 }
 
 /** 태그를 지운 화면 글자(공백 정리) */
