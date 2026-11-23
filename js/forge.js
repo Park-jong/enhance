@@ -47,6 +47,9 @@
     return gains;
   }
 
+  /** 사냥 1회 기대 광석(표시용) = rollOre 평균: 광부 특성이면 rate100 / 100, 아니면 ORE_PER_HUNT 그대로 */
+  const orePerHunt = (S, k) => R.traitScaled(C.ORE_PER_HUNT[k], R.incomeTraitValue(S, 'ore'));
+
   /** n회분 기대값 광석(확률 굴림 없음) × 효율 × 광부 특성, 내림 — 오프라인 정산용 */
   function expectedOre(S, runs, eff) {
     const gains = {};
@@ -136,7 +139,7 @@
     GRADES.some(g => craftBlock(S, g) === null) || S.anvils.some(a => repairBlock(S, a.id) === null);
 
   return {
-    oreUnlocked, unlockedOres, addOre, rollOre, expectedOre, shortfall,
+    oreUnlocked, unlockedOres, addOre, rollOre, orePerHunt, expectedOre, shortfall,
     equipAnvil, GRADES, craftCost, craftBlock, craftAnvil, repairCost, repairBlock, repairAnvil, forgeActionable,
   };
 });

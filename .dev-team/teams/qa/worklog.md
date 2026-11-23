@@ -106,3 +106,17 @@
 - 산출물: tests/run-m1.1-qa-tests.js:586 기대값에 trait: null 추가(189/0). docs/verification-issues.md V2 4회로 병합
 - 결정 사항: 승인. 검사: run-tests 287, smoke-dom 310, m1-qa 29, round2 36, m1.1 189(수정 후), browser-strip 44, sim-late selfcheck 13 모두 통과. HEAD 대비 시드 회귀 동일(rng 452회, 결과 3319건). chances() 무변경·특성 무관, 옛 저장 부팅 각인 1회만. 코드 문제 없음.
 - 남은 문제: m1-storage.md 23·41·87행에 trait 미반영(디자인 요청), setTrait의 test.html 노출 여부는 5-A/5-B 미정, 테스트 패널 commit은 engravePending을 호출하지 않음(정보), view.js 476·521 ORE_PER_HUNT 표시는 5-B에서 정리
+
+## 2026-11-23 — 5단계 5-B 검증 (특성·골드 사용처 화면) 1차
+- 지시: 디렉터 / 관련 단계: 5단계 5-B / 처리한 요청: 없음
+- 참여 팀원: tester(7종 검사, smoke-dom 15회 반복, 브라우저 시각 확인), code-reviewer(diff 검토)
+- 산출물: docs/verification-issues.md (V1 2회 병합 ⚠️, V6·V7 신규)
+- 결정 사항: 수정 요청. 검사 7종 통과(run-tests 288, smoke-dom 380, m1-qa 29, round2 36, m1.1 189, browser-strip 91, selfcheck 13). 필수 수정: view.js:554 최고 등급 분기, smoke-dom:785 비시드 RNG 플레이크(15회 중 3회 실패). 시각 확인 이상 없음(V4 재발 없음).
+- 남은 문제: 탭 전환 시 disarm, #vSell 애니메이션 중 혼합 상태, 기념비 비활성 사유, 칩 세로 배치(§11 한 줄과 차이) 결정
+
+## 2026-11-23 — 5단계 5-B 검증 2차 (좁은 범위)
+- 지시: 디렉터 / 관련 단계: 5단계 5-B / 처리한 요청: 없음
+- 참여 팀원: 없음(light, 직접 검사)
+- 산출물: 없음. 검사: smoke-dom 12회 연속 388 통과, run-tests 288, m1-qa 29, round2 36, m1.1 189, browser-strip 91, selfcheck 13. 기념비 사유 줄 데스크톱·375px 브라우저 확인.
+- 결정 사항: 승인. 필수 수정 2건·권장 3건(tab disarm, 기념비 사유, 미사용 export) 반영 확인. 세로 칩은 디렉터가 스펙으로 수용. 검증 문제 기록 변경 없음(1차에서 V1 병합·V6·V7 기록).
+- 남은 문제: #vSell 애니메이션 중 옛 레벨 가격+새 특성 혼합 표시(표시 전용), view.js의 income 특성 분류 중복(낮음)

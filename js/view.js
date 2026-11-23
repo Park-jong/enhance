@@ -36,7 +36,32 @@
     maxLv: '더 이상 강화할 수 없습니다.',
     gaugeFull: '천장 확정: 소모품이 필요 없음',
     noActive: NO_ACTIVE_TEXT + '.',
+    noTrait: '특성이 없는 검입니다.',
+    maxTier: '이미 최고 등급입니다.',
+    owned: '이미 세운 기념비입니다.',
+    notReached: '아직 그 단계에 도달하지 못했습니다.',
+    invalid: '대상을 찾을 수 없습니다.',
   };
+  // 검 특성 (m2-traits §11). income: 최고 단계 검들 중 종류별 최댓값만 적용되는 수입형, 나머지는 '이 검'에만 적용
+  const TRAIT_TEXT = {
+    hunt: { income: true, effect: v => `수동 사냥 골드 +${v}%` },
+    work: { income: true, effect: v => `자동 사냥·오프라인 골드 +${v}%` },
+    trade: { effect: v => `이 검을 판매·납품할 때 골드 +${v}%` },
+    ore: { income: true, effect: v => `사냥당 광석 +${v}%` },
+    shard: { effect: v => `이 검이 파괴될 때 파편 +${v}%` },
+    anvil: { effect: v => `이 검을 모루로 강화할 때 ${v}% 확률로 내구도 보존` },
+  };
+  const INCOME_TRAIT_KINDS = C.TRAIT_KINDS.filter(k => TRAIT_TEXT[k].income);
+  const TRAIT_NO_ODDS_TEXT = '특성은 강화 확률에 영향을 주지 않는다';
+  // 골드 사용처(특성 관리·기념비): 2회 클릭 확인 문구와 막힌 사유
+  const SINK_TEXT = {
+    confirm: '한 번 더 누르면 구매',
+    locked: `최고 +${C.TRAIT_MGMT_UNLOCK_BEST} 이상에서 열림`,
+    maxTier: '최고 등급',
+    noGold: '골드가 부족합니다.',
+    monumentNote: '장식 전용 — 확률·수입에 영향 없음',
+  };
+  const monumentTitle = L => `+${L} ${C.SWORDS[L].n} 기념비`;
   const TRAY_REASON = {
     noStock: () => '보유 없음',
     sureExclusive: () => '확정 강화권 사용 중에는 함께 쓸 수 없습니다',
@@ -105,6 +130,29 @@
   const itemLabel = (id, n) => `${ic(id)} ${itemName(id)}${qtySuffix(n)}`;
   /** textContent용(로그·토스트): 이모지 + 이름 */
   const itemText = (id, n) => `${C.ICONS[id] || ''} ${itemName(id)}${qtySuffix(n)}`.trim();
+  /** 광석 사냥당 기대량 표시(0.5·0.7·3.2): 부동소수 끝자리만 정리한다 */
+  const rateText = x => String(+x.toFixed(3));
+
+  // ------------------------------------------------------------ 특성 표시
+  /** "완벽한 대장장이" (trait = { k, t }) */
+  const traitName = tr => `${C.TRAIT_TIER_NAME[tr.t - 1]} ${C.TRAITS[tr.k].name}`;
+  const traitEffect = tr => TRAIT_TEXT[tr.k].effect(R.traitValue({ trait: tr }, tr.k));
+  /** 수입 줄의 특성 몫 "+20%(약탈자)": 수입 검들 중 그 종류의 최댓값만(없으면 '') */
+  function traitShare(S, kind) {
+    const v = R.incomeTraitValue(S, kind);
+    return v > 0 ? `+${v}%(${C.TRAITS[kind].name})` : '';
+  }
+  const withShare = (text, share) => (share ? `${text} ${share}` : text);
+  const isIncomeSword = (S, sw) => R.incomeSwords(S).includes(sw);
+  /** 효과 문장. 수입형은 이 검이 지금 수입 검(최고 단계)인지 덧붙인다(sw가 없으면 생략) */
+  function traitLineText(S, sw, tr) {
+    const text = traitEffect(tr);
+    if (!TRAIT_TEXT[tr.k].income || !sw) return text;
+    return isIncomeSword(S, sw) ? `${text} · 수입 검 적용 중` : `${text} · 최고 단계 검(+${R.topLv(S)})일 때만 적용`;
+  }
+  /** 색만으로 구분하지 않게 약자 한 글자 + 등급 점(1~3개) */
+  const traitChipHTML = tr =>
+    `<span class="trait-chip trait-t${tr.t}"><b>${C.TRAITS[tr.k].short}</b><span class="pips">${'<i></i>'.repeat(tr.t)}</span></span>`;
 
   function fmtDuration(ms) {
     const total = Math.max(0, Math.ceil(ms / 1000));
@@ -158,10 +206,11 @@
     if (sw.lv < C.MAX && pb > 0) badges.push(`<span>${ic('pity')}+${pb}%p</span>`);
     if (Q.slotForSword(S, sw) >= 0) badges.push(`<span>${ic('deliver')}</span>`);
     const active = sw.id === S.active;
+    const trait = sw.trait ? ` · ${traitName(sw.trait)}` : '';
     // 클릭 한 번이면 활성 검(data-act), data-sword는 칸 드래그 대상 표시
     return `<button class="slot-card ${active ? 'active' : ''}" data-act="activate" data-id="${sw.id}" data-sword="${sw.id}"
-      title="${swordName(sw.lv)} · 클릭: 활성 검으로 · 끌기: 칸 이동">
-      ${active ? '<span class="star">★ 활성</span>' : ''}${FX.swordSVG(sw.lv, 's' + sw.id)}
+      title="${swordName(sw.lv)}${trait} · 클릭: 활성 검으로 · 끌기: 칸 이동">
+      ${active ? '<span class="star">★ 활성</span>' : ''}${sw.trait ? traitChipHTML(sw.trait) : ''}${FX.swordSVG(sw.lv, 's' + sw.id)}
       <b>+${sw.lv}</b><span class="badges">${badges.join('')}</span></button>`;
   }
 
@@ -251,12 +300,21 @@
   }
 
   function renderIncomeNote(S) {
-    $('#incomeNote').textContent = `사냥·자동 수입 기준: 보관함 최고 검 +${R.topLv(S)}`;
+    const shares = INCOME_TRAIT_KINDS.map(k => traitShare(S, k)).filter(Boolean);
+    $('#incomeNote').textContent = `사냥·자동 수입 기준: 보관함 최고 검 +${R.topLv(S)}${shares.length ? ` · 특성 ${shares.join(' · ')}` : ''}`;
+  }
+
+  /** 활성 검 이름 줄 "완벽한 약탈자 · +12 …"과 그 아래 효과 문장. 특성이 없으면 기존 표기 */
+  function renderSwordTitle(S, sw, lv, trait) {
+    $('#swordName').textContent = trait ? `${traitName(trait)} · ${swordName(lv)}` : swordName(lv);
+    $('#traitLine').hidden = !trait;
+    $('#traitLine').textContent = trait ? traitLineText(S, sw, trait) : '';
   }
 
   /** 활성 검 없음(파괴 직후): 검 대신 선택 안내, 수치는 모두 '-' */
   function renderNoSwordCard(S) {
     $('#rarity').hidden = true;
+    renderSwordTitle(S, null, 0, null);
     $('#swordName').textContent = '활성 검 없음';
     $('#swordName').style.color = '';
     document.documentElement.style.setProperty('--tier', DEFAULT_TIER);
@@ -280,8 +338,8 @@
     const noSword = !ui.view && !sw;
     $('#stageEmpty').hidden = !noSword;
     if (noSword) return renderNoSwordCard(S);
-    // 강화 연출 중(ui.view)에는 시도 직전 확률·게이지를 보여 준다(결과가 미리 드러나지 않게). 파괴 연출 중엔 sw가 null이다
-    const view = ui.view || { lv: sw.lv, chances: R.currentChances(S), gauge: R.gaugeInfo(S, sw.lv) };
+    // 강화 연출 중(ui.view)에는 시도 직전 확률·게이지·특성을 보여 준다(결과·새 각인이 미리 드러나지 않게). 파괴 연출 중엔 sw가 null이다
+    const view = ui.view || { lv: sw.lv, chances: R.currentChances(S), gauge: R.gaugeInfo(S, sw.lv), trait: sw.trait };
     const l = view.lv;
     const c = view.chances;
     const rar = R.rarity(l);
@@ -290,7 +348,7 @@
     $('#rarity').hidden = false;
     $('#rarity').textContent = rar.name;
     $('#rarity').style.color = rar.color;
-    $('#swordName').textContent = swordName(l);
+    renderSwordTitle(S, sw, l, view.trait || null);
     $('#swordName').style.color = l >= C.DROP_FROM ? rar.color : '';
     document.documentElement.style.setProperty('--tier', C.SWORDS[l].g || DEFAULT_TIER);
     if (renderedLevel !== l) {
@@ -305,7 +363,8 @@
     setHTML(gaugeLine, view.gauge ? gaugeHTML(view.gauge) : '');
     $('#vDest').textContent = isMax ? '-' : c.dest + '%';
     $('#vCost').textContent = isMax ? '-' : fmt(R.cost(l));
-    $('#vSell').textContent = fmt(R.sell(l));
+    // 판매 지급 미리보기(상인 특성·인장 포함, 실제 지급과 같은 함수). 파괴 연출 중(sw 없음)에는 기본가
+    $('#vSell').textContent = fmt(sw ? R.payoutPreview(S, R.sell(l), sw) : R.sell(l));
     const protWarn = !ui.view && !isMax && C.DESTROY[l] > 0 && sw.prot <= 0;
     $('#destWarn').hidden = !protWarn;
 
@@ -401,13 +460,15 @@
     const huntBtn = $('#btnHunt');
     huntBtn.disabled = now < ui.huntUntil;
     huntBtn.firstChild.textContent = `사냥 +${fmt(I.manualHuntGold(S, now))}`;
+    const huntShare = traitShare(S, 'hunt');
+    $('#huntSub').textContent = huntShare ? `H · ${huntShare}` : 'H';
 
     if (!I.autoUnlocked(S)) {
       setHTML($('#autoRow'), `<span>${ic('lock')} ${ic('auto')} 자동 사냥 — 최고 강화 +${C.AUTO_UNLOCK_BEST} 달성 시 해금</span>`);
       return;
     }
     const status = S.idle.autoOn
-      ? `다음 ${until(ui.nextAutoAt)} · 1회 +${fmt(I.autoRunGold(S, now))}G`
+      ? withShare(`다음 ${until(ui.nextAutoAt)} · 1회 +${fmt(I.autoRunGold(S, now))}G`, traitShare(S, 'work'))
       : '꺼짐';
     setHTML($('#autoRow'), `<label class="switch"><input type="checkbox" data-change="auto" ${S.idle.autoOn ? 'checked' : ''}> ${ic('auto')} 자동</label><span>${status}</span>`);
   }
@@ -462,7 +523,48 @@
       <div class="btn-col"><button class="small-btn" data-act="equip" data-id="${a.id}" ${equipped ? 'disabled' : ''}>${equipped ? '장착됨' : '장착'}</button>${repairBtn}</div></div>`;
   }
 
-  function renderForge(S) {
+  /**
+   * 2회 클릭으로 사는 골드 사용처 버튼(특성 관리·기념비). 확인 키는 main.js와 같은 `${act}:${id}`.
+   * 막혔거나(block 사유) 강화 연출 중이면 비활성
+   */
+  function sinkButtonHTML(ui, now, o) {
+    const armed = isArmed(ui, `${o.act}:${o.id}`, now);
+    const price = `<span class="${o.block === 'noGold' ? 'lack' : ''}">${fmt(o.price)}G</span>`;
+    return `<button class="small-btn gold ${armed ? 'armed' : ''}" data-act="${o.act}" data-id="${o.id}" ${o.block || ui.busy ? 'disabled' : ''}>
+      ${armed ? `${SINK_TEXT.confirm} · ${price}` : `${o.label} ${price}`}</button>`;
+  }
+  /** 사용처 버튼 아래 한 줄 사유(잠김 > 골드 부족한 버튼 이름). 최고 등급은 버튼 글자로 보인다. buttons: [{ label, block }] */
+  function sinkReasonHTML(buttons) {
+    if (buttons.some(b => b.block === 'locked')) return `<p class="panel-note sink-reason">${ic('lock')} ${SINK_TEXT.locked}</p>`;
+    const poor = buttons.filter(b => b.block === 'noGold').map(b => b.label);
+    return poor.length ? `<p class="panel-note sink-reason">${poor.join('·')}: ${SINK_TEXT.noGold}</p>` : '';
+  }
+
+  /** 대장간 탭 "각인" 섹션: 활성 검의 특성·효과와 종류 변경·등급 올리기(best ≥ 13, m2-traits §8·§11) */
+  function traitPanelHTML(S, ui, now) {
+    const head = '<h3 class="sub-title">각인 · 활성 검</h3>';
+    const foot = `<p class="panel-note">${TRAIT_NO_ODDS_TEXT}.</p>`;
+    const sw = R.activeSword(S);
+    if (!sw) return `${head}<p class="panel-note">${NO_ACTIVE_TEXT}.</p>${foot}`;
+    if (!sw.trait) return `${head}<p class="panel-note">${swordName(sw.lv)} · 특성 없음 — +${C.TRAIT_ROLL_LV} 이상이 되면 무료로 각인됩니다.</p>${foot}`;
+    const incomeBadge = isIncomeSword(S, sw) ? ' <span class="badge good">수입 검</span>' : '';
+    const info = `<div class="row"><div class="shop-icon">${traitChipHTML(sw.trait)}</div>
+      <div class="shop-text">${traitName(sw.trait)}${incomeBadge}<small>${swordName(sw.lv)} · ${traitLineText(S, sw, sw.trait)}</small></div></div>`;
+    const rekind = { act: 'traitRekind', id: sw.id, label: '종류 변경', price: R.traitRekindCost(S), block: R.rerollKindBlock(S, sw.id) };
+    // 최고 등급을 잠금보다 먼저 본다: 잠긴 동안 upgradeTierBlock은 'locked'이고 3등급 가격은 null이다(V7)
+    const atMaxTier = sw.trait.t >= C.TRAIT_TIER_MAX;
+    const tierUp = atMaxTier ? null
+      : { act: 'traitTierUp', id: sw.id, label: '등급 올리기', price: R.traitTierUpCost(S, sw.trait.t), block: R.upgradeTierBlock(S, sw.id) };
+    const tierUpButton = atMaxTier
+      ? `<button class="small-btn" disabled>${SINK_TEXT.maxTier}</button>`
+      : sinkButtonHTML(ui, now, tierUp);
+    const incomeCount = R.incomeSwords(S).length;
+    const incomeNote = `<p class="panel-note">수입 검: 보관함 최고 +${R.topLv(S)} ${incomeCount}자루 — 약탈자·일꾼·광부는 이 검들 중 가장 높은 값만 적용</p>`;
+    return `${head}${info}<div class="sink-btns">${sinkButtonHTML(ui, now, rekind)}${tierUpButton}</div>` +
+      `${sinkReasonHTML(tierUp ? [rekind, tierUp] : [rekind])}${incomeNote}${foot}`;
+  }
+
+  function renderForge(S, ui, now) {
     const anvils = S.anvils.length
       ? S.anvils.map(a => anvilRowHTML(S, a)).join('')
       : '<p class="panel-note">보유한 모루가 없습니다. 상점에서 구매하거나 제작하세요.</p>';
@@ -473,8 +575,10 @@
         <button class="small-btn" data-act="craft" data-id="${g}" ${block ? 'disabled' : ''}>${block === 'full' ? '보유 한도' : '제작'}</button></div>`;
     }).join('');
     const ores = C.ORES.map(k => F.oreUnlocked(S, k)
-      ? `<div>${ic(k)} ${C.ORE_NAMES[k]}<b>${fmt(S.ore[k])}</b><small>사냥당 +${C.ORE_PER_HUNT[k]}</small></div>`
+      ? `<div>${ic(k)} ${C.ORE_NAMES[k]}<b>${fmt(S.ore[k])}</b><small>사냥당 +${rateText(F.orePerHunt(S, k))}</small></div>`
       : `<div class="muted">${ic('lock')} ${C.ORE_NAMES[k]}<b>-</b><small>최고 +${C.ORE_UNLOCK_LV[k]} 달성 시</small></div>`).join('');
+    const oreShare = traitShare(S, 'ore');
+    const minerNote = oreShare ? `<p class="panel-note">사냥당 광석 ${oreShare} 적용 중</p>` : '';
     const shardNote = S.shards > 0 ? '' : '<p class="panel-note">검이 파괴되면 파편을 얻습니다.</p>';
     const exchange = `<h3 class="sub-title">파편 교환 · 보유 ${ic('shard')} ${fmt(S.shards)}</h3>${shardNote}` +
       Object.keys(C.SHARD_COST).map(id => {
@@ -483,9 +587,10 @@
         return `<div class="row"><div class="shop-icon">${ic(id)}</div><div class="shop-text">${item.name} <span class="muted">${own}</span></div>
           <button class="buy" data-act="exchange" data-id="${id}" ${R.exchangeBlock(S, id) ? 'disabled' : ''}>${ic('shard')} ${C.SHARD_COST[id]}</button></div>`;
       }).join('');
-    return `<h3 class="sub-title">모루 (${S.anvils.length}/${C.ANVIL_OWN_MAX})</h3>${anvils}
+    return `${traitPanelHTML(S, ui, now)}
+      <h3 class="sub-title">모루 (${S.anvils.length}/${C.ANVIL_OWN_MAX})</h3>${anvils}
       <h3 class="sub-title">제작</h3>${craft}
-      <h3 class="sub-title">광석</h3><div class="ore-grid">${ores}</div>${exchange}`;
+      <h3 class="sub-title">광석</h3><div class="ore-grid">${ores}</div>${minerNote}${exchange}`;
   }
 
   function questCardHTML(S, ui, q, i, now) {
@@ -494,13 +599,16 @@
     if (!q) return `<div class="quest"><div class="q-head">${badge} 새 의뢰 준비 중</div><div class="q-sub">다음 의뢰까지 ${until(S.quests.readyAt[i])}</div></div>`;
     const cand = Q.candidate(S, q);
     const sealOn = R.sealActive(S);
+    // 지급 미리보기: 후보 검의 상인 특성 → 인장 순서(실제 지급과 같은 함수, AC 52)
     const gold = R.payoutPreview(S, q.gold, cand);
-    const reward = `${ic('gold')} ${fmt(gold)}G${sealOn ? ` (인장 ×${C.SEAL_MULT})` : ''}${q.item ? ' + ' + itemLabel(q.item.id, q.item.n) : ''}`;
+    const merchant = R.traitValue(cand, 'trade');
+    const bonus = `${merchant > 0 ? ` (${C.TRAITS.trade.name} +${merchant}%)` : ''}${sealOn ? ` (인장 ×${C.SEAL_MULT})` : ''}`;
+    const reward = `${ic('gold')} ${fmt(gold)}G${bonus}${q.item ? ' + ' + itemLabel(q.item.id, q.item.n) : ''}`;
     const have = S.swords.map(s => '+' + s.lv).join(', ');
     let sub;
     if (!cand) sub = `<span class="lack">보유 검 없음 · +${q.lv} 필요</span> · 가진 검: ${have}`;
     else if (cand.id === S.active) sub = '활성 검만 해당됩니다 — 한 번 더 눌러 확인';
-    else sub = `보관함의 +${q.lv} 검을 납품합니다 (판매가 ${fmt(R.sell(q.lv))}G)`;
+    else sub = `보관함의 +${q.lv} 검을 납품합니다 (판매가 ${fmt(R.payoutPreview(S, R.sell(q.lv), cand))}G)`;
     const armed = isArmed(ui, 'deliver:' + i, now);
     const rerollCost = Q.rerollCost(S);
     return `<div class="quest"><div class="q-head">${badge} 요구: ${swordName(q.lv)}</div>
@@ -518,10 +626,11 @@
 
   function renderIdle(S, ui, now) {
     const lv = R.topLv(S);
-    const ores = F.unlockedOres(S).map(k => `${ic(k)}+${C.ORE_PER_HUNT[k]}`).join(' ');
+    const ores = withShare(F.unlockedOres(S).map(k => `${ic(k)}+${rateText(F.orePerHunt(S, k))}`).join(' '), traitShare(S, 'ore'));
+    const gold = withShare(`+${fmt(I.autoRunGold(S, now))}G`, traitShare(S, 'work'));
     const status = `<div class="row"><div class="shop-icon">${ic('auto')}</div>
       <div class="shop-text">자동 사냥 ${S.idle.autoOn ? '<span class="badge good">ON</span>' : '<span class="badge">OFF</span>'}
-        <small>${I.autoInterval(S) / 1000}초마다 +${fmt(I.autoRunGold(S, now))}G ${ores} · 기준: 보관함 최고 +${lv}</small></div>
+        <small>${I.autoInterval(S) / 1000}초마다 ${gold} ${ores} · 기준: 보관함 최고 +${lv}</small></div>
       <button class="small-btn" data-act="toggleAuto">${S.idle.autoOn ? '끄기' : '켜기'}</button></div>`;
     const ups = C.UPGRADES.map(u => {
       const n = S.idle.up[u.id];
@@ -542,7 +651,7 @@
 
   const PANEL = {
     shop: (S, ui, now) => renderShop(S, now),
-    forge: S => renderForge(S),
+    forge: (S, ui, now) => renderForge(S, ui, now),
     quests: (S, ui, now) => renderQuests(S, ui, now),
     idle: (S, ui, now) => renderIdle(S, ui, now),
   };
@@ -572,6 +681,41 @@
     });
     setHTML($('#statsGrid'), STATS.map(([k, f]) => `<div><span>${k}</span><b>${f(S)}</b></div>`).join(''));
     setHTML($('#masteryList'), masteryRowsHTML(S));
+    renderMonuments(S, ui, now);
+  }
+
+  // ============================================================ 단계 기념비 (장식, m2-overview §C.3)
+  const MONUMENT_LEVELS = C.SWORDS.map((_, L) => L).filter(L => R.monumentIndex(L) >= 0);
+  const monumentOwned = (S, L) => !!S.monuments[R.monumentIndex(L)];
+  /** 보유한 가장 높은 단계(없으면 null) — 머리글 배지·대표 기념비 */
+  const topMonument = S => MONUMENT_LEVELS.filter(L => monumentOwned(S, L)).pop() || null;
+
+  function monumentCellHTML(S, ui, now, L) {
+    const name = C.SWORDS[L].n;
+    const price = R.monumentCost(L);
+    const block = R.monumentBlock(S, L);
+    if (block === 'owned') {
+      return `<div class="mon owned"><b>${ic('monument')} +${L}</b><small>${name}</small><span class="badge good">보유</span></div>`;
+    }
+    if (block === 'notReached') {
+      return `<div class="mon locked"><b>${ic('lock')} +${L}</b><small>최고 +${L} 달성 시</small><small>${fmt(price)}G</small></div>`;
+    }
+    return `<div class="mon"><b>${ic('monument')} +${L}</b><small>${name}</small>
+      ${sinkButtonHTML(ui, now, { act: 'buyMonument', id: L, label: '세우기', price, block })}</div>`;
+  }
+
+  /** 기록 탭 기념비 8칸(잠김/구매 가능/보유) + 대표 기념비 줄, 머리글 배지 */
+  function renderMonuments(S, ui, now) {
+    const top = topMonument(S);
+    const owned = MONUMENT_LEVELS.filter(L => monumentOwned(S, L)).length;
+    $('#monumentCount').textContent = `(${owned} / ${MONUMENT_LEVELS.length})`;
+    const lead = `<p class="panel-note mon-lead">${top ? `대표 기념비: ${ic('monument')} ${monumentTitle(top)} · ` : ''}${SINK_TEXT.monumentNote}</p>`;
+    const reason = sinkReasonHTML(MONUMENT_LEVELS.map(L => ({ label: `+${L}`, block: R.monumentBlock(S, L) })));
+    setHTML($('#monumentList'), `${lead}<div class="mon-grid">${MONUMENT_LEVELS.map(L => monumentCellHTML(S, ui, now, L)).join('')}</div>${reason}`);
+    const badge = $('#monumentBadge');
+    badge.hidden = !top;
+    badge.textContent = top ? `${C.ICONS.monument} +${top}` : '';
+    badge.title = top ? `대표 기념비: ${monumentTitle(top)}` : '';
   }
 
   /** 기록 탭: 단계별 성공 숙련 `+16 숙련 +6%p (2/4)` */
@@ -587,9 +731,12 @@
   const masteryToastText = m => `+${m.lv} 숙련! 이후 +${m.lv} 강화 성공률 +${m.gained}%p`;
   /** 다 써서 자동으로 꺼진 트레이 소모품 토스트(시도 1회당 1번) */
   const ranOutToastText = ids => `${ids.map(id => itemText(id)).join(', ')}을(를) 다 써서 사용을 껐습니다.`;
-  /** 새 특성 각인 토스트(여러 자루면 한 문장으로 합침). 문구는 5-B에서 확정(m2-traits §11, 잠정) */
-  const engraveToastText = list =>
-    `검에 각인: ${list.map(e => `${C.TRAIT_TIER_NAME[e.t - 1]} ${C.TRAITS[e.k].name}`).join(', ')}`;
+  /** 첫 각인 토스트 "검에 각인: <등급> <종류>"(여러 자루면 한 문장으로 합침, m2-traits §11) */
+  const engraveToastText = list => `검에 각인: ${list.map(traitName).join(', ')}`;
+  /** 골드 사용처 구매 알림(토스트·로그) */
+  const rekindText = r => `특성 종류 변경: ${traitName({ k: r.from, t: r.t })} → ${traitName(r)} (${fmt(r.price)}G)`;
+  const tierUpText = r => `특성 등급 올리기: ${traitName(r)} (${fmt(r.price)}G)`;
+  const monumentText = (L, r) => `${C.ICONS.monument} ${monumentTitle(L)}를 세웠습니다 (${fmt(r.price)}G)`;
 
   // ============================================================ 정적 요소
   /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지)하고, 저장 안전 배너·배지 문구를 채운다 */
@@ -675,6 +822,7 @@
   SG.view = {
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
     NO_ACTIVE_TEXT, swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, engraveToastText, SAVE_FAILED_TEXT,
+    traitName, rekindText, tierUpText, monumentText,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

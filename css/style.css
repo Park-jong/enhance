@@ -470,3 +470,36 @@ main {
 /* 콘텐츠 팀 SVG 아이콘: 글자 크기·색을 따른다 */
 .ic { display: inline-block; width: 1.1em; height: 1.1em; vertical-align: -0.2em; line-height: 0; }
 .ic svg { width: 100%; height: 100%; display: block; }
+
+/* ---------- 검 특성 (M2 F14) ---------- */
+/* 약자 한 글자 + 등급 점(1~3개): 색만으로 구분하지 않는다. 등급 색은 보조 */
+.trait-chip {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 2px 3px;
+  border: 1px solid currentColor; border-radius: 6px; background: rgba(0, 0, 0, .35);
+  color: var(--muted); font-size: 12px; line-height: 1; overflow: hidden;
+}
+.trait-chip b { font-weight: 800; }
+.trait-chip .pips { display: flex; flex-direction: column; gap: 1px; }
+.trait-chip .pips i { display: block; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.trait-chip.trait-t2 { color: var(--info); }
+.trait-chip.trait-t3 { color: var(--gold); }
+/* 보관함 카드: 흐름 밖(검 그림 오른쪽 빈자리, ★ 활성 아래)에 띄워 카드 높이·폭을 바꾸지 않는다. 64px 모바일 카드에서도 그림과 겹치지 않는 폭 */
+.slot-card .trait-chip { position: absolute; top: 20px; right: 3px; max-width: 18px; padding: 2px 1px; font-size: 10px; pointer-events: none; }
+.trait-line { margin: 4px 2px 0; font-size: 13px; color: var(--muted); }
+
+/* ---------- 골드 사용처: 각인 관리 / 기념비 ---------- */
+.sink-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sink-reason { color: var(--warn); margin-top: 6px; }
+.mon-lead { margin: 0 0 8px; }
+.mon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
+.mon {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  background: var(--panel2); border-radius: 10px; padding: 8px 10px; font-size: 13px;
+}
+.mon small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon.locked { opacity: .6; }
+.mon.owned { box-shadow: 0 0 0 1px var(--gold) inset; }
+.mon .badge { align-self: flex-start; }
+/* 칸이 좁아 확인 문구(한 번 더 누르면 구매 · 가격)는 버튼 안에서 줄바꿈 */
+.mon .small-btn { white-space: normal; word-break: keep-all; min-height: 32px; padding: 6px 8px; }
+.monument-badge { color: var(--gold); font-size: 12px; }

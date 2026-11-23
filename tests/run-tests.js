@@ -2480,6 +2480,21 @@ describe('M2-A traits: income traits (AC 23-27a)', () => {
     assert.strictEqual(F.addOre(S, F.expectedOre(S, 1e6, C.OFFLINE_EFF)).iron, 3);
     assert.strictEqual(S.ore.iron, C.ORE_MAX);
   });
+  // 5-B 표시: 대장간·방치 탭의 "사냥당 +x"는 rollOre가 실제로 주는 양의 평균과 같아야 한다
+  test('5-B orePerHunt (display) = exact mean of rollOre over a uniform rng grid, with and without a miner', () => {
+    const GRID = 100;
+    const meanOre = (S, k) => {
+      let total = 0;
+      for (let i = 0; i < GRID; i++) total += F.rollOre(S, () => (i + 0.5) / GRID)[k];
+      return total / GRID;
+    };
+    [null, tr('ore', 1), tr('ore', 2), tr('ore', 3), tr('hunt', 3)].forEach(trait => {
+      const S = stateWith({ swords: [sword(1, 12, trait)] });
+      C.ORES.forEach(k => assert.strictEqual(F.orePerHunt(S, k), meanOre(S, k), `${JSON.stringify(trait)} ${k}`));
+    });
+    const miner = stateWith({ swords: [sword(1, 12, tr('ore', 3)), sword(2, 4, tr('ore', 1))] });
+    assert.deepStrictEqual(C.ORES.map(k => F.orePerHunt(miner, k)), [3.2, 1.6, 0.8], 'only the top sword counts: +60%');
+  });
 });
 
 describe('M2-A traits: trade traits (AC 28-32)', () => {

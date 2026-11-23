@@ -14,12 +14,18 @@
   <button class="small-btn gold" data-act="testGold">골드 +1,000,000</button>
   <button class="small-btn" data-act="testReset">초기화(테스트 저장만)</button>
   <button class="small-btn" data-act="testToggleForce" id="btnTestForce">강화 100%: 켜짐</button>
+  <!-- 활성 검 특성 지정(SG.rules.setTrait). 선택지는 js/test-panel.js가 상수로 채운다 -->
+  <select id="testTraitKind" aria-label="특성 종류"></select>
+  <select id="testTraitTier" aria-label="특성 등급"></select>
+  <button class="small-btn" data-act="testSetTrait">활성 검 특성 지정</button>
 </div>
 
 <header>
   <div class="logo">⚔️ 검 강화하기 <span class="badge bad">TEST</span></div>
   <!-- 마지막 저장 시도가 실패한 동안 지속 배지(문구는 js/view.js) -->
   <span class="badge bad save-badge" id="saveBadge" role="status" hidden></span>
+  <!-- 보유한 가장 높은 단계 기념비(장식, 문구는 js/view.js) -->
+  <span class="badge monument-badge" id="monumentBadge" hidden></span>
   <div class="spacer"></div>
   <div class="resbar">
     <div class="gold" id="goldBox"><span class="coin"></span><span id="gold">0</span></div>
@@ -52,6 +58,7 @@
           <span class="rarity" id="rarity">일반</span>
           <span class="sword-name" id="swordName">+0 낡은 목검</span>
         </div>
+        <p class="trait-line" id="traitLine" hidden></p>
 
         <div class="stage" id="stage">
           <div class="floor"></div>
@@ -79,7 +86,7 @@
         <div class="actions">
           <button class="btn btn-enhance" id="btnEnhance">강화하기<kbd id="enhanceSub">Space</kbd></button>
           <button class="btn btn-sell" id="btnSell">판매<kbd>S</kbd></button>
-          <button class="btn btn-hunt" id="btnHunt">사냥<kbd>H</kbd></button>
+          <button class="btn btn-hunt" id="btnHunt">사냥<kbd id="huntSub">H</kbd></button>
         </div>
         <div class="auto-row" id="autoRow"></div>
       </section>
@@ -96,6 +103,8 @@
         <div class="stats" id="statsGrid"></div>
         <h2 style="margin-top:16px">숙련 <span class="muted">(+15~+19 단계별 성공 기록)</span></h2>
         <ul class="mastery-list" id="masteryList"></ul>
+        <h2 style="margin-top:16px">기념비 <span class="muted" id="monumentCount"></span></h2>
+        <div class="monuments" id="monumentList"></div>
         <h2 style="margin-top:16px">로그</h2>
         <ul id="log"></ul>
       </section>

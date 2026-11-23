@@ -4,6 +4,9 @@
  *  (b) 임계값을 넘겨 끌면 칸이 옮겨지고 순서가 localStorage에 저장된다(새로고침 후에도 유지)
  *  (c) 끌다가 스트립 밖에서 놓아도 드래그 상태가 남지 않고, 다음 클릭이 활성 전환을 한다
  *  (d) 우측 탭 패널(상점·대장간·의뢰·방치·기록)이 내용보다 작게 줄어들지 않는다(1280x800, 1280x600)
+ *  (e) 골드 사용처가 열린 상태(best ≥ 13, 특성 검, 기념비 일부 보유)에서도 (d)와 같다 — 대장간 "각인"·기록 "기념비" 섹션 포함
+ *  (f) 모바일 폭(360·375px)에서 특성 칩이 있는 보관함 카드가 늘어나거나 넘치지 않고 가로 스크롤이 생기지 않는다(m2-traits AC 51)
+ *  (g) index.html·test.html 모두 콘솔 오류·예외 없이 열린다
  * 실행: node tests/browser-strip.js  (브라우저 경로 직접 지정: BROWSER_PATH=...)
  * Chrome/Edge가 없으면 "SKIP: no Chrome/Edge"를 출력하고 0으로 끝난다. 외부 패키지 없음(Node 22 전역 WebSocket·fetch).
  */
@@ -35,6 +38,8 @@ const SWORD_IDS = [1, 2, 3];
 const TAB_IDS = ['shop', 'forge', 'quests', 'idle', 'records'];
 const PANEL_VIEWPORTS = [{ width: 1280, height: 800 }, { width: 1280, height: 600 }];   // (d) 데스크톱 레이아웃 높이 두 가지
 const PANEL_TOLERANCE_PX = 1;     // (d) 소수점 반올림 오차 허용
+const MOBILE_WIDTHS = [360, 375];  // (f) AC 51 최소 폭과 일반 폰 폭
+const MOBILE_HEIGHT = 800;
 
 // ------------------------------------------------------------ 결과
 const results = { pass: 0, fail: 0 };
@@ -205,12 +210,39 @@ function seedSave() {
   return JSON.stringify(st);
 }
 
-/** 시드 저장을 게임 스크립트보다 먼저 넣고 index.html을 연다. 시드 스크립트는 첫 로드 뒤 지워 새로고침에는 쓰지 않는다 */
-async function openGame(cdp, page) {
-  const source = `localStorage.setItem(${KEY}, ${JSON.stringify(seedSave())});`;
+/**
+ * (e)(f) 골드 사용처가 열린 후반 시드: best 17, 특성 검 3자루 + 특성 없는 검 1자루(칩 유무 비교), 기념비 +13·+14 보유.
+ * 각인 관리·기념비 섹션의 모든 상태(보유/구매 가능/잠김)와 칩 1~3등급이 함께 그려진다
+ */
+const SINK_SWORDS = [
+  { id: 1, lv: 17, trait: { k: 'hunt', t: 3 } },
+  { id: 2, lv: 13, trait: { k: 'trade', t: 2 } },
+  { id: 3, lv: 2, trait: null },
+  { id: 4, lv: 5, trait: { k: 'anvil', t: 1 } },
+];
+function sinkSeedSave() {
+  const st = SV.defaultState(Date.now());
+  st.swords = SINK_SWORDS.map(s => ({ id: s.id, lv: s.lv, prot: C.PROTECT_USES, pity: 0, trait: s.trait }));
+  st.nextSwordId = SINK_SWORDS.length + 1;
+  st.slots = SINK_SWORDS.length;
+  st.active = SINK_SWORDS[1].id;   // 등급 2 검: 종류 변경·등급 올리기 버튼이 둘 다 보인다
+  st.best = SINK_SWORDS[0].lv;
+  st.gold = 5e6;
+  st.monuments = st.monuments.map((_, i) => (i < 2 ? 1 : 0));
+  st.found = st.found.map((f, l) => f || l <= st.best);
+  return JSON.stringify(st);
+}
+
+/**
+ * 시드 저장을 게임 스크립트보다 먼저 넣고 페이지(기본 index.html)를 연다. 시드 스크립트는 첫 로드 뒤 지워 새로고침에는 쓰지 않는다.
+ * opts: { save(시드 JSON), page(파일 이름), key(저장 키), order(기대하는 칸 순서) }
+ */
+async function openGame(cdp, page, opts = {}) {
+  const o = Object.assign({ save: seedSave(), page: 'index.html', key: KEY, order: SWORD_IDS.join() }, opts);
+  const source = `localStorage.setItem(${o.key}, ${JSON.stringify(o.save)});`;
   const { identifier } = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
-  await cdp.send('Page.navigate', { url: pathToFileURL(path.join(ROOT, 'index.html')).href });
-  const loaded = await page.waitFor(`document.readyState === 'complete' && ${JS.domOrder} === '${SWORD_IDS.join()}'`);
+  await cdp.send('Page.navigate', { url: pathToFileURL(path.join(ROOT, o.page)).href });
+  const loaded = await page.waitFor(`document.readyState === 'complete' && ${JS.domOrder} === '${o.order}'`);
   await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
   await page.evaluate(`document.getElementById('strip').scrollIntoView({ block: 'center' })`);
   return loaded;
@@ -272,12 +304,12 @@ async function measurePanel(page, id) {
   return { shown, ...m };
 }
 
-async function panelsContainContent(cdp, page) {
+async function panelsContainContent(cdp, page, tag = '(d)') {
   for (const vp of PANEL_VIEWPORTS) {
     await cdp.send('Emulation.setDeviceMetricsOverride', { ...vp, deviceScaleFactor: 1, mobile: false });
     for (const id of TAB_IDS) {
       const m = await measurePanel(page, id);
-      const label = `(d) ${vp.width}x${vp.height} ${id} panel`;
+      const label = `${tag} ${vp.width}x${vp.height} ${id} panel`;
       const detail = JSON.stringify(m);
       check(`${label} is shown`, m.shown, detail);
       check(`${label} is not shorter than its content (scrollHeight <= clientHeight)`,
@@ -286,6 +318,68 @@ async function panelsContainContent(cdp, page) {
     }
   }
   await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
+/** (e) 사용처 섹션이 실제로 그려진 상태(대장간 각인 버튼, 기념비 8칸)에서 (d)와 같은 패널 높이 검사 */
+async function sinkPanelsContainContent(cdp, page) {
+  const order = SINK_SWORDS.map(s => s.id).join();
+  check('(e) index.html loads the late-game sink save', await openGame(cdp, page, { save: sinkSeedSave(), order }));
+  const sections = await page.evaluate(`(() => {
+    const forge = document.querySelector('[data-panel="forge"] .panel-body');
+    return { rekind: !!forge.querySelector('[data-act="traitRekind"]'), tierUp: !!forge.querySelector('[data-act="traitTierUp"]'),
+      noOdds: forge.textContent.includes('특성은 강화 확률에 영향을 주지 않는다'),
+      monuments: document.querySelectorAll('#monumentList .mon').length,
+      buyable: document.querySelectorAll('#monumentList [data-act="buyMonument"]').length,
+      badge: !document.getElementById('monumentBadge').hidden }; })()`);
+  check('(e) forge tab shows the 각인 section with both sink buttons', sections.rekind && sections.tierUp && sections.noOdds, JSON.stringify(sections));
+  check('(e) records tab shows 8 monuments, buyable ones and the header badge', sections.monuments === C.MONUMENT_COUNT && sections.buyable > 0 && sections.badge,
+    JSON.stringify(sections));
+  await panelsContainContent(cdp, page, '(e)');
+}
+
+/** (f) 칩이 있는 카드: 칩을 숨겨도 카드 크기가 같고(흐름 밖), 칩이 카드 안·검 그림 밖에 있으며, 페이지 가로 스크롤 없음 */
+async function mobileTraitChips(cdp, page) {
+  for (const width of MOBILE_WIDTHS) {
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height: MOBILE_HEIGHT, deviceScaleFactor: 1, mobile: true });
+    await page.evaluate(`document.getElementById('strip').scrollIntoView({ block: 'center' })`);
+    const m = await page.evaluate(`(() => {
+      const box = el => el.getBoundingClientRect();
+      const cards = [...document.querySelectorAll('#strip [data-sword]')].map(card => {
+        const chip = card.querySelector('.trait-chip');
+        if (!chip) return { chip: false, h: box(card).height };
+        const withChip = box(card);
+        chip.style.display = 'none';
+        const without = box(card);
+        chip.style.display = '';
+        const c = box(chip);
+        const svg = box(card.querySelector('svg'));
+        return { chip: true, h: withChip.height, same: withChip.width === without.width && withChip.height === without.height,
+          inside: c.left >= withChip.left && c.right <= withChip.right && c.top >= withChip.top && c.bottom <= withChip.bottom,
+          clearOfSword: c.left >= svg.right - 1, chipOverflow: chip.scrollWidth > chip.clientWidth + 1,
+          cardOverflow: card.scrollWidth > card.clientWidth + 1 };
+      });
+      return { cards, pageScroll: document.documentElement.scrollWidth - window.innerWidth };
+    })()`);
+    const label = `(f) ${width}px`;
+    const chips = m.cards.filter(c => c.chip);
+    const detail = JSON.stringify(m);
+    check(`${label} strip has trait chips to measure`, chips.length === SINK_SWORDS.filter(s => s.trait).length, detail);
+    check(`${label} a chip does not change its card size (out of flow)`, chips.every(c => c.same), detail);
+    check(`${label} chip cards are as tall as the card without a trait`, m.cards.every(c => c.h === m.cards[0].h), detail);
+    check(`${label} chips stay inside the card and clear of the sword art`, chips.every(c => c.inside && c.clearOfSword), detail);
+    check(`${label} no chip / card overflow`, chips.every(c => !c.chipOverflow && !c.cardOverflow), detail);
+    check(`${label} no horizontal page scroll`, m.pageScroll <= 0, detail);
+  }
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
+/** (g) 테스트 페이지(test.html)도 같은 후반 시드로 오류 없이 열리고 특성 지정 조작판이 채워진다 */
+async function testPageLoads(cdp, page) {
+  const order = SINK_SWORDS.map(s => s.id).join();
+  const loaded = await openGame(cdp, page, { save: sinkSeedSave(), page: 'test.html', key: JSON.stringify('sword-enhance-test'), order });
+  check('(g) test.html loads with the seeded save', loaded);
+  const options = await page.evaluate(`[document.querySelectorAll('#testTraitKind option').length, document.querySelectorAll('#testTraitTier option').length]`);
+  check('(g) test panel trait selectors are filled', options[0] === C.TRAIT_KINDS.length && options[1] === C.TRAIT_TIER_MAX, JSON.stringify(options));
 }
 
 // ------------------------------------------------------------ 실행
@@ -302,6 +396,9 @@ async function main() {
     const pageErrors = [];
     cdp.on('Runtime.exceptionThrown', p => pageErrors.push(p.exceptionDetails.exception
       ? p.exceptionDetails.exception.description : p.exceptionDetails.text));
+    cdp.on('Runtime.consoleAPICalled', p => {
+      if (p.type === 'error') pageErrors.push('console.error: ' + p.args.map(a => a.value !== undefined ? a.value : a.description).join(' '));
+    });
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     check('index.html loads with the seeded 3-sword save', await openGame(cdp, page), await page.evaluate(JS.domOrder));
@@ -309,7 +406,10 @@ async function main() {
     await dragReorders(cdp, page);
     await releaseOutside(page);
     await panelsContainContent(cdp, page);
-    check('no uncaught page errors', pageErrors.length === 0, pageErrors.join('\n      '));
+    await sinkPanelsContainContent(cdp, page);
+    await mobileTraitChips(cdp, page);
+    await testPageLoads(cdp, page);
+    check('(g) no uncaught page errors or console errors (index.html, test.html)', pageErrors.length === 0, pageErrors.join('\n      '));
   } catch (e) {
     check('browser run completed', false, e.stack || e.message);
     browser = browser || e.browser || null;

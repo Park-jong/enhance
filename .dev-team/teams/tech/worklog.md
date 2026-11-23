@@ -129,3 +129,17 @@
 - 산출물: js/constants.js, rules.js, idle.js, forge.js, quests.js, save.js, main.js, view.js, tests/run-tests.js(226→287), tests/smoke-dom.js(299→310)
 - 결정 사항: 정수 헬퍼 traitScaled(v=0이면 기존 식 그대로)로 §3.1 준수. payWithSeal이 payoutPreview를 호출해 미리보기=지급 보장. 시드 700회 골든 다이제스트(rng 2362회)가 변경 전후 동일. 각인은 resume()에서 정산 전에 수행. setTrait은 test-mode.js 로드 순서상 노출 불가(SG.rules.setTrait 콘솔 사용).
 - 남은 문제: QA 소유 run-m1.1-qa-tests.js:586이 trait:null 기대값 갱신 필요(188/189). UI는 5-B. 기획서 불일치(§4 vs §3.1 부동소수, AC15 하락 조건, m1-storage §2 요소 정의) 기획팀 피드백 필요.
+
+## 2026-11-23 — 5-B 특성·골드 사용처 UI
+- 지시: 디렉터 / 관련 단계: 5단계 5-B / 처리한 요청: REQ-034 (in_progress 유지, QA 검증 대기)
+- 참여 팀원: client-programmer
+- 산출물: js/view.js, main.js, forge.js(orePerHunt), constants.js(ICONS.monument), test-panel.js, index.html, test.html, css/style.css, tests/run-tests.js(288), tests/smoke-dom.js(380), tests/browser-strip.js(91)
+- 결정 사항: 모든 표시값은 rules 헬퍼(payoutPreview, incomeTraitValue, *Block/*Cost, orePerHunt)로만 계산. 종류 변경·등급 올리기·기념비 모두 2회 클릭 확인, 강화 연출 중 비활성, 활성 검 변경·강화 시 확인 상태 해제. 각인 섹션은 대장간 탭 상단(활성 검 대상), 기념비는 기록 탭. 테스트 패널은 레벨 설정 컨트롤이 없어 commit마다 engravePending 실행(가정). 7개 검사 모두 통과(팀장 재실행 확인).
+- 남은 문제: smoke-dom이 팀장 재실행 첫 회에 1회 실패(traitsUi 787행 근처, 이후 7회 연속 통과) — 간헐 실패 가능성, QA가 확인 필요. +19/+20 기념비 가격이 모바일에서 두 줄로 줄바꿈. 기획 문서에 최종 UI 문구 기록 필요.
+
+## 2026-11-23 — 5-B 수정 사이클 2 (QA 요청)
+- 지시: 디렉터(QA 수정 지시) / 관련 단계: 5단계 5-B / 처리한 요청: REQ-034 (in_progress 유지)
+- 참여 팀원: client-programmer
+- 산출물: js/view.js, js/main.js, tests/smoke-dom.js (388)
+- 결정 사항: 최고 등급은 잠금 사유와 무관하게 "최고 등급" 비활성 표시(V7), 바쁨 테스트는 Math.random 고정으로 결정적화(20회 연속 통과, V6), 탭 전환 시 disarmSinks, 기념비 골드 부족 사유 한 줄, 미사용 export 제거.
+- 남은 문제: 기념비 사유는 칸 안이 아닌 격자 아래 한 줄. 기록 탭 새 줄의 눈 확인은 하지 않음.

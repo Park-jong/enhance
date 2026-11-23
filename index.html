@@ -12,6 +12,8 @@
   <div class="logo">⚔️ 검 강화하기</div>
   <!-- 마지막 저장 시도가 실패한 동안 지속 배지(문구는 js/view.js) -->
   <span class="badge bad save-badge" id="saveBadge" role="status" hidden></span>
+  <!-- 보유한 가장 높은 단계 기념비(장식, 문구는 js/view.js) -->
+  <span class="badge monument-badge" id="monumentBadge" hidden></span>
   <div class="spacer"></div>
   <div class="resbar">
     <div class="gold" id="goldBox"><span class="coin"></span><span id="gold">0</span></div>
@@ -44,6 +46,7 @@
           <span class="rarity" id="rarity">일반</span>
           <span class="sword-name" id="swordName">+0 낡은 목검</span>
         </div>
+        <p class="trait-line" id="traitLine" hidden></p>
 
         <div class="stage" id="stage">
           <div class="floor"></div>
@@ -71,7 +74,7 @@
         <div class="actions">
           <button class="btn btn-enhance" id="btnEnhance">강화하기<kbd id="enhanceSub">Space</kbd></button>
           <button class="btn btn-sell" id="btnSell">판매<kbd>S</kbd></button>
-          <button class="btn btn-hunt" id="btnHunt">사냥<kbd>H</kbd></button>
+          <button class="btn btn-hunt" id="btnHunt">사냥<kbd id="huntSub">H</kbd></button>
         </div>
         <div class="auto-row" id="autoRow"></div>
       </section>
@@ -88,6 +91,8 @@
         <div class="stats" id="statsGrid"></div>
         <h2 style="margin-top:16px">숙련 <span class="muted">(+15~+19 단계별 성공 기록)</span></h2>
         <ul class="mastery-list" id="masteryList"></ul>
+        <h2 style="margin-top:16px">기념비 <span class="muted" id="monumentCount"></span></h2>
+        <div class="monuments" id="monumentList"></div>
         <h2 style="margin-top:16px">로그</h2>
         <ul id="log"></ul>
       </section>

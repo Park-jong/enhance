@@ -106,6 +106,24 @@
     FX.toast(msg, 'special');
     FX.log(msg, 'good');
   }
+  // 골드 사용처(특성 관리·기념비) 버튼의 data-act. 확인 키는 `${act}:${id}`(view.js sinkButtonHTML과 같음)
+  const SINK_ACTS = ['traitRekind', 'traitTierUp', 'buyMonument'];
+  /**
+   * 사용처 2회 클릭 구매(m2-traits AC 45). 강화 연출 중이거나 막혀 있으면 확인 상태도 만들지 않고,
+   * 두 번째 클릭에서만 규칙 함수를 부른다. 가격은 두 번째 클릭 시점의 규칙 값이다
+   */
+  function buySink(act, id, block, buy, message) {
+    if (ui.busy) return;
+    if (block) return reject(block);
+    if (!confirmed(`${act}:${id}`)) return;
+    const r = buy();
+    if (r.ok) FX.toast(message(r), 'special');
+    settle(r, message);
+  }
+  /** 대상 검(활성)이나 가격 기준(최고 단계)이 바뀌거나 탭을 옮기면 사용처 확인 상태를 버린다(V1) */
+  function disarmSinks() {
+    Object.keys(ui.armed).filter(key => SINK_ACTS.includes(key.split(':')[0])).forEach(key => { delete ui.armed[key]; });
+  }
   function announceUnlocks(prevBest) {
     const notices = UNLOCK_NOTICES.filter(n => prevBest < n.best && S.best >= n.best);
     notices.forEach(n => FX.toast(n.msg, 'special'));
@@ -198,11 +216,14 @@
     const startedAt = now();
     if (ui.busy || startedAt < ui.nextEnhanceAt) return;
     const prevBest = S.best;
+    const before = R.activeSword(S);
+    const traitBefore = before ? before.trait : null;
     const r = R.attemptEnhance(S, rng);
     if (!r.ok) {
       if (r.reason === 'noGold') reject('noGold');
       return;
     }
+    disarmSinks();
     // 결과·소모·각인은 여기서 확정·저장되고, 연출은 표시만 늦춘다 (새로고침해도 다시 굴릴 수 없음)
     const engraved = r.outcome === 'success' ? engravePending() : [];
     Q.refreshQuests(S, startedAt, rng);
@@ -211,7 +232,7 @@
     const outcome = OUTCOME_FX[r.outcome];
     if (r.used.sure && !r.chances.forced) sfx('useSure');   // 강제 성공(테스트 페이지)은 확정 강화권을 쓰지 않는다
     ui.busy = true;
-    ui.view = { lv: r.from, chances: r.chances, gauge: r.gaugeBefore };
+    ui.view = { lv: r.from, chances: r.chances, gauge: r.gaugeBefore, trait: traitBefore };
     render();
     // 연출 도중 이어받기·새 게임으로 상태가 바뀌면 이 시도의 표시를 버리고, 새 상태의 busy·view도 건드리지 않는다
     const epoch = ui.epoch;
@@ -337,10 +358,11 @@
   const anvilName = id => C.ITEMS['anvil_' + R.findAnvil(S, id).g].name;
 
   const ACTIONS = {
-    tab: id => { ui.tab = id; sfx('tabSwitch'); render(); },
+    tab: id => { ui.tab = id; disarmSinks(); sfx('tabSwitch'); render(); },
     // 보관함 칸 한 번 클릭 = 활성 검. 강화 연출 중이거나 이미 활성인 검이면 무시
     activate: id => {
       if (ui.busy || +id === S.active) return;
+      disarmSinks();
       const r = R.setActive(S, +id);
       settle(r, () => `${V.swordName(R.activeSword(S).lv)}을(를) 활성 검으로 정했습니다.`, 'buy');
       if (r.ok) FX.setSwordAnim('appear');
@@ -369,6 +391,9 @@
     upgrade: id => settle(I.buyUpgrade(S, id), r => `${C.UPGRADES.find(u => u.id === id).name} Lv ${r.level}`),
     useBooster: () => settle(R.useBoosterFromInv(S, now()), () => `${itemName('booster')} 사용! 남은 시간 ${V.fmtDuration(R.boostRemainingMs(S, now()))}`, 'useBooster'),
     toggleAuto: () => setAuto(!S.idle.autoOn),
+    traitRekind: id => buySink('traitRekind', id, R.rerollKindBlock(S, +id), () => R.rerollKind(S, +id, rng), V.rekindText),
+    traitTierUp: id => buySink('traitTierUp', id, R.upgradeTierBlock(S, +id), () => R.upgradeTier(S, +id), V.tierUpText),
+    buyMonument: L => buySink('buyMonument', L, R.monumentBlock(S, +L), () => R.buyMonument(S, +L), r => V.monumentText(+L, r)),
     copyCorrupt: () => copyGuardedRaw(),
     retryBackup: () => retryCorruptBackup(),
     abandonCorrupt: () => abandonCorruptSave(),
@@ -616,7 +641,8 @@
   // 넣은 함수에 좁은 조작 API를 넘긴다. 추가 동작은 data-act 클릭으로만 불리므로 탭 잠금(whenActive)도 그대로 적용된다
   const controllerApi = {
     state: () => S,
-    commit: afterChange,
+    // 조작판이 검 단계를 바꿨을 수 있으므로(+5 이상 미각인) 저장 전에 각인한다
+    commit: () => { announceEngraved(engravePending()); afterChange(); },
     newGame: startNewGame,
     addActions: actions => Object.assign(ACTIONS, actions),
   };

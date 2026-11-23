@@ -103,6 +103,8 @@ function makeEnv(initialStorage, opts = {}) {
   };
   ctx.globalThis = ctx;
   ctx.window = ctx;
+  // opts.extensions: main.js 확장 지점(SG.extensions)에 미리 넣을 함수 — 테스트가 컨트롤러 API(state/commit)를 잡는다
+  if (opts.extensions) ctx.SG = { extensions: opts.extensions };
   vm.createContext(ctx);
   const html = fs.readFileSync(path.join(ROOT, opts.page || 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1])
@@ -414,6 +416,8 @@ async function main() {
 
   // 7b-2) M2-A F14: 각인 배선(부팅·강화 성공·복귀), 토스트 1개로 합침, 판매 미리보기 = 지급
   await traitsWiring(ok);
+  // 7b-3) 5-B: 특성 표시·수입 몫·지급 미리보기, 각인 관리(2회 클릭), 기념비
+  await traitsUi(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -624,6 +628,242 @@ async function traitsWiring(ok) {
   const before = saved(env).gold;
   click(env, 'sellSel', 2); click(env, 'sellSel', 2);
   ok(saved(env).gold - before === want, 'sell pays exactly the previewed amount');
+  scanRendered();
+
+  // AC 53: 연출 건너뛰기를 켜도 첫 각인 토스트는 1회 나온다
+  env = loadWithRandom([0], { 'sword-enhance-v2': JSON.stringify(oldSave([[1, 4]], { gold: 1e6, settings: { muted: true, skipFx: true } })) });
+  ok(saved(env).settings.skipFx === true, 'AC53 setup: skipFx on');
+  await env.byId['#btnEnhance'].listeners.click[0]();
+  ok(saved(env).swords[0].lv === 5 && engraveToasts(env).length === 1 && engraveToasts(env)[0] === '검에 각인: 평범한 약탈자',
+    'AC53: the engrave toast is shown once with skipFx on: ' + engraveToasts(env).join(' | '));
+}
+
+/**
+ * 5-B (m2-traits §11, AC 45, 50, 52; m2-overview §C.3): 특성 칩·이름 줄·효과, 수입 몫 표기와 표시 = 지급,
+ * 대장간 각인 관리(2회 클릭·잠금·바쁨·확인 상태 정리), 기록 탭 기념비와 머리글 배지
+ */
+async function traitsUi(ok) {
+  const KEY = 'sword-enhance-v2';
+  const R = require(path.join(ROOT, 'js', 'rules.js'));
+  const C = require(path.join(ROOT, 'js', 'constants.js'));
+  const fmtG = n => Math.floor(n).toLocaleString('ko-KR');
+  const H = l => R.huntReward(l);
+  const sinkPrice = (mult, l) => Math.round(mult * H(l) / C.TRAIT_PRICE_ROUND) * C.TRAIT_PRICE_ROUND;
+  const forgeBody = env => env.byId['[data-panel="forge"]'].querySelector('.panel-body')._html;
+  const idleBody = env => env.byId['[data-panel="idle"]'].querySelector('.panel-body')._html;
+  const questBody = env => env.byId['[data-panel="quests"]'].querySelector('.panel-body')._html;
+  const cardHTML = (env, id) => env.byId['#strip']._html.split('<button class="slot-card').find(c => c.includes(`data-sword="${id}"`)) || '';
+  const buttonHTML = (html, act, id) => (html.match(new RegExp(`<button[^>]*data-act="${act}" data-id="${id}"[^>]*>[\\s\\S]*?</button>`)) || [''])[0];
+  /** best 17 · 수입 검(+17) 셋: 약탈자3·광부2·일꾼1, +16 일꾼3(수입 검 아님), 활성 = +13 상인2 */
+  const lateSave = fields => {
+    const s = Object.assign(SG_default(), { gold: 5e6, best: 17, slots: 7 });
+    s.swords = [
+      [1, 17, { k: 'hunt', t: 3 }], [2, 13, { k: 'trade', t: 2 }], [3, 2, null], [4, 17, { k: 'ore', t: 2 }],
+      [5, 17, { k: 'work', t: 1 }], [6, 16, { k: 'work', t: 3 }],
+    ].map(([id, lv, trait]) => ({ id, lv, prot: 2, pity: 0, trait }));
+    s.nextSwordId = 7;
+    s.active = 2;
+    s.idle.autoOn = true;
+    return Object.assign(s, fields);
+  };
+  const load = (s, opts) => makeEnv({ [KEY]: JSON.stringify(s) }, opts);
+
+  // 1) 보관함 칩(약자 + 등급 점 수, 특성 없으면 없음)·카드 제목, 이름 줄·효과 문장
+  let env = load(lateSave());
+  const V = env.ctx.SG.view;
+  const chip = (env2, id) => (cardHTML(env2, id).match(/<span class="trait-chip trait-t(\d)"><b>(.)<\/b><span class="pips">((?:<i><\/i>)*)<\/span><\/span>/) || []);
+  ok(chip(env, 1)[1] === '3' && chip(env, 1)[2] === '약' && chip(env, 1)[3] === '<i></i>'.repeat(3), 'strip chip: letter 약 + 3 tier pips for {hunt,3}');
+  ok(chip(env, 2)[2] === '상' && chip(env, 2)[3] === '<i></i>'.repeat(2) && chip(env, 5)[3] === '<i></i>', 'strip chip pips follow the tier (2, 1)');
+  ok(!cardHTML(env, 3).includes('trait-chip') && cardHTML(env, 3).includes('data-sword="3"'), 'a sword without a trait shows no chip');
+  ok(cardHTML(env, 1).includes('title="+17 시간을 베는 검 · 완벽한 약탈자 ·'), 'card title names the trait');
+  ok(env.byId['#swordName'].textContent === '정교한 상인 · ' + V.swordName(13), 'name line "<tier> <kind> · <sword>": ' + env.byId['#swordName'].textContent);
+  ok(env.byId['#traitLine'].hidden === false && env.byId['#traitLine'].textContent === '이 검을 판매·납품할 때 골드 +20%', 'trade effect says "이 검" only: ' + env.byId['#traitLine'].textContent);
+  click(env, 'activate', 3);
+  ok(env.byId['#swordName'].textContent === V.swordName(2) && env.byId['#traitLine'].hidden === true, 'no trait: plain sword name, no effect line');
+  click(env, 'activate', 4);
+  ok(env.byId['#traitLine'].textContent === '사냥당 광석 +40% · 수입 검 적용 중', 'income trait on a top sword: ' + env.byId['#traitLine'].textContent);
+  click(env, 'activate', 6);
+  ok(env.byId['#traitLine'].textContent === '자동 사냥·오프라인 골드 +45% · 최고 단계 검(+17)일 때만 적용', 'income trait on a non-top sword: ' + env.byId['#traitLine'].textContent);
+  scanRendered();
+
+  // 2) 수입 몫: 종류별 최댓값만(+16 일꾼3은 제외), 표시 = 규칙 지급
+  env = load(lateSave());
+  const huntGold = Math.floor(H(17) * 130 / 100);
+  ok(env.byId['#btnHunt'].firstChild.textContent === `사냥 +${fmtG(huntGold)}` && env.byId['#huntSub'].textContent === 'H · +30%(약탈자)',
+    'hunt button shows the 약탈자 gold and share: ' + env.byId['#huntSub'].textContent);
+  const goldBefore = saved(env).gold;
+  env.byId['#btnHunt'].listeners.click[0]();
+  ok(saved(env).gold - goldBefore === huntGold, 'hunt pays exactly the shown amount');
+  ok(env.byId['#incomeNote'].textContent.endsWith(' · 특성 +30%(약탈자) · +15%(일꾼) · +40%(광부)'), 'income note lists the max share per kind: ' + env.byId['#incomeNote'].textContent);
+  const autoGold = Math.round(R.autoReward(17) * 115 / 100);
+  ok(plain(env.byId['#autoRow']._html).endsWith(`1회 +${fmtG(autoGold)}G +15%(일꾼)`), 'auto row: 일꾼 gold (max of top swords only) + share: ' + plain(env.byId['#autoRow']._html));
+  ok(env.ctx.SG.idle.autoRunGold(saved(env), Date.now()) === autoGold, 'auto row amount = the auto payout rule');
+  const idle = plain(idleBody(env));
+  ok(idle.includes(`+${fmtG(autoGold)}G +15%(일꾼)`) && /\+2\.8 .*\+1\.4 .*\+0\.7 \+40%\(광부\)/.test(idle), 'idle panel: work share and miner ore per hunt: ' + idle.slice(0, 120));
+  const forge = plain(forgeBody(env));
+  ok(['사냥당 +2.8', '사냥당 +1.4', '사냥당 +0.7', '사냥당 광석 +40%(광부) 적용 중'].every(t => forge.includes(t)), 'forge ore grid shows ore per hunt with the miner bonus');
+  const noTraits = lateSave();
+  noTraits.swords.forEach(s => { s.trait = { k: 'anvil', t: 1 }; });   // 특성 없음(null)은 부팅 각인이 무작위로 채우므로 수입형이 아닌 종류로
+  env = load(noTraits);
+  ok(env.byId['#huntSub'].textContent === 'H' && !env.byId['#incomeNote'].textContent.includes('특성') && plain(forgeBody(env)).includes('사냥당 +0.5'),
+    'without income traits: no share text, raw ORE_PER_HUNT');
+  scanRendered();
+
+  // 3) AC 52: 판매·납품 미리보기 = 지급 (상인 유무 × 인장 켜짐/꺼짐)
+  for (const [id, lv, merchant] of [[2, 13, 120], [1, 17, 100]]) {
+    for (const seal of [false, true]) {
+      const s = lateSave({ active: id });
+      s.inv.seal = 1; s.use.seal = seal;
+      env = load(s);
+      const base = Math.floor(R.sell(lv) * merchant / 100);
+      const want = seal ? Math.floor(base * C.SEAL_MULT) : base;
+      const label = `AC52 sell (merchant ${merchant > 100}, seal ${seal})`;
+      ok(env.byId['#stripActions']._html.includes(`판매 ${fmtG(want)}G`) && env.byId['#vSell'].textContent === fmtG(want), label + ': preview');
+      const g0 = saved(env).gold;
+      click(env, 'sellSel', id); click(env, 'sellSel', id);
+      ok(saved(env).gold - g0 === want, label + ': paid = preview');
+    }
+  }
+  for (const seal of [false, true]) {
+    const s = lateSave();
+    s.inv.seal = 1; s.use.seal = seal;
+    s.quests.list = [{ id: 1, tier: C.QUEST_TIERS[0], lv: 13, gold: 0, item: null }, null, null];
+    s.quests.readyAt = [0, Date.now() + 1e6, Date.now() + 1e6];
+    env = load(s);
+    const qGold = saved(env).quests.list[0].gold;
+    const base = Math.floor(qGold * 120 / 100);
+    const want = seal ? Math.floor(base * C.SEAL_MULT) : base;
+    const label = `AC52 deliver (merchant candidate, seal ${seal})`;
+    ok(plain(questBody(env)).includes(`${fmtG(want)}G (상인 +20%)`), label + ': card gold includes the merchant bonus: ' + plain(questBody(env)).slice(0, 80));
+    const g0 = saved(env).gold;
+    click(env, 'deliver', 0); click(env, 'deliver', 0);
+    ok(saved(env).gold - g0 === want && saved(env).stats.delivered === 1, label + ': paid = preview');
+  }
+
+  // 4) 대장간 각인 관리: AC 50 안내, 가격, 2회 클릭(AC 45), 수입 검 표시
+  env = load(lateSave());
+  let html = forgeBody(env);
+  const rekindPrice = sinkPrice(C.TRAIT_REKIND_MULT, 17);
+  const tierPrice = sinkPrice(C.TRAIT_TIER_UP_MULT[1], 17);
+  ok(html.includes('각인 · 활성 검') && plain(html).includes('특성은 강화 확률에 영향을 주지 않는다'), 'AC50: forge 각인 section with the no-odds line');
+  ok(!/상인|특성|각인/.test(env.byId['#breakdown']._html), 'AC50: the odds breakdown has no trait row');
+  const plainTrait = lateSave();
+  plainTrait.swords[1].trait = null;
+  ok(env.byId['#vSucc'].textContent === load(plainTrait).byId['#vSucc'].textContent, 'AC50: shown odds equal those of the same sword without a trait');
+  env = load(lateSave());
+  html = forgeBody(env);
+  ok(plain(buttonHTML(html, 'traitRekind', 2)) === `종류 변경 ${fmtG(rekindPrice)}G` && !buttonHTML(html, 'traitRekind', 2).includes('disabled'), 'rekind button with its price');
+  ok(buttonHTML(html, 'traitTierUp', 2).includes('disabled') && plain(buttonHTML(html, 'traitTierUp', 2)) === `등급 올리기 ${fmtG(tierPrice)}G`
+    && plain(html).includes('등급 올리기: 골드가 부족합니다.'), 'tier up blocked by gold with its reason');
+  ok(!html.includes('badge good">수입 검') && plain(html).includes('수입 검: 보관함 최고 +17 3자루'), 'the +13 sword is not marked as an income sword; income swords listed');
+  let st = saved(env);
+  click(env, 'traitRekind', 2);
+  ok(saved(env).gold === st.gold && saved(env).swords[1].trait.k === 'trade', 'AC45: one click buys nothing');
+  ok(buttonHTML(forgeBody(env), 'traitRekind', 2).includes('armed') && plain(buttonHTML(forgeBody(env), 'traitRekind', 2)).startsWith('한 번 더 누르면 구매'), 'AC45: first click shows the confirm state');
+  click(env, 'traitRekind', 2);
+  let after = saved(env);
+  ok(after.gold === st.gold - rekindPrice && after.stats.sinkGold === rekindPrice && after.stats.traitRolls === st.stats.traitRolls + 1, 'AC45: second click buys at the shown price');
+  ok(after.swords[1].trait.k !== 'trade' && after.swords[1].trait.t === 2, 're-kind keeps the tier and changes the kind');
+  ok(texts(env.byId['#toasts']).some(t => t.startsWith('특성 종류 변경: 정교한 상인 → 정교한 ')), 're-kind toast names old → new trait');
+  scanRendered();
+
+  // 확인 시간 초과는 다시 확인 상태부터, 활성 검을 바꾸면 확인 상태를 버린다(V1)
+  let clock = Date.now();
+  env = load(lateSave(), { now: () => clock });
+  st = saved(env);
+  click(env, 'traitRekind', 2);
+  clock += C.SELL_CONFIRM_MS + 1;
+  click(env, 'traitRekind', 2);
+  ok(saved(env).gold === st.gold, 'AC45: a second click after SELL_CONFIRM_MS only re-arms');
+  click(env, 'activate', 1); click(env, 'activate', 2);
+  click(env, 'traitRekind', 2);
+  ok(saved(env).gold === st.gold, 'switching the active sword clears the pending confirm');
+  click(env, 'traitRekind', 2);
+  ok(saved(env).gold === st.gold - rekindPrice, 'a fresh double click still buys');
+  // 탭을 옮기면 확인 상태를 버린다(V1): 돌아와 한 번 누르면 다시 확인 상태부터
+  env = load(lateSave({ gold: 1e9 }), { now: () => clock });
+  st = saved(env);
+  click(env, 'traitRekind', 2);
+  ok(buttonHTML(forgeBody(env), 'traitRekind', 2).includes('armed'), 'tab switch setup: the first click arms');
+  click(env, 'tab', 'idle'); click(env, 'tab', 'forge');
+  ok(!buttonHTML(forgeBody(env), 'traitRekind', 2).includes('armed'), 'switching tabs drops the confirm state');
+  click(env, 'traitRekind', 2);
+  ok(saved(env).gold === st.gold && buttonHTML(forgeBody(env), 'traitRekind', 2).includes('armed'), 'after a tab switch one click only re-arms');
+
+  // 강화 연출 중(busy)에는 버튼이 막히고 눌러도 사지 않는다. main.js는 로드 시점의 Math.random을 잡으므로
+  // 로드 동안 0으로 바꿔 강화가 반드시 성공하게 한다(파괴로 대상 검이 사라지면 notFound로 헛통과한다, V6)
+  const realRandom = Math.random;
+  Math.random = () => 0;
+  try { env = load(lateSave({ gold: 1e9 })); } finally { Math.random = realRandom; }
+  const pending = env.byId['#btnEnhance'].listeners.click[0]();
+  ok(buttonHTML(forgeBody(env), 'traitRekind', 2).includes('disabled'), 'sink buttons disabled while the enhance animation runs');
+  click(env, 'traitRekind', 2); click(env, 'traitRekind', 2);
+  ok(saved(env).stats.sinkGold === 0 && !buttonHTML(forgeBody(env), 'traitRekind', 2).includes('armed'), 'no purchase or confirm state while busy');
+  await pending;
+  ok(saved(env).swords.find(s => s.id === 2).lv === 14 && !buttonHTML(forgeBody(env), 'traitRekind', 2).includes('disabled'),
+    'busy setup: the enhance succeeded and the target sword is buyable afterwards');
+  click(env, 'traitRekind', 2); click(env, 'traitRekind', 2);
+  ok(saved(env).stats.sinkGold === sinkPrice(C.TRAIT_REKIND_MULT, 17), 'the same double click buys once busy ends (only the busy guard blocked it)');
+
+  // 등급 올리기 2회 클릭 → 등급 3, 이후 "최고 등급" 비활성
+  env = load(lateSave({ gold: 1e9 }));
+  st = saved(env);
+  click(env, 'traitTierUp', 2);
+  ok(saved(env).swords[1].trait.t === 2, 'tier up: one click buys nothing');
+  click(env, 'traitTierUp', 2);
+  after = saved(env);
+  ok(after.swords[1].trait.t === 3 && after.gold === st.gold - tierPrice && after.stats.sinkGold === tierPrice, 'tier up: second click buys at the shown price');
+  ok(forgeBody(env).includes('<button class="small-btn" disabled>최고 등급</button>') && !forgeBody(env).includes('data-act="traitTierUp"'), 'max tier shows a disabled 최고 등급 button');
+  ok(env.byId['#swordName'].textContent.startsWith('완벽한 상인 · '), 'name line follows the new tier');
+
+  // 잠금(best 12): 버튼 비활성 + 잠금 사유, 눌러도 상태 불변
+  const early = Object.assign(SG_default(), { gold: 1e9, best: 12 });
+  early.swords = [{ id: 1, lv: 12, prot: 2, pity: 0, trait: { k: 'hunt', t: 1 } }, { id: 2, lv: 2, prot: 2, pity: 0, trait: null }];
+  early.nextSwordId = 3; early.active = 1; early.slots = 3;
+  env = load(early);
+  html = forgeBody(env);
+  ok(plain(html).includes('최고 +13 이상에서 열림') && buttonHTML(html, 'traitRekind', 1).includes('disabled') && buttonHTML(html, 'traitTierUp', 1).includes('disabled'),
+    'best < 13: both buttons disabled with the lock hint');
+  click(env, 'traitRekind', 1); click(env, 'traitRekind', 1); click(env, 'traitTierUp', 1); click(env, 'traitTierUp', 1);
+  ok(saved(env).gold === 1e9 && JSON.stringify(saved(env).swords[0].trait) === '{"k":"hunt","t":1}', 'locked: clicks change nothing');
+  click(env, 'activate', 2);
+  ok(plain(forgeBody(env)).includes('특성 없음') && !forgeBody(env).includes('data-act="traitRekind"'), 'a sword without a trait: no sink buttons');
+  // 잠긴 동안에도 3등급은 "최고 등급"(가격 0G 표기 금지, V7)
+  early.swords[0].trait = { k: 'hunt', t: 3 };
+  env = load(early);
+  html = forgeBody(env);
+  ok(html.includes('<button class="small-btn" disabled>최고 등급</button>') && !html.includes('data-act="traitTierUp"') && !plain(html).includes('등급 올리기'),
+    'best < 13 with a tier-3 trait: disabled 최고 등급, no 0G price');
+  ok(buttonHTML(html, 'traitRekind', 1).includes('disabled') && plain(html).includes('최고 +13 이상에서 열림'), 'best < 13 with a tier-3 trait: re-kind still locked with the hint');
+  scanRendered();
+
+  // 5) 기념비: 8칸(보유·구매 가능·잠김), 머리글 배지, 2회 클릭 구매
+  const monSave = lateSave();
+  monSave.monuments = [1, 1, 0, 0, 0, 0, 0, 0];
+  env = load(monSave);
+  const cells = env => env.byId['#monumentList']._html.match(/<div class="mon[ "]/g) || [];
+  html = env.byId['#monumentList']._html;
+  ok(cells(env).length === C.MONUMENT_COUNT && (html.match(/badge good">보유/g) || []).length === 2, '8 monument cells, 2 owned');
+  ok([15, 16, 17].every(L => buttonHTML(html, 'buyMonument', L)) && [18, 19, 20].every(L => plain(html).includes(`최고 +${L} 달성 시`)), 'reachable levels buyable, the rest locked');
+  ok(env.byId['#monumentCount'].textContent === '(2 / 8)' && env.byId['#monumentBadge'].hidden === false && env.byId['#monumentBadge'].textContent === '🏛️ +14',
+    'count and header badge show the highest monument: ' + env.byId['#monumentBadge'].textContent);
+  ok(plain(html).includes('대표 기념비: 🏛️ +14 별빛 검 기념비'), 'records title line names the highest monument');
+  const price15 = sinkPrice(C.MONUMENT_MULT, 15);
+  ok(plain(buttonHTML(html, 'buyMonument', 15)) === `세우기 ${fmtG(price15)}G`, 'monument price = monumentCost');
+  st = saved(env);
+  click(env, 'buyMonument', 15);
+  ok(saved(env).monuments[2] === 0 && saved(env).gold === st.gold, 'monument: one click buys nothing');
+  click(env, 'buyMonument', 15);
+  after = saved(env);
+  ok(after.monuments[2] === 1 && after.gold === st.gold - price15 && after.stats.sinkGold === price15, 'monument: second click buys at the shown price');
+  ok(env.byId['#monumentBadge'].textContent === '🏛️ +15' && env.byId['#monumentCount'].textContent === '(3 / 8)', 'badge and count follow the purchase');
+  ok(buttonHTML(env.byId['#monumentList']._html, 'buyMonument', 17).includes('disabled'), 'unaffordable monument disabled');
+  const poor = [16, 17].filter(L => R.monumentCost(L) > after.gold).map(L => `+${L}`);
+  ok(poor.length > 0 && plain(env.byId['#monumentList']._html).includes(`${poor.join('·')}: 골드가 부족합니다.`),
+    'unaffordable monument shows a text reason: ' + poor.join('·'));
+  env = makeEnv({});
+  ok(cells(env).length === C.MONUMENT_COUNT && !env.byId['#monumentList']._html.includes('data-act="buyMonument"') && env.byId['#monumentBadge'].hidden === true,
+    'new game: all monuments locked, no header badge');
   scanRendered();
 }
 
@@ -866,6 +1106,25 @@ async function testPage(ok) {
   click(env, 'testToggleForce');
   ok(env.ctx.SG.config.forceSuccess === true && env.byId['#vSucc'].textContent === '100%', '100% toggle back on');
 
+  // 5-B: 활성 검 특성 지정(종류·등급 선택 → SG.rules.setTrait), 조작판 저장(commit)은 +5 이상 미각인 검을 각인한다
+  {
+    let game = null;
+    const tEnv = makeEnv(realStore, { page: 'test.html', extensions: [api => { game = api; }] });
+    const kindSel = tEnv.byId['#testTraitKind'];
+    const tierSel = tEnv.byId['#testTraitTier'];
+    ok((kindSel.innerHTML.match(/<option /g) || []).length === 6 && kindSel.innerHTML.includes('<option value="trade">상인</option>')
+      && (tierSel.innerHTML.match(/<option /g) || []).length === 3 && tierSel.innerHTML.includes('<option value="3">완벽한</option>'), 'test panel trait selectors filled from constants');
+    kindSel.value = 'trade'; tierSel.value = '3';
+    click(tEnv, 'testSetTrait');
+    ok(JSON.stringify(savedTest(tEnv).swords[0].trait) === '{"k":"trade","t":3}', 'test panel sets {trade,3} on the active sword');
+    ok(tEnv.byId['#swordName'].textContent.startsWith('완벽한 상인 · '), 'the set trait shows in the name line');
+    game.state().swords[0].lv = 6;
+    game.state().swords[0].trait = null;
+    click(tEnv, 'testGold');
+    ok(savedTest(tEnv).swords[0].trait !== null && texts(tEnv.byId['#toasts']).some(t => t.startsWith('검에 각인: ')), 'test panel commit engraves a raised +6 sword at once');
+    ok(realUntouched(tEnv), 'real saves untouched by the trait control');
+  }
+
   // 손상된 테스트 저장: 테스트 백업 키에만 백업, 실제 백업 키는 그대로
   env = makeEnv(Object.assign({}, realStore, { [TEST_KEY]: '{broken' }), { page: 'test.html' });
   ok(env.store['sword-enhance-test-corrupt'] === '{broken' && realUntouched(env), 'corrupt test save backed up to the test backup key only');
@@ -879,6 +1138,9 @@ async function testPage(ok) {
   ok(!isLocked(env) && goldBefore > 300, 'test-tab storage events do not lock the real tab');
   click(env, 'testGold');
   ok(saved(env).gold === goldBefore && !(TEST_KEY in env.store), 'real page has no test actions and never writes the test key');
+  const traitBefore = JSON.stringify(saved(env).swords[0].trait);
+  click(env, 'testSetTrait');
+  ok(JSON.stringify(saved(env).swords[0].trait) === traitBefore && !indexHtml.includes('testTrait'), 'AC49: real page has no trait-setting control');
   ok(env.ctx.SG.config.forceSuccess === false && env.byId['#vSucc'].textContent === '95%', 'real page odds unchanged');
 }
 

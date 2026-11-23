@@ -19,12 +19,27 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 
 ## 문제 기록
 
-### V1. 포인터 제스처 상태가 외부 이벤트로 정리되지 않아 드래그가 남는다 (1회)
-- **예방 규칙**: 포인터 제스처(드래그·롱프레스)는 드래그가 실제로 시작되는 시점(임계값 통과 후)에 포인터를 capture하거나 window에서 pointerup/pointercancel을 받고(pointerdown 시점 capture는 금지, V3 참고), move 이벤트에서 buttons를 확인하며, 렌더 교체·탭 정지·저장 채택·새 게임 때 호출할 cancel()을 반드시 제공하라.
+### ⚠️ V1. 포인터 제스처·2회 클릭 확인 같은 임시 UI 상태가 외부 이벤트로 정리되지 않아 남는다 (2회)
+- **예방 규칙**: 포인터 제스처(드래그·롱프레스)는 드래그가 실제로 시작되는 시점(임계값 통과 후)에 포인터를 capture하거나 window에서 pointerup/pointercancel을 받고(pointerdown 시점 capture는 금지, V3 참고), move 이벤트에서 buttons를 확인하며, 렌더 교체·탭 정지·저장 채택·새 게임 때 호출할 cancel()을 반드시 제공하라. 2회 클릭 확인(armed) 같은 임시 상태도 탭 전환·활성 검 변경·강화 시작·새 게임·저장 채택·다른 탭 정지 모두에서 해제(disarm)하고, 이벤트마다 smoke-dom 단언을 둬라.
 - 증상: 스트립 밖에서 버튼을 놓으면 버튼 없이 카드가 따라오고 스트립 재렌더가 멈춘다. 드래그 시작 전 재렌더로 분리된 카드(g.el)를 쓰면 드롭 위치가 한 칸 어긋난다. swallowClick 플래그가 남아 키보드 클릭이 삼켜진다. 드래그 중 Space/S 단축키가 동작한다.
 - 근본 원인: 제스처 상태를 strip 요소의 이벤트에만 의존해 종료시키고, DOM 교체와 외부 상태 변화(busy, suspend, adopt)를 고려하지 않았다.
 - 확인 방법: smoke-dom에 buttons 없는 move, strip 밖 pointerup, 드래그 시작 전 재렌더, 드래그 중 keydown 시나리오를 추가한다. 수동으로는 카드 윗부분을 누른 채 위로 튕겨 밖에서 놓은 뒤 다시 strip 위로 이동한다. 사전 리뷰에서는 제스처 종료 경로 전부(밖에서 놓기, 포커스 상실, 재렌더, 모달/suspend)를 확인한다.
-- 발생: 2026-11-19 3단계 3-6 (js/strip-drag.js, js/main.js)
+- 증상(2회째): 각인 구매 2회 클릭 확인이 탭 전환으로 해제되지 않아 2.5초 안에 돌아와 한 번 클릭으로 구매된다 (js/main.js:361 tab 액션). 2차 검증에서 disarmSinks 추가로 해소.
+- 발생: 2026-11-19 3단계 3-6 (js/strip-drag.js, js/main.js), 2026-11-23 5단계 5-B (js/main.js:361 tab에서 disarmSinks 누락)
+
+### V6. 실제 Math.random을 쓰는 UI 테스트가 확률적으로 실패한다 (1회)
+- **예방 규칙**: 강화·사냥 등 확률 동작을 실제로 실행하는 smoke-dom 시나리오는 로드 전에 Math.random을 고정하거나(loadWithRandom 방식) 파괴 확률 0인 상태에서 실행하고, 새 시나리오는 10회 이상 반복 실행해 통과를 확인하라.
+- 증상: traitsUi "sink buttons disabled while enhance runs"가 약 20% 실패(+13 파괴 20%로 활성 검 소멸). 뒤의 "no purchase while busy"는 notFound로 공허하게 통과.
+- 근본 원인: 테스트가 +13 검을 비시드 RNG로 강화했다.
+- 확인 방법: tests/smoke-dom.js를 15회 반복 실행. 사전 리뷰에 "테스트가 확률 동작을 시드 없이 호출하는가" 항목을 넣는다.
+- 발생: 2026-11-23 5단계 5-B (tests/smoke-dom.js:785-787, 2차에서 Math.random 고정으로 해소)
+
+### V7. 버튼 문구를 차단 사유(block) 값으로 고르면 사유 검사 순서 때문에 틀린 문구가 나온다 (1회)
+- **예방 규칙**: "최고 등급" 같은 상태 표시는 차단 사유 문자열이 아니라 데이터(sw.trait.t >= TRAIT_TIER_MAX)로 판단하고, 비용 함수가 null을 반환하는 분기는 fmt 호출 전에 막아라. 사유 검사 순서가 겹치는 조합(잠김+최대 등급)마다 smoke 케이스를 추가하라.
+- 증상: best<13에서 등급 3 특성 검의 버튼이 "최고 등급" 대신 "등급 올리기 0G" (js/view.js:554-557, upgradeTierBlock가 locked를 maxTier보다 먼저 반환).
+- 근본 원인: view가 block==='maxTier'만 보고 분기했다.
+- 확인 방법: best 12 + {kind,3} 검으로 각인 패널 렌더를 확인.
+- 발생: 2026-11-23 5단계 5-B (js/view.js:554, 2차에서 해소)
 
 ### V3. pointerdown에서 포인터를 capture하면 click 대상이 capture 요소로 바뀌어 위임 클릭이 죽는다 (1회)
 - **예방 규칙**: 클릭이 필요한 요소 위에서 시작하는 제스처는 pointerdown에서 setPointerCapture를 호출하지 말고, 임계값을 넘어 드래그가 확정된 뒤에만 capture하라. capture를 쓰는 변경은 반드시 실제 브라우저에서 mousePressed/mouseReleased 단순 클릭을 검증하라.
