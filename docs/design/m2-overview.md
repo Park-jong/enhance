@@ -118,7 +118,7 @@ H_L = huntReward(L): 13→2,676, 14→4,951, 15→9,158, 16→16,943, 17→31,34
 
 ### C.3 단계 기념비 (장식 수집)
 - 보상은 **순수 장식**: 레벨별 영구 머리글/기록 배지 + 칭호 문구. 추가로 F12 업적이 "기념비 N개" 같은 카운터를 읽을 훅을 둔다(확정: 업적 `mon_1/2/3`(보유 1·4·8개)이 `monumentCount`를 읽고, `stats.sinkGold`는 `sink_1/2/3`(50만·1,000만·1억)에 쓰인다. `m2-achievements.md`).
-- UI 위치(잠정): 기록 탭의 "기념비" 섹션. 8칸, 상태 = 잠김(best<L) / 구매 가능 / 보유.
+- UI 위치(확정, 5-B 출시 화면 기준, (2026-11-23 변경)): 기록 탭의 "기념비" 섹션. **섹션은 항상 보이며** 초반에는 잠긴 칸으로 나온다. 8칸, 상태 = 잠김(best<L: `🔒 +L`·"최고 +L 달성 시"·가격) / 구매 가능([세우기], 2회 클릭 확인) / 보유. 칭호 `+L <검 이름> 기념비`, 머리글 배지 `🏛️ +L`(보유한 최고 단계), 기록 탭 줄 `대표 기념비: …`. 골드가 부족한 기념비가 있으면 격자 아래에 이유를 한 줄로 보여 준다(미도달 칸은 칸 자체의 잠금 표시로 갈음).
 - 규칙(`buyMonument(S, L)`): 인자 L은 정수 13..20.
 | # | Given | When | Then |
 | --- | --- | --- | --- |
@@ -185,7 +185,7 @@ H_L = huntReward(L): 13→2,676, 14→4,951, 15→9,158, 16→16,943, 17→31,34
 | `daily.tasks[].item` | `null\|'shard'\|'ore'` | `null` | | 그 외 값은 `null` | m2-achievements |
 | `daily.tasks[].claimed` | 0/1 | 0 | | truthy이면 1 | m2-achievements |
 | `daily.bonus` | 0/1 | 0 | | truthy이면 1 | m2-achievements |
-| `stats.hunts` / `sells` / `autoRuns` / `dailyDone` / `dailyAll` / `rewardGold` | 정수 ≥ 0 | 0 | | `STAT_KEYS`에 6개 추가(기존 `normCounts`) | m2-achievements |
+| `stats.hunts` / `sells` / `autoRuns` / `dailyDone` / `dailyAll` / `rewardGold` | 정수 ≥ 0 | 0 | | `STAT_KEYS`에 6개 추가(기존 `normCounts`). 아래 `eventsSeen`(m2-events)까지 합치면 achievements 쪽 STAT_KEYS 추가는 7개 (2026-11-23 변경) | m2-achievements |
 | `events` | 객체 | `{ active:null, sinceMs:0, nextAtMs:900000 }` | | 객체가 아니면(없음·배열·숫자·문자열 포함) 기본값. 아래 3필드는 각자 정규화 | m2-events |
 | `events.active` | `{id: string, remainMs: int}` 또는 `null` | `null` | `id` ∈ `EVENT_IDS`, `1 ≤ remainMs ≤ durationSec×1000` | 객체가 아니거나 `id`가 `EVENTS`의 자기 속성(`hasOwn`)이 아니면(`'constructor'`·`'__proto__'` 포함) `null`. `remainMs`는 `int(v, 0, 0, durationMs)`(숫자 문자열 허용, 내림, 비수치 0) 후 **0이면 `null`**(만료로 간주), 큰 값은 그 이벤트 자신의 지속 시간으로 clamp. `{id, remainMs}`만 남기고 다른 필드는 버린다 | m2-events |
 | `events.sinceMs` | 정수 ≥ 0 | 0 | `0 ≤ v ≤ EVENT_GAP_MAX_SEC×1000` | `int(v, 0, 0, 1800000)`. 음수 → 0, 큰 값 → 1,800,000(곧 스폰) | m2-events |
@@ -262,7 +262,7 @@ H_L = huntReward(L): 13→2,676, 14→4,951, 15→9,158, 16→16,943, 17→31,34
 | 업적·칭호 환생 처리 | **C에서 확정됨 → m2-rebirth.md §8** | **유지**(재수령 불가) |
 | 일일 상태(`daily`) 환생 처리 | **C에서 확정됨 → m2-rebirth.md §8** | **유지**(날짜 기반, 새 세트 없음) |
 | 평생 카운터(`stats.*`) 환생 처리 | **C에서 확정됨 → m2-rebirth.md §8** | **초기화하지 않음** |
-| 환생 후 초기화될 수 있는 업적 지표 | **C에서 확정됨 → m2-rebirth.md §8.1** | `best`·`monuments`·특성 종류 수는 래치로 보호 |
+| 환생 후 초기화될 수 있는 업적 지표 | **C에서 확정됨 → m2-rebirth.md §8.1** | 환생 시 기념비 유지(m2-rebirth.md §8), 래치는 34개 업적 전부에 적용되며, 환생으로 줄어드는 지표 중 래치가 지키는 것: best_*·knd_*·perfect (2026-11-23 변경) |
 | 환생 후 새 업적 | **C에서 확정됨 → m2-rebirth.md §13** | M2에서는 없음(선택 후속) |
 | 업적 보상 재수령 | **C에서 확정됨** | **불가** |
 | 연속 출석 | **C에서 확정됨** | **없음** |

@@ -188,7 +188,7 @@ D = `m2-overview.md` D, D.2 = 같은 문서 D.2, M1S = `m1-storage.md` + `js/sav
 3. `S.swords.length === 1`, `S.active`는 그 검의 id, `S.best === 0`, `S.slots ≥ S.swords.length`.
 4. `nextSwordId`·`nextAnvilId`·`quests.nextId`는 감소하지 않는다(재사용 없음).
 5. 유지 필드(`found, settings, stats.*, monuments, achievements, title, daily, rebirth.up`)는 깊은 비교로 같고 `rebirth.fame`·`count`는 +3·+1(구매 지출만 별도)이다.
-6. 환생으로 줄어드는 업적 지표(`best`, 특성 종류 수, 보유 검 기반 지표. `monuments`는 유지)는 **`syncAchievements` 래치**(`m2-achievements.md` §4.1)가 이미 달성한 `achievements[id]`를 내리지 않는다(`best_*`, `knd_*`, `trt` 등). 새 달성은 환생으로 생기거나 사라지지 않는다.
+6. 환생으로 줄어드는 업적 지표(`best`, 특성 종류 수, 보유 검 기반 지표. `monuments`는 유지)는 **`syncAchievements` 래치**(`m2-achievements.md` §4.1)가 이미 달성한 `achievements[id]`를 내리지 않는다(`best_*`, `knd_*`, `perfect`; 래치가 지키는 것은 이 셋이다) (2026-11-23 변경). 새 달성은 환생으로 생기거나 사라지지 않는다.
 7. 이벤트 해금 기준은 그대로 `S.best ≥ EVENT_UNLOCK_BEST(5)`(새 필드 없음). 환생 후 +5에 다시 도달해야 이벤트가 나온다.
 
 ## 9. 확률 상한과의 관계 표 (4단계 완료 조건)
@@ -284,7 +284,7 @@ D = `m2-overview.md` D, D.2 = 같은 문서 D.2, M1S = `m1-storage.md` + `js/sav
 
 ### 11.1 구현 팀 요청 통합(배치 A·B·C, 요약)
 - **Tech**
-  - 배치 A(`m2-traits.md` §17): `rules.js`에 특성 헬퍼·`payoutPreview`·`buyMonument`·가격식, `idle.js`·`forge.js` 수입 곱, `attemptEnhance` 모루 내구도 되돌림, `quests.deliver`·`sellSword` 상인, 파괴 `shardGain` 수집가, `save.js` `normSwords`·`monuments`·`STAT_KEYS`, `main.js` 각인 호출·토스트, `test-mode.js` `setTrait`.
+  - 배치 A(`m2-traits.md` §17): `rules.js`에 특성 헬퍼·`payoutPreview`·`buyMonument`·가격식, `idle.js`·`forge.js` 수입 곱, `attemptEnhance` 모루 내구도 되돌림, `quests.deliver`·`sellSword` 상인, 파괴 `shardGain` 수집가, `save.js` `normSwords`·`monuments`·`STAT_KEYS`, `main.js` 각인 호출·토스트, `SG.rules.setTrait`(`test-mode.js`는 로드 순서상 불가, 호출은 `js/test-panel.js`) (2026-11-23 변경).
   - 배치 B(`m2-achievements.md` §21, `m2-events.md` §18): `js/achievements.js`·`js/events.js` 신설과 `index.html` 로드 순서, `chances`·`enhanceOpts`(이벤트 `event` 입력), `idle.js`·`forge.js`·`quests.js` 이벤트 곱·새로고침 −50%, `save.js` 정규화·`STAT_KEYS` 확장, `main.js` 틱·토스트·즉시 저장·시계 주입, `view.js` 기록 탭 섹션·`TAB_DOT.records`, `test-mode.js` `setEvent`, `tools/sim-late`는 이벤트 비활성 시 결과 동일해야 함.
   - 배치 C(이 문서): `js/rebirth.js` 신설(또는 `rules.js`)과 로드 순서, `constants.js` §2, `save.js` `rebirth` 정규화·`defaultState`, `R.isUnlocked('idle')` 면허 분기, `idle.js`(수동·자동·오프라인) `pFame` 곱, `main.js` 환생 흐름(draft → 교체 → `persist` 1회 → `epoch` 증가·UI 리셋·토스트·스크롤), `view.js` 환생 섹션·확인 창·명성 상점, `test-mode.js` 환생 도우미(+20 검 지급).
 - **Content(선택)**: 특성 아이콘 6종·문구, 이벤트 아이콘·토스트 문구 6종, 업적·칭호 문구, **명성 아이콘·환생 확인 창 문구·명성 상점 이름 4종**.

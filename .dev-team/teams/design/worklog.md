@@ -106,3 +106,17 @@
 - 산출물: docs/design/m2-rebirth.md, docs/design/m2-overview.md, m2-traits/m2-events/m2-achievements 포인터 한 줄씩
 - 결정 사항: +20 검 제물 소모, 비용 100×H(20)=19,846,200G(골드는 초기화), 명성 환생당 3 고정, 명성 상점 4종(시작 자금·초반 수입 topLv≤12·시작 칸·자동 사냥 즉시 해금, 합 25명성), 확률 보너스 없음, 숙련은 단계당 기록 1개까지만 상속(전부 유지 시 +15~19 무파괴 등반 확률 10.5배라 기각), 게이지 초기화, 페이스 하한 1회차의 80%, 저장 v2 유지 + 기본값 병합(rebirth 필드 추가).
 - 남은 문제: 페이스 가정(골드 제한 구간 8분 이하 등)은 플레이 테스트 필요. 2회차가 15분 미만이면 MASTERY_KEEP_REC=0. 구현(Tech)·QA 필요.
+
+## 2026-11-23 — 기획서 정리 (REQ-038·039·041)
+- 지시: 디렉터 / 관련 단계: 6단계 / 처리한 요청: REQ-038, REQ-039, REQ-041
+- 참여 팀원: system-designer
+- 산출물: docs/design/m2-achievements.md(§18), m2-overview.md(H표, §C.3), m1-storage.md(검 요소 설명만), m2-traits.md(§4·§6·§8·§9·§11·§15·§17·AC15)
+- 결정 사항: 기념비는 환생 시 유지, 래치는 best_*와 특성 종류 지표만 보호. incomeTrait는 표시 전용, 계산은 정수 %p. setTrait는 SG.rules.setTrait + 테스트 패널. 5-B 화면을 view.js 기준으로 확정(잠정 제거).
+- 남은 문제: 보관함 칩이 absolute 배치, 기념비 격자 아래 사유 줄은 골드 부족만 다룸(미달성은 칸 안 잠금 문구) — 코드대로 기록함.
+
+## 2026-11-23 — 기획서 정리 2차 (QA V5 잔여 D1~D6)
+- 지시: 디렉터 / 관련 단계: 6단계 / 처리한 요청: REQ-038·039·041 후속
+- 참여 팀원: system-designer
+- 산출물: m2-traits.md(~174·~225·~295·~310), m2-achievements.md(~331·~395·~556 외 STAT_KEYS 7), m2-overview.md(~188·~265), m2-rebirth.md(~191·~287), m1-storage.md(~41)
+- 결정 사항: 래치는 전 업적 34개 적용(best_*·knd_*·perfect). STAT_KEYS 7(eventsSeen 포함). craft_m 게이트는 'anvilRoom' 이름 저장. 하락은 +10 이상에서만 발생.
+- 남은 문제: m2-rebirth.md 288~289의 setEvent·환생 보조(+20 검) 테스트 도구가 test-panel.js에 없음 — 구현 또는 문구 조정 필요.

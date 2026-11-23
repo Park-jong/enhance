@@ -16,7 +16,7 @@
 | 시계 조작 | 저장된 `daily.maxDay`가 단조 증가. 시계 역행 = 새 세트 없음. 앞으로 점프 = 세트 최대 1개 (결정) |
 | 두 탭 | 수령은 **활성 탭만**. 항목별 `claimed` 플래그를 보상과 **같은 저장**에 쓰므로 멱등. 두 번째 수령은 `claimed` (결정) |
 | UI | 새 탭 없음. **기록 탭**에 "일일 과제"·"업적" 섹션, 수령 가능하면 기록 탭에 **점**(기존 `TAB_DOT`) (결정) |
-| 저장 | `achievements`, `daily`, `title`, `stats.*` 6개. v2 유지, add-field + default-merge (결정) |
+| 저장 | `achievements`, `daily`, `title`, `stats.*` 7개(`eventsSeen` 포함, F13 훅) (2026-11-23 변경). v2 유지, add-field + default-merge (결정) |
 | 규모 | 업적 골드 합계 = `131 × H`(연속 사냥 **5.5분**, 1회성). 일일 과제 하루 = `16 × H`(연속 사냥 **0.67분/일**) (§7.3) |
 
 ### 1.1 기본 원칙
@@ -328,7 +328,7 @@ dayKey(nowMs) = floor( (localMs - DAILY_RESET_HOUR * 3600000) / DAY_MS )    // D
 ## 11. 두 탭 규칙 (결정)
 - 저장은 한 키 `sword-enhance-v2`를 쓰고 `tab-guard.js`가 다른 탭의 저장을 감지하면 이 탭을 멈춘다(`isSuspended()`). **멈춘 탭은 입력을 무시하고(`whenActive`) 저장하지 않는다.**
 - 수령·`refreshDaily`·`syncAchievements`의 저장 부작용은 활성 탭만 일으킨다. 멈춘 탭의 `claimAchievement`/`claimDaily`/`claimAll` 호출은 `{ok:false, reason:'inactiveTab'}`(검사 1순위).
-- **탭 잠금 이벤트 지연 방어**: `storage` 이벤트는 비동기라 다른 탭이 저장한 직후 이 탭이 아직 멈추기 전에 같은 항목을 수령할 수 있다. 그래서 검사 5(`storedClaimed`)가 저장소의 현재 저장을 읽어 이미 수령된 항목이면 `claimed`를, 일일 과제에서 저장된 `daily.maxDay`가 이 탭과 다르면(다른 탭이 이미 새 날 세트로 교체해 슬롯 번호가 다른 과제를 가리킬 수 있음) `stale`을 돌려주고 보상을 주지 않는다. `main.js`는 `storedClaimed`를 `save.load`의 정규화 결과를 읽는 함수로 주입한다.
+- **탭 잠금 이벤트 지연 방어**: `storage` 이벤트는 비동기라 다른 탭이 저장한 직후 이 탭이 아직 멈추기 전에 같은 항목을 수령할 수 있다. 그래서 검사 5(`storedClaimed`)가 저장소의 현재 저장을 읽어 이미 수령된 항목이면 `claimed`를, 일일 과제에서 저장된 `daily.maxDay`가 이 탭과 다르면(다른 탭이 이미 새 날 세트로 교체해 슬롯 번호가 다른 과제를 가리킬 수 있음) `stale`을 돌려주고 보상을 주지 않는다. `main.js`는 `storedClaimed`를 읽기 전용 `SV.peek`(저장소를 건드리지 않고 정규화 결과만 반환)로 읽는 함수로 주입한다(`save.load` 아님) (2026-11-23 변경).
 - 이어받기(`takeOver`)·복귀 시 상태 전체를 최신 저장으로 교체하므로 `achievements`·`daily`도 최신 값으로 바뀐다(수령 플래그 유지). 그 직후 `refreshDaily`·`syncAchievements`를 호출한다.
 - 두 탭이 같은 날 동시에 `refreshDaily`로 세트를 만들 수 있다? 한 탭만 활성이라 그럴 수 없다. 멈춘 탭이 이어받기 하면 최신 저장(이미 `maxDay`가 새 값)을 받으므로 같은 날 세트를 다시 만들지 않는다.
 
@@ -373,7 +373,7 @@ dayKey(nowMs) = floor( (localMs - DAILY_RESET_HOUR * 3600000) / DAY_MS )    // D
 | `daily.tasks[].item` | `null\|'shard'\|'ore'` | `null` | | 그 외 값은 `null` | 〃 |
 | `daily.tasks[].claimed` | 0/1 | 0 | | truthy이면 1 | 〃 |
 | `daily.bonus` | 0/1 | 0 | | truthy이면 1 | 〃 |
-| `stats.hunts` / `sells` / `autoRuns` / `dailyDone` / `dailyAll` / `rewardGold` | 정수 ≥ 0 | 0 | | `STAT_KEYS`에 6개 추가(기존 `normCounts`) | `save.js` |
+| `stats.hunts` / `sells` / `autoRuns` / `dailyDone` / `dailyAll` / `rewardGold` | 정수 ≥ 0 | 0 | | `STAT_KEYS`에 7개 추가(기존 `normCounts`): 위 6개 + `eventsSeen`(F13 훅, `m2-events.md`, 수용) (2026-11-23 변경) | `save.js` |
 - `daily.tasks`가 빈 배열인데 `maxDay`가 큰 값이면(손상 복구 등): `refreshDaily` 5·6단계 규칙에 따라 `day === maxDay`일 때만 다시 만든다(역행이면 만들지 않음).
 - 버전 `v`는 2 유지(마이그레이션 없음). 옛 저장은 기본값으로 로드되고, 옛 클라이언트가 새 저장을 읽으면 새 필드를 무시한다(옛 클라이언트가 다시 저장하면 `achievements`·`daily`가 사라지는 것은 배치 A의 `trait`와 같은 수용). 실제 구현 중 `defaultState`에 위 필드를 넣는다.
 - `normalize`는 항상 `achievements`·`title`·`daily`를 정규화하고 다른 필드는 그대로 둔다. `S.daily`는 `daily.tasks`가 없거나 무효여도 에러 없이 기본 객체를 만든다.
@@ -392,7 +392,7 @@ dayKey(nowMs) = floor( (localMs - DAILY_RESET_HOUR * 3600000) / DAY_MS )    // D
 | `DAY_MS` | 86400000 | 하루(ms) |
 | `DAILY_TASKS` | 3 | 과제 수 |
 | `DAILY_BANDS` | `[5, 10, 15, 20]` | 목표 밴드 하한(best) |
-| `DAILY_POOL` | §8.2 표의 10개 항목(슬롯별 배열) | `{id, slot, metric, goals\|mult, gate}`. `craft_m.gate = S => S.anvils.length < ANVIL_OWN_MAX`, 나머지 `S => true` |
+| `DAILY_POOL` | §8.2 표의 10개 항목(슬롯별 배열) | `{id, slot, metric, goals\|mult, gate}`. `craft_m.gate = S => S.anvils.length < ANVIL_OWN_MAX`, 나머지 `S => true`. 구현의 `constants.js`는 게이트를 함수가 아닌 **이름 문자열**로 저장한다(`craft_m`은 `'anvilRoom'`). `achievements.js`의 `DAILY_GATES.anvilRoom`이 함수로 해석한다 (2026-11-23 변경) |
 | `DAILY_TASK_K` | `[2, 3, 5]` | ★/★★/★★★ 골드 배수 |
 | `DAILY_ALL_K` | 6 | 3개 달성 보너스 골드 배수 |
 | `DAILY_ALL_SHARD_MULT` | 2 | 보너스 파편 배수(×`shardGain`) |
@@ -402,7 +402,7 @@ dayKey(nowMs) = floor( (localMs - DAILY_RESET_HOUR * 3600000) / DAY_MS )    // D
 | `DAILY_MAXDAY_CAP` | 1000000 | 저장 `maxDay` 상한(약 2700년 후, 방어용) |
 | `TITLE_NONE` | `''` | 칭호 없음 |
 
-`STAT_KEYS`(save.js)에 `hunts`, `sells`, `autoRuns`, `dailyDone`, `dailyAll`, `rewardGold` 추가.
+`STAT_KEYS`(save.js)에 `hunts`, `sells`, `autoRuns`, `dailyDone`, `dailyAll`, `rewardGold`, `eventsSeen`(F13 이벤트 훅, 수용) 총 7개 추가 (2026-11-23 변경).
 
 ## 15. `rules`·`achievements.js`에 추가할 순수 함수 (코드는 이 문서에서 작성하지 않음)
 - `rewardGold(S, k)`, `shardReward(S, m)` — §7.
@@ -482,7 +482,7 @@ dayKey(nowMs) = floor( (localMs - DAILY_RESET_HOUR * 3600000) / DAY_MS )    // D
 43. Given `claimAll` / When 수령 가능 업적 2개 + 일일 1개 + 보너스 불가 / Then 업적 표 순서 → 일일 슬롯 순서로 각각 수령하고 반환 `claimed`에 순서대로 들어간다. 비활성 탭이면 `inactiveTab`.
 
 **저장·정규화**
-44. Given 새 게임 / Then `achievements={}`, `title=''`, `daily={maxDay:0, tasks:[], bonus:0}`, 새 `stats` 6개 0.
+44. Given 새 게임 / Then `achievements={}`, `title=''`, `daily={maxDay:0, tasks:[], bonus:0}`, 새 `stats` 7개(`hunts`·`sells`·`autoRuns`·`dailyDone`·`dailyAll`·`rewardGold`·`eventsSeen`) 0 (2026-11-23 변경).
 45. Given 저장의 `achievements`가 `[]`, `"x"`, `{tries_1:2, bogus:1, constructor:2, succ_1:'1', best_1:9, dest_1:0}` / When 로드 / Then `{}`, `{}`, `{tries_1:2, succ_1:1, best_1:2}`(알 수 없는 키 버림, 값 clamp, 0 버림)이다. 예외 없음.
 46. Given `title`이 `5`, `'tries_1'`(아직 미수령), `'tries_1'`(수령 완료) / Then `''`, `''`, `'tries_1'`.
 47. Given `daily`가 없음/`null`/`[]`/`tasks`가 길이 2 / Then 기본 `daily`(`tasks=[]`)이고 `maxDay`가 있으면 유지.
@@ -553,7 +553,7 @@ dayKey(nowMs) = floor( (localMs - DAILY_RESET_HOUR * 3600000) / DAY_MS )    // D
 | 업적(`achievements`)·칭호(`title`) | **유지**(영구 수집) |
 | 일일 상태(`daily`) | **유지**(날짜 기반이며 진행 기반이 아님). 환생으로 세트를 새로 주지 않음 |
 | 평생 카운터(`stats.tries` 등) | **초기화하지 않음** 잠정. C가 초기화하는 카운터가 있으면 일일 `base`는 정규화(`min(base, stats)`)로 안전하게 처리됨 |
-| 환생 후 초기화될 수 있는 지표 | `best`(`best_*` 래치로 보호), `monuments`(`mon_*`는 래치로 보호), 특성 종류 수(래치) |
+| 환생 후 초기화될 수 있는 지표 | `best`(`best_*` 래치로 보호), `monuments`(환생 시 기념비 유지, m2-rebirth.md §8), 특성 종류 수(래치). 래치는 34개 업적 전부에 적용되며, 환생으로 줄어드는 지표 중 래치가 지키는 것: best_*·knd_*·perfect (2026-11-23 변경) |
 | 환생 후 새 업적 | 확정: m2-rebirth.md §13 — M2에서는 없음(후속 선택) |
 | 업적 보상 재수령 | **불가**(수령 상태 유지) |
 | 연속 출석 | 확정: 없음(m2-rebirth.md §8) |
@@ -575,6 +575,6 @@ dayKey(nowMs) = floor( (localMs - DAILY_RESET_HOUR * 3600000) / DAY_MS )    // D
 9. **A.1 순서·이유**: 변경 없음(업적이 특성·기념비 훅을 읽으므로 2순위 유지).
 
 ## 21. 다른 팀 요청
-- **Tech**: `js/achievements.js` 신설(§15 함수), `idle.js`(`hunts`, `autoRuns`), `rules.js`(`sellSword`의 `sells`), `save.js`(`STAT_KEYS` 6개 추가, `achievements`·`title`·`daily` 정규화·기본값), `main.js`(`syncAchievements`·`refreshDaily` 호출 위치, 수령 후 강제 저장, `storedClaimed`·`tzOffsetMin` 주입, 토스트), `view.js`(`TAB_DOT.records`, 기록 탭 섹션 렌더, `TABS` 변경 없음), `index.html`(기록 패널 안 컨테이너만), `constants.js`(§14).
+- **Tech**: `js/achievements.js` 신설(§15 함수), `idle.js`(`hunts`, `autoRuns`), `rules.js`(`sellSword`의 `sells`), `save.js`(`STAT_KEYS` 7개 추가(`eventsSeen` 포함) (2026-11-23 변경), `achievements`·`title`·`daily` 정규화·기본값), `main.js`(`syncAchievements`·`refreshDaily` 호출 위치, 수령 후 강제 저장, `storedClaimed`·`tzOffsetMin` 주입, 토스트), `view.js`(`TAB_DOT.records`, 기록 탭 섹션 렌더, `TABS` 변경 없음), `index.html`(기록 패널 안 컨테이너만), `constants.js`(§14).
 - **Content(선택)**: 칭호·업적 이름 문구 점검(§5), 일일 과제 설명 문구, 업적 아이콘(선택).
 - **QA**: §16 AC 전수. 특히 시계 조작(7~10c, 주입 시계), 두 탭(29~30c), 반올림 순서(36·41·42), rng 9회(5, 11, 12), 저장 정규화(44~51), 이름 규칙 문자열(54), 모바일 360px(58).
