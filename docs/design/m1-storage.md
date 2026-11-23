@@ -20,7 +20,7 @@
 
 ## 2. 규칙 상세
 - 칸 확장: `SLOT_EXPAND_COST[n]`(n=이미 확장한 횟수 0..4). 최대 도달 시 버튼 숨김. 확장은 영구.
-- 검 객체: `{ id, lv, prot, pity }` — `id`는 `nextSwordId`로 부여하는 증가 정수(삭제되어도 재사용 안 함).
+- 검 객체: `{ id, lv, prot, pity }` + M2의 `trait`(`null` 또는 `{k,t}`). 위 4필드는 M1 기준이고 전체 정의는 `m2-overview.md` §D 마스터 저장 표와 `m2-traits.md` §10 (2026-11-23 변경) — `id`는 `nextSwordId`로 부여하는 증가 정수(삭제되어도 재사용 안 함).
 - 검 구매(`buySword`): 골드 부족 또는 빈 칸 없음이면 거부(토스트). 구매한 검은 활성 전환하지 않음(보관함에 +0으로 들어감).
 - 판매 확인: M0의 "+8 이상은 2회 클릭 확인"을 모든 칸에 동일 적용(검 id별로 armed 상태 관리).
 - 도감(`found`)과 `best`는 보유 검 전체가 아니라 **도달 기록**이므로 검이 사라져도 유지.
@@ -76,6 +76,8 @@
 }
 ```
 
+> 위 JSON은 M1 기준 예시다. M2부터 각 검에 `"trait": null`이 추가된다(m2-overview §D). JSON에는 주석을 쓸 수 없어 예시 안의 주석을 이 문장으로 옮겼다 (2026-11-23 변경).
+
 ### 필드 정의/기본값
 | 필드 | 타입/범위 | 기본값 | 설명 | 참조 문서 |
 | --- | --- | --- | --- | --- |
@@ -84,7 +86,7 @@
 | `shards` | 정수 ≥0 | 0 | 파괴 파편 | protect-shards |
 | `best` | 0..20 | 0 | 역대 최고 단계. 해금 판정에 사용 | overview |
 | `found` | bool[21] | [0]만 true | 도감 | |
-| `swords` | 객체 배열, 길이 1..`slots` | `[{id:1,lv:0,prot:2,pity:0}]` | 보유 검. 길이는 항상 ≥1(0이 되면 즉시 무료 +0 지급) | 본 문서 |
+| `swords` | 객체 배열, 길이 1..`slots` | `[{id:1,lv:0,prot:2,pity:0}]` | 보유 검. 길이는 항상 ≥1(0이 되면 즉시 무료 +0 지급). M2부터 요소에 `trait`가 추가되며 전체 표는 `m2-overview.md` §D (2026-11-23 변경) | 본 문서 |
 | `swords[].prot` | 0..`PROTECT_USES` | 2 | 현재 단계에서 남은 보호 횟수 | protect-shards |
 | `swords[].pity` | 정수 ≥0 | 0 | 마지막 성공 이후 실패 누적 횟수(확률 보너스는 계산식으로 도출) | pity-cap |
 | `nextSwordId` | 정수 | 2 | | |
@@ -106,6 +108,11 @@
 | `settings.muted` | bool | false | v1 `muted` 이동 | |
 | `settings.skipFx` | bool | false | 연출 스킵 | idle(F9) |
 | `stats.*` | 정수 | 0 | v1 5개 + 신규 | |
+| `stats.hunts/sells/autoRuns/dailyDone/dailyAll/rewardGold` | 정수 ≥0 | 0 | M2 F12 카운터: 수동 사냥 성공, +`SELL_COUNT_MIN_LV` 이상 판매, 접속 중 자동 사냥 실행, 일일 과제 수령, 일일 보너스 수령, 업적·일일 보상 골드. 정규화는 다른 `stats`와 같음 (2026-11-23 추가) | m2-achievements §4·§13 |
+| `stats.eventsSeen` | 정수 ≥0 | 0 | M2 F13 이벤트 스폰 횟수(업적 훅). 6-A에서 키만 추가, 아직 올리는 코드 없음 (2026-11-23 추가) | m2-events |
+| `achievements` | 객체 `{ [업적 id]: 1\|2 }`(희소) | `{}` | 1 = 달성(받기 가능), 2 = 수령 완료. 표에 없는 키·0은 버림 (2026-11-23 추가) | m2-achievements §6·§13 |
+| `title` | 문자열 | `''` | 선택한 칭호 = 수령 완료(2)한 업적 id, 아니면 `''` (2026-11-23 추가) | m2-achievements §13 |
+| `daily` | `{ maxDay, tasks, bonus }` | `{maxDay:0, tasks:[], bonus:0}` | 일일 과제 세트. `maxDay` 0..`DAILY_MAXDAY_CAP`(단조), `tasks`는 `{e,goal,base,item,claimed}` 3개 또는 `[]`(하나라도 무효면 `[]`), `base`는 현재 지표값 이하로 자름, `bonus` 0/1 (2026-11-23 추가) | m2-achievements §8·§13 |
 
 ### 로드 규칙(`load()`)
 1. `sword-enhance-v2`가 있으면 파싱 후 기본값 병합(M0 `load()`와 같은 얕은 병합 + 중첩 객체별 병합). 

@@ -36,6 +36,7 @@
     const gold = manualHuntGold(S, now);
     S.gold += gold;
     S.stats.huntGold += gold;
+    S.stats.hunts++;
     const ore = F.addOre(S, F.rollOre(S, rng));
     return { ok: true, gold, ore };
   }
@@ -68,6 +69,7 @@
       out.runs++;
     }
     if (now >= next) next = now + interval;
+    S.stats.autoRuns += out.runs;
     out.nextAutoAt = next;
     return out;
   }

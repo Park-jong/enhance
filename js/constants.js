@@ -237,6 +237,101 @@
   }
   if (MONUMENT_COUNT !== MAX - MONUMENT_FROM + 1) throw new Error('MONUMENT_COUNT must equal MAX - MONUMENT_FROM + 1');
 
+  // ---------------------------------------------------------------- M2-B. 업적·칭호·일일 과제 (F12, m2-achievements §14)
+  const byId = list => list.reduce((o, e) => { o[e.id] = e; return o; }, {});
+  const ACH_ROUND = 10;                    // 업적·일일 골드 반올림 단위(G)
+  const ACH_EARLY_BEST = 13;               // S.best가 이 값 미만이면 골드를 ACH_EARLY_PCT%로 지급
+  const ACH_EARLY_PCT = 50;
+  const ACH_REACHED = 1;                   // achievements[id]: 없음 = 미달성, 1 = 달성(받기 가능), 2 = 수령 완료
+  const ACH_CLAIMED = 2;
+  const SELL_COUNT_MIN_LV = 5;             // stats.sells에 세는 최소 검 단계
+  const TITLE_NONE = '';
+  // 지표 분류: stat = S.stats[이름], best = S.best, derived = achievements.js의 파생 함수
+  const ACH_METRICS = {
+    tries: 'stat', success: 'stat', destroy: 'stat', hunts: 'stat', delivered: 'stat', sinkGold: 'stat',
+    traitRolls: 'stat', dailyDone: 'stat', best: 'best',
+    monumentCount: 'derived', traitKindCount: 'derived', hasPerfectTrait: 'derived',
+  };
+  // [id, track, tier, 이름, 칭호, 지표, 목표, 골드 k, 파편 m, 광석]. hasPerfectTrait는 참이면 1
+  const ACHIEVEMENTS = [
+    ['tries_1', 'tries', 1, '첫 단련', '견습 대장장이', 'tries', 100, 1, 0],
+    ['tries_2', 'tries', 2, '끝없는 망치질', '숙련 대장장이', 'tries', 1000, 3, 1],
+    ['tries_3', 'tries', 3, '불꽃의 장인', '전설의 대장장이', 'tries', 5000, 6, 2],
+    ['succ_1', 'succ', 1, '성공의 맛', '행운의 손', 'success', 50, 1, 0],
+    ['succ_2', 'succ', 2, '단단한 손맛', '명장의 손', 'success', 500, 3, 1],
+    ['succ_3', 'succ', 3, '필승의 대장장이', '백전백승', 'success', 2500, 6, 2],
+    ['best_1', 'best', 1, '희귀한 검', '희귀 감정사', 'best', 10, 1, 0],
+    ['best_2', 'best', 2, '영웅의 검', '영웅 대장장이', 'best', 15, 4, 1],
+    ['best_3', 'best', 3, '무한의 검', '신화를 벼린 자', 'best', 20, 8, 2],
+    ['dest_1', 'dest', 1, '첫 파괴', '깨진 검의 증인', 'destroy', 1, 1, 0],
+    ['dest_2', 'dest', 2, '잿더미 속에서', '오뚝이', 'destroy', 25, 3, 1],
+    ['dest_3', 'dest', 3, '파편의 왕', '폐허의 군주', 'destroy', 100, 5, 2],
+    ['hunt_1', 'hunt', 1, '사냥 입문', '초보 사냥꾼', 'hunts', 100, 1, 0],
+    ['hunt_2', 'hunt', 2, '단골 사냥터', '베테랑 사냥꾼', 'hunts', 1000, 3, 1, { iron: 40 }],
+    ['hunt_3', 'hunt', 3, '사냥터의 주인', '사냥왕', 'hunts', 5000, 6, 2, { silver: 40 }],
+    ['dlv_1', 'dlv', 1, '첫 납품', '심부름꾼', 'delivered', 5, 1, 0],
+    ['dlv_2', 'dlv', 2, '믿음직한 거래처', '단골 납품업자', 'delivered', 25, 3, 1, { iron: 30 }],
+    ['dlv_3', 'dlv', 3, '왕실 납품업자', '납품왕', 'delivered', 100, 6, 1, { silver: 30 }],
+    ['sink_1', 'sink', 1, '첫 투자', '후원자', 'sinkGold', 500000, 3, 0],
+    ['sink_2', 'sink', 2, '아낌없는 손', '큰손', 'sinkGold', 10000000, 6, 0],
+    ['sink_3', 'sink', 3, '황금의 강', '재벌', 'sinkGold', 100000000, 10, 0],
+    ['trt_1', 'trt', 1, '첫 각인', '각인사', 'traitRolls', 1, 1, 0],
+    ['trt_2', 'trt', 2, '각인 수집가', '각인 장인', 'traitRolls', 5, 3, 1],
+    ['trt_3', 'trt', 3, '운명의 주사위', '각인의 달인', 'traitRolls', 20, 5, 2],
+    ['knd_1', 'knd', 1, '세 가지 재능', '재능 수집가', 'traitKindCount', 3, 1, 0],
+    ['knd_2', 'knd', 2, '다재다능', '다재다능', 'traitKindCount', 5, 3, 1],
+    ['knd_3', 'knd', 3, '여섯 빛깔', '전종 수집가', 'traitKindCount', 6, 6, 2],
+    ['mon_1', 'mon', 1, '첫 기념비', '기념비 건립자', 'monumentCount', 1, 3, 0],
+    ['mon_2', 'mon', 2, '기념비의 숲', '기념비 수호자', 'monumentCount', 4, 6, 1],
+    ['mon_3', 'mon', 3, '모든 기념비', '기념비의 주인', 'monumentCount', 8, 10, 2],
+    ['day_1', 'day', 1, '성실한 하루', '성실한 사람', 'dailyDone', 10, 1, 0],
+    ['day_2', 'day', 2, '꾸준한 습관', '꾸준한 사람', 'dailyDone', 50, 3, 1],
+    ['day_3', 'day', 3, '일과의 달인', '일과의 달인', 'dailyDone', 200, 6, 2],
+    ['perfect', 'perfect', 1, '완벽한 각인', '완벽주의자', 'hasPerfectTrait', 1, 2, 1],
+  ].map(([id, track, tier, name, title, metric, need, k, shard, ore]) =>
+    ({ id, track, tier, name, title, metric, need, k, shard, ore: ore || null }));
+  const ACH_BY_ID = byId(ACHIEVEMENTS);
+
+  const DAILY_UNLOCK_BEST = 5;
+  const DAILY_RESET_HOUR = 4;              // 지역 시간 04:00에 새 날
+  const DAY_MS = 86400000;
+  const DAILY_TASKS = 3;                   // 슬롯 0 ★, 1 ★★, 2 ★★★
+  const DAILY_BANDS = [5, 10, 15, 20];     // 목표 밴드 하한(best)
+  // goals: 밴드별 목표, mult: 밴드별 huntReward(best) 배수. gate: achievements.js DAILY_GATES 이름(없으면 항상 후보)
+  const DAILY_POOL = [
+    { id: 'hunt_s',  slot: 0, metric: 'hunts',     goals: [10, 15, 20, 25] },
+    { id: 'auto_s',  slot: 0, metric: 'autoRuns',  goals: [12, 18, 24, 36] },
+    { id: 'tries_s', slot: 0, metric: 'tries',     goals: [8, 10, 12, 15] },
+    { id: 'succ_m',  slot: 1, metric: 'success',   goals: [3, 4, 4, 4] },
+    { id: 'gold_m',  slot: 1, metric: 'huntGold',  mult: [20, 25, 30, 30] },
+    { id: 'sell_m',  slot: 1, metric: 'sells',     goals: [2, 3, 3, 4] },
+    { id: 'craft_m', slot: 1, metric: 'crafted',   goals: [1, 1, 1, 1], gate: 'anvilRoom' },
+    { id: 'dlv_l',   slot: 2, metric: 'delivered', goals: [1, 1, 1, 2] },
+    { id: 'hunt_l',  slot: 2, metric: 'hunts',     goals: [30, 45, 60, 80] },
+    { id: 'tries_l', slot: 2, metric: 'tries',     goals: [15, 20, 25, 30] },
+  ];
+  const DAILY_POOL_BY_ID = byId(DAILY_POOL);
+  const DAILY_TASK_K = [2, 3, 5];          // ★/★★/★★★ 골드 배수
+  const DAILY_ALL_K = 6;                   // 3개 달성 보너스 골드 배수
+  const DAILY_ALL_SHARD_MULT = 2;          // 보너스 파편 = 배수 × shardGain
+  const DAILY_ITEM_CHANCE_PCT = 40;
+  const DAILY_ITEM_KINDS = ['shard', 'ore'];   // 과제 아이템 종류(생성 rng 3번째 값의 인덱스)
+  const DAILY_ITEM_SHARD_MULT = 1;         // 파편 아이템 = 배수 × shardGain
+  const DAILY_ORE_N = 20;
+  const DAILY_GOAL_MAX = 1e12;
+  const DAILY_MAXDAY_CAP = 1000000;
+  // 생성 알고리즘은 빈 후보가 없다고 가정하므로(빈 후보 = undefined 과제) 로드 시점에 막는다: id 중복 없음, 표 길이 일치,
+  // 슬롯마다 앞 슬롯 항목들의 지표와 겹치지 않는 게이트 없는 항목 1개 이상(앞 슬롯이 무엇을 뽑아도 후보가 남는다).
+  // 게이트 이름은 achievements.js, 지표 이름(stats 키)은 save.js가 로드 시점에 검사한다
+  const earlierSlotMetrics = slot => DAILY_POOL.filter(e => e.slot < slot).map(e => e.metric);
+  const hasSafeEntry = slot => DAILY_POOL.some(e => e.slot === slot && !e.gate && !earlierSlotMetrics(slot).includes(e.metric));
+  if (ACHIEVEMENTS.length !== Object.keys(ACH_BY_ID).length || DAILY_POOL.length !== Object.keys(DAILY_POOL_BY_ID).length ||
+      DAILY_TASK_K.length !== DAILY_TASKS ||
+      DAILY_POOL.some(e => (e.goals || e.mult).length !== DAILY_BANDS.length) ||
+      DAILY_TASK_K.some((_, slot) => !hasSafeEntry(slot))) {
+    throw new Error('ACHIEVEMENTS / DAILY_* tables are inconsistent');
+  }
+
   // ---------------------------------------------------------------- 아이템 정의 (데이터 주도)
   // kind: consumable(inv 스택) / anvil(장비 인스턴스) / shard(파편)
   const ITEMS = {
@@ -305,6 +400,10 @@
     PERCENT, TRAIT_ROLL_LV, TRAIT_KINDS, TRAIT_KIND_WEIGHT, TRAIT_TIER_WEIGHT, TRAIT_TIER_MAX, TRAITS, TRAIT_TIER_NAME,
     TRAIT_MGMT_UNLOCK_BEST, TRAIT_PRICE_ROUND, TRAIT_REKIND_MULT, TRAIT_TIER_UP_MULT,
     MONUMENT_FROM, MONUMENT_COUNT, MONUMENT_MULT,
+    ACH_ROUND, ACH_EARLY_BEST, ACH_EARLY_PCT, ACH_REACHED, ACH_CLAIMED, SELL_COUNT_MIN_LV, TITLE_NONE,
+    ACH_METRICS, ACHIEVEMENTS, ACH_BY_ID,
+    DAILY_UNLOCK_BEST, DAILY_RESET_HOUR, DAY_MS, DAILY_TASKS, DAILY_BANDS, DAILY_POOL, DAILY_POOL_BY_ID,
+    DAILY_TASK_K, DAILY_ALL_K, DAILY_ALL_SHARD_MULT, DAILY_ITEM_CHANCE_PCT, DAILY_ITEM_KINDS, DAILY_ITEM_SHARD_MULT, DAILY_ORE_N, DAILY_GOAL_MAX, DAILY_MAXDAY_CAP,
     ITEMS, ORE_NAMES, SHOP_ITEMS, ICONS, ICON_ASSET_KEYS,
   });
 });

@@ -147,7 +147,7 @@ async function main() {
 
   // 1) 새 게임: 로드·렌더·저장
   let env = makeEnv({});
-  ok(env.scripts.length === 14, 'all scripts loaded');
+  ok(env.scripts.length === 15, 'all scripts loaded');
   ok(!!env.ctx.M1_ICONS && !!env.ctx.M1_SFX_PLAY, 'content assets loaded');
   ok(env.byId['#tabbar']._html.includes('<svg'), 'content SVG icons used in tabs');
   ok(saved(env).v === 2, 'v2 saved on start');
@@ -418,6 +418,8 @@ async function main() {
   await traitsWiring(ok);
   // 7b-3) 5-B: 특성 표시·수입 몫·지급 미리보기, 각인 관리(2회 클릭), 기념비
   await traitsUi(ok);
+  // 7b-4) 6-A F12: 일일 세트 갱신(부팅·틱·복귀), 업적 동기화, 수령 즉시 저장, 두 탭 재확인·멈춘 탭
+  await achievementsWiring(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -436,6 +438,173 @@ async function main() {
   await req031(ok);
 
   console.log(`smoke-dom: ${checks} checks passed`);
+}
+
+/**
+ * 6-A F12 배선 (m2-achievements §6·§9·§10·§11, AC 10b·29·30·30b·30c·30d): main.js가 부팅·틱·복귀에서 일일 세트를 갱신하고
+ * 업적을 동기화하며, 수령 직후 즉시 저장하고, 다른 탭의 저장을 다시 확인한다. 화면(6-B)은 검사하지 않는다
+ */
+async function achievementsWiring(ok) {
+  const KEY = 'sword-enhance-v2';
+  const A = require(path.join(ROOT, 'js', 'achievements.js'));
+  const HOUR = 3600 * 1000;
+  const offAt = ms => new Date(ms).getTimezoneOffset();
+  const dayOf = ms => A.dayKey(ms, offAt(ms));
+  /** 이 기기 시간대에서 dayKey가 d로 바뀌는 시각(지역 04:00) */
+  const dayStart = d => { const t = d * 86400000 + 4 * HOUR; return t + offAt(t) * 60000; };
+  const D = 20777;
+  const realRandom = Math.random;
+  /** main.js는 로드 시점의 Math.random을 잡으므로 로드하는 동안만 고정한다(일일 생성 9회도 이 값, V6) */
+  const loadWith = (store, opts) => {
+    Math.random = () => 0;
+    try { return makeEnv(store, opts); } finally { Math.random = realRandom; }
+  };
+  const save = fields => Object.assign(SG_default(), fields);
+  const setOf = (day, done) => ({ maxDay: day, tasks: [
+    { e: 'hunt_s', goal: 10, base: done ? 0 : 5, item: null, claimed: 0 },
+    { e: 'succ_m', goal: 4, base: 0, item: null, claimed: 0 },
+    { e: 'dlv_l', goal: 1, base: 0, item: null, claimed: 0 }], bonus: 0 });
+  const withLv = (s, lv) => { s.best = lv; s.swords = [{ id: 1, lv, prot: 2, pity: 0, trait: null }]; return s; };
+
+  // 부팅: best 4는 일일 잠김(세트·maxDay 없음), best 5는 오늘 세트 1개(첫 후보들, 고정 rng 0)
+  const clk = { t: dayStart(D) + 5 * HOUR };
+  let env = loadWith({ [KEY]: JSON.stringify(withLv(save({}), 4)) }, { now: () => clk.t });
+  ok(JSON.stringify(saved(env).daily) === JSON.stringify({ maxDay: 0, tasks: [], bonus: 0 }), 'F12 boot: daily locked below +5');
+  env = loadWith({ [KEY]: JSON.stringify(withLv(save({}), 5)) }, { now: () => clk.t });
+  let st = saved(env);
+  ok(st.daily.maxDay === D && st.daily.tasks.map(t => t.e).join() === 'hunt_s,succ_m,dlv_l', 'F12 boot: best 5 gets today\'s set: ' + JSON.stringify(st.daily));
+  scanRendered();
+
+  // 틱: 지역 04:00 경계를 넘으면 새 세트 1개를 만들고 바로 저장, 시계를 되돌리면 그대로(역행 무시)
+  clk.t = dayStart(D + 1) - 1000;
+  env = loadWith({ [KEY]: JSON.stringify(withLv(save({ daily: setOf(D, true) }), 5)) }, { now: () => clk.t });
+  ok(saved(env).daily.maxDay === D, 'F12 tick: 03:59:59 is still the previous day');
+  clk.t = dayStart(D + 1) + 1000;
+  env.tick();
+  st = saved(env);
+  ok(st.daily.maxDay === D + 1 && st.daily.tasks.length === 3 && st.daily.tasks[0].base === st.stats.hunts, 'F12 tick: 04:00 creates the new day\'s set and saves it');
+  const afterBoundary = env.store[KEY];
+  clk.t = dayStart(D + 1) - 1000;
+  env.tick();
+  ok(saved(env).daily.maxDay === D + 1 && JSON.stringify(saved(env).daily) === JSON.stringify(JSON.parse(afterBoundary).daily), 'F12 tick: clock rollback keeps the set');
+
+  // 복귀: 1주 오프라인(자동 ON) 뒤에도 세트는 1개(AC 10b), 오프라인 지급은 일일 진행에 들어가지 않는다
+  clk.t = dayStart(D) + 5 * HOUR;
+  const away = withLv(save({ daily: setOf(D, false), gold: 1000 }), 8);
+  away.idle.autoOn = true;
+  away.idle.lastSeen = clk.t;
+  env = loadWith({ [KEY]: JSON.stringify(away) }, { now: () => clk.t });
+  setVisible(env, false);   // 숨길 때 저장하며 lastSeen을 갱신하므로 숨긴 뒤에 시계를 민다
+  clk.t += 7 * 24 * HOUR;
+  setVisible(env, true);
+  st = saved(env);
+  ok(st.daily.maxDay === dayOf(clk.t) && st.stats.autoRuns === 0 && st.stats.offlineGold > 0 && st.daily.tasks.every(t => t.claimed === 0),
+    'F12 resume: one set after a week offline, offline gold does not count as daily progress');
+
+  // 업적: 부팅 동기화로 달성(1), 수령하면 플래그 2와 보상이 같은 저장에 즉시 들어간다(AC 30b), 다시 받으면 변화 없음
+  clk.t = dayStart(D) + 5 * HOUR;
+  const ready = withLv(save({ gold: 1000, daily: setOf(D, true) }), 13);
+  Object.assign(ready.stats, { tries: 100, hunts: 10 });
+  env = loadWith({ [KEY]: JSON.stringify(ready) }, { now: () => clk.t });
+  ok(saved(env).achievements.tries_1 === 1, 'F12 boot syncs achievements (tries_1 reached)');
+  click(env, 'claimAch', 'tries_1');
+  st = saved(env);
+  ok(st.achievements.tries_1 === 2 && st.gold === 1000 + 2680 && st.stats.rewardGold === 2680, 'F12 claim: flag and reward saved together immediately');
+  click(env, 'claimAch', 'tries_1');
+  ok(saved(env).gold === 1000 + 2680, 'F12 claim: second claim pays nothing');
+  click(env, 'setTitle', 'tries_1');
+  ok(saved(env).title === 'tries_1', 'F12 setTitle saves the chosen title');
+  click(env, 'claimDaily', '0');
+  st = saved(env);
+  ok(st.daily.tasks[0].claimed === 1 && st.stats.dailyDone === 1 && st.gold === 1000 + 2680 + 5350, 'F12 claimDaily (data-id string "0") pays and saves');
+  click(env, 'claimDaily', 'bonus');
+  ok(saved(env).daily.bonus === 0, 'F12 bonus is refused until all 3 tasks are done');
+  scanRendered();
+
+  // 두 탭 (AC 30·30d): 다른 탭이 이미 받은 항목은 claimed, 다른 날 세트로 바뀌었으면 stale → 최신 저장을 이어받고 저장하지 않는다
+  let game = null;
+  const twoTab = () => {
+    env = loadWith({ [KEY]: JSON.stringify(ready) }, { now: () => clk.t, extensions: [api => { game = api; }] });
+  };
+  twoTab();
+  const otherClaimed = JSON.parse(env.store[KEY]);
+  otherClaimed.daily.tasks[0].claimed = 1;
+  otherClaimed.gold = 4444;
+  env.store[KEY] = JSON.stringify(otherClaimed);
+  click(env, 'claimDaily', '0');
+  ok(env.store[KEY] === JSON.stringify(otherClaimed) && game.state().gold === 1000 && game.state().daily.tasks[0].claimed === 1,
+    'F12 two tabs: an item the other tab saved is "claimed" with no reward and no write');
+  twoTab();
+  const otherDay = JSON.parse(env.store[KEY]);
+  otherDay.daily = setOf(D + 1, false);
+  otherDay.gold = 7777;
+  otherDay.idle.lastSeen = clk.t + 5;   // 다른 탭이 더 나중에 저장함
+  env.store[KEY] = JSON.stringify(otherDay);
+  click(env, 'claimDaily', '0');
+  ok(env.store[KEY] === JSON.stringify(otherDay) && game.state().gold === 7777 && game.state().daily.maxDay === D + 1,
+    'F12 two tabs: stale set → adopts the newer save, pays nothing, does not write');
+  // 이 탭의 저장이 실패 중이라 저장소가 더 오래된 경우: stale이어도 메모리 진행을 버리지 않는다
+  twoTab();
+  game.state().gold = 5555;
+  const olderDay = JSON.parse(env.store[KEY]);
+  olderDay.daily = setOf(D - 1, true);
+  olderDay.idle.lastSeen = clk.t - 5;
+  env.store[KEY] = JSON.stringify(olderDay);
+  click(env, 'claimDaily', '0');
+  ok(game.state().gold === 5555 && game.state().daily.maxDay === D && env.store[KEY] === JSON.stringify(olderDay),
+    'F12 two tabs: an older stored set is stale but not adopted (no lost in-memory progress)');
+  // claimAll이 stale을 만나면(업적은 받아도) 옛 날 세트를 더 최신 저장 위에 쓰지 않고 단일 stale처럼 이어받는다
+  twoTab();
+  env.store[KEY] = JSON.stringify(otherDay);
+  click(env, 'claimAll');
+  ok(env.store[KEY] === JSON.stringify(otherDay) && game.state().gold === 7777 && game.state().daily.maxDay === D + 1,
+    'F12 two tabs: claimAll with a stale set adopts the newer save and does not write the old-day set');
+  // stale로 이어받은 뒤 날이 또 바뀌어 새 세트를 만들면 바로 저장한다: 다음 수령이 자동 저장을 기다리지 않고 성공
+  twoTab();
+  env.store[KEY] = JSON.stringify(otherDay);
+  clk.t = dayStart(D + 2) + HOUR;
+  click(env, 'claimDaily', '0');
+  ok(game.state().gold === 7777 && saved(env).daily.maxDay === D + 2 && saved(env).gold === 7777,
+    'F12 two tabs: stale → adopt → a new day set is created and saved at once');
+  game.state().stats.hunts += 1000;
+  click(env, 'claimDaily', '0');
+  ok(saved(env).daily.tasks[0].claimed === 1 && saved(env).gold > 7777, 'F12 two tabs: the next claim after that is not stale again');
+  clk.t = dayStart(D) + 5 * HOUR;
+  // claimAll은 클릭 한 번에 저장소를 한 번만 읽는다(항목마다 peek하지 않음)
+  const many = JSON.parse(JSON.stringify(ready));
+  Object.assign(many.stats, { success: 4, delivered: 1 });
+  env = loadWith({ [KEY]: JSON.stringify(many) }, { now: () => clk.t });
+  let reads = 0;
+  const getItem = env.ctx.localStorage.getItem;
+  env.ctx.localStorage.getItem = k => { if (k === KEY) reads++; return getItem(k); };
+  click(env, 'claimAll');
+  st = saved(env);
+  ok(reads === 1 && st.daily.tasks.every(t => t.claimed === 1) && st.daily.bonus === 1 && st.achievements.tries_1 === 2,
+    'F12 claimAll reads the stored save once per click: ' + reads);
+  // claimDaily data-id는 정확한 정수 표기만 슬롯 번호: '', ' 0', '0x0', '1e0', '00'은 슬롯 0이 아니다
+  env = loadWith({ [KEY]: JSON.stringify(ready) }, { now: () => clk.t });
+  const beforeIds = env.store[KEY];
+  ['', ' 0', '0x0', '1e0', '00', '-0'].forEach(id => click(env, 'claimDaily', id));
+  ok(env.store[KEY] === beforeIds, 'F12 claimDaily ignores non-canonical slot ids');
+  click(env, 'claimDaily', '0');
+  ok(saved(env).daily.tasks[0].claimed === 1, 'F12 claimDaily "0" still claims slot 0');
+  scanRendered();
+
+  // 멈춘 탭 (AC 29·30c): 틱·복귀가 일일 갱신·저장을 하지 않고 수령 입력도 무시, 이어받은 뒤 최신 저장 기준으로 갱신
+  twoTab();
+  fire(env, 'storage', { key: KEY });
+  const frozen = env.store[KEY];
+  clk.t += 24 * HOUR;
+  env.tick();
+  setVisible(env, false);
+  setVisible(env, true);
+  click(env, 'claimAll');
+  ok(isLocked(env) && env.store[KEY] === frozen, 'F12 suspended tab: no daily refresh, no claim, no write');
+  env.byId['#btnTakeover'].listeners.click[0]();
+  ok(!isLocked(env) && saved(env).daily.maxDay === D + 1, 'F12 takeover adopts the stored save then refreshes daily');
+  click(env, 'claimAll');
+  ok(saved(env).achievements.tries_1 === 2, 'F12 claimAll on the active tab claims and saves');
+  scanRendered();
 }
 
 /** 태그를 지운 화면 글자(공백 정리) */
@@ -1065,7 +1234,7 @@ async function testPage(ok) {
   const realUntouched = env => REAL_KEYS.every(k => env.store[k] === realStore[k]);
 
   let env = makeEnv(realStore, { page: 'test.html' });
-  ok(env.scripts.length === 16, 'test page loads all scripts');
+  ok(env.scripts.length === 17, 'test page loads all scripts');
   ok(env.ctx.SG.C.SAVE_KEY === TEST_KEY && env.ctx.SG.config.forceSuccess === true, 'test config applied');
   ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'test page starts its own new game (no v1 migration, no real save)');
   ok(realUntouched(env), 'real v2 / v1 / corrupt-backup keys untouched on test page start');
@@ -1494,7 +1663,7 @@ async function saveSafety(ok) {
   // 테스트 페이지: 조작판(commit/newGame) 경로도 보호 모드에서 테스트 저장 키에 쓰지 않는다
   {
     const env = makeEnv({ [TEST_KEY]: RAW }, { page: 'test.html', failKeys: [TEST_KEY + '-corrupt'] });
-    ok(env.scripts.length === 16 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
+    ok(env.scripts.length === 17 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
     click(env, 'testGold');
     click(env, 'testToggleForce');
     click(env, 'testReset');

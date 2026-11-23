@@ -2,12 +2,16 @@
 (function (root) {
   'use strict';
   const SG = root.SG;
-  const { C, rules: R, forge: F, idle: I, quests: Q, save: SV, fx: FX, view: V } = SG;
+  const { C, rules: R, forge: F, idle: I, quests: Q, save: SV, ach: A, fx: FX, view: V } = SG;
   const $ = sel => document.querySelector(sel);
   const fmt = FX.fmt;
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const now = () => Date.now();
+  // 일일 과제 생성도 이 rng를 쓴다: 브라우저 Math.random은 시드가 없어 재현할 순서가 없고, 생성(9회)은 새 세트를 만들 때만
+  // 각 동작의 기존 rng 사용(각인·의뢰·자동 사냥) 뒤에서 일어나므로 기존 호출 순서를 바꾸지 않는다
   const rng = Math.random;
+  // 일일 과제 날짜 경계(지역 04:00): 그 시각의 시간대 오프셋(서머타임 반영)
+  const dailyEnv = { tzOffsetMin: ms => new Date(ms).getTimezoneOffset() };
 
   const TICK_MS = 500;
   const AUTOSAVE_MS = 5000;
@@ -77,6 +81,7 @@
   function afterChange() {
     R.cleanupUse(S);
     Q.refreshQuests(S, now(), rng);
+    A.syncAchievements(S);
     persist();
     render();
   }
@@ -227,6 +232,7 @@
     // 결과·소모·각인은 여기서 확정·저장되고, 연출은 표시만 늦춘다 (새로고침해도 다시 굴릴 수 없음)
     const engraved = r.outcome === 'success' ? engravePending() : [];
     Q.refreshQuests(S, startedAt, rng);
+    A.syncAchievements(S);
     persist();
     const fx = pickFx(r);
     const outcome = OUTCOME_FX[r.outcome];
@@ -275,6 +281,7 @@
     FX.floatGold(r.gold);
     sfx('coin');
     if (Object.keys(r.ore).some(k => r.ore[k] > 0)) sfx('oreGain');
+    A.syncAchievements(S);
     persist();
     render();
     tickHunt();
@@ -357,6 +364,47 @@
   const itemName = id => C.ITEMS[id].name;
   const anvilName = id => C.ITEMS['anvil_' + R.findAnvil(S, id).g].name;
 
+  // ============================================================ 업적·일일 과제 수령 (F12, m2-achievements §10·§11)
+  /**
+   * 수령 컨텍스트(클릭 1회분). 저장소의 현재 저장(읽기 전용 정규화)으로 다른 탭이 이미 받았는지 다시 본다: 탭 잠금 이벤트 지연 방어.
+   * 저장소는 처음 필요할 때 한 번만 읽는다(claimAll이 항목마다 다시 읽지 않게)
+   */
+  function claimCtx() {
+    let stored;   // undefined = 아직 읽지 않음 (저장이 없으면 null)
+    const storedClaimed = (kind, key, day) => {
+      if (stored === undefined) stored = SV.peek(storage, now()).state;
+      return A.storedClaimedIn(stored, kind, key, day);
+    };
+    return { active: !isSuspended(), storedClaimed };
+  }
+  /** 오늘 세트 갱신(해금·날 바뀜일 때만 새 세트). 새로 만들었으면 true */
+  const refreshDaily = t => A.refreshDaily(S, t, rng, dailyEnv).created;
+  /**
+   * 수령 결과 처리. 성공하면 플래그와 보상이 함께 들어간 상태를 즉시 저장한다(디바운스 없음).
+   * stale(단일 수령, 또는 claimAll 결과의 stale: true)은 settleStale로: 옛 날 세트를 저장하지 않는다
+   */
+  function settleClaim(r) {
+    if (r.reason === 'stale' || (r.ok && r.stale)) return settleStale();
+    if (r.ok) return afterChange();
+    reject(r.reason);
+  }
+  /**
+   * 다른 탭이 새 날 세트로 교체함: 더 최근 저장이면 이어받아 다시 그린다. 이어받은 뒤 날이 또 바뀌어 새 세트를 만들었을 때만 저장한다
+   * (저장하지 않으면 저장소의 날과 계속 어긋나 자동 저장 전까지 수령마다 stale이 반복된다).
+   * 강제로 이어받지 않는다: 이 탭의 저장이 실패 중이면 저장소 쪽이 더 오래되어 메모리 진행을 잃는다
+   */
+  function settleStale() {
+    const t = now();
+    adoptStoredSave(t, false);
+    const created = refreshDaily(t);
+    A.syncAchievements(S);
+    if (created) persist();
+    reject('stale');
+  }
+  // data-id는 문자열: 정확한 정수 표기만 슬롯 번호로 바꾸고(범위는 claimDaily가 검사) 그 밖은 그대로 넘겨 invalid가 되게 한다
+  const DAILY_SLOT_ID = /^(0|[1-9][0-9]*)$/;
+  const dailyKeyOf = id => (typeof id === 'string' && DAILY_SLOT_ID.test(id) ? Number(id) : id);
+
   const ACTIONS = {
     tab: id => { ui.tab = id; disarmSinks(); sfx('tabSwitch'); render(); },
     // 보관함 칸 한 번 클릭 = 활성 검. 강화 연출 중이거나 이미 활성인 검이면 무시
@@ -394,6 +442,16 @@
     traitRekind: id => buySink('traitRekind', id, R.rerollKindBlock(S, +id), () => R.rerollKind(S, +id, rng), V.rekindText),
     traitTierUp: id => buySink('traitTierUp', id, R.upgradeTierBlock(S, +id), () => R.upgradeTier(S, +id), V.tierUpText),
     buyMonument: L => buySink('buyMonument', L, R.monumentBlock(S, +L), () => R.buyMonument(S, +L), r => V.monumentText(+L, r)),
+    // 수령·칭호: 화면 버튼은 6-B에서 붙는다(data-act claimAch/claimDaily/claimAll/setTitle)
+    claimAch: id => settleClaim(A.claimAchievement(S, id, claimCtx())),
+    claimDaily: id => settleClaim(A.claimDaily(S, dailyKeyOf(id), claimCtx())),
+    claimAll: () => settleClaim(A.claimAll(S, claimCtx())),
+    setTitle: id => {
+      const r = A.setTitle(S, id === undefined ? C.TITLE_NONE : id);
+      if (!r.ok) return reject(r.reason);
+      persist();
+      render();
+    },
     copyCorrupt: () => copyGuardedRaw(),
     retryBackup: () => retryCorruptBackup(),
     abandonCorrupt: () => abandonCorruptSave(),
@@ -458,6 +516,8 @@
     const off = I.settleOffline(S, t);
     if (off) ui.nextAutoAt = t + I.autoInterval(S);
     Q.refreshQuests(S, t, rng);
+    A.syncAchievements(S);
+    refreshDaily(t);   // 오프라인이 아무리 길어도 새 세트는 1개(maxDay 단조)
     persist();
     render();
     if (off && off.gold > 0) showOffline(off);
@@ -470,8 +530,10 @@
     const auto = I.runAutoCatchup(S, t, ui.nextAutoAt, rng);
     ui.nextAutoAt = auto.nextAutoAt;
     const created = Q.refreshQuests(S, t, rng);
+    // 틱마다 불러도 싸다(오프셋 1회 + 비교). 04:00 경계와 +5 해금 직후 세트를 여기서 만든다
+    const newDaily = refreshDaily(t);
     if (auto.runs) FX.floatGold(auto.gold);
-    if (auto.runs || created.length || t - lastSaveAt >= AUTOSAVE_MS) persist();
+    if (auto.runs || created.length || newDaily || t - lastSaveAt >= AUTOSAVE_MS) persist();
     render();
   }
 

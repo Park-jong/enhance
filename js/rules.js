@@ -195,6 +195,7 @@
     const pay = payWithSeal(S, sell(sw.lv), sw);
     S.gold += pay.gold;
     S.stats.earned += pay.gold;
+    if (sw.lv >= C.SELL_COUNT_MIN_LV) S.stats.sells++;
     const removed = removeSword(S, id);
     return { ok: true, lv: sw.lv, gold: pay.gold, sealed: pay.sealed, freeSword: removed.freeSword };
   }
@@ -683,7 +684,7 @@
 
   return {
     // 공식
-    cost, sell, protectNeed, huntReward, autoReward, shardGain, boosterPrice, pityBand, pityBonus, rarity,
+    roundTo, cost, sell, protectNeed, huntReward, autoReward, shardGain, boosterPrice, pityBand, pityBonus, rarity,
     isUnlocked, chances, hasOwn, itemDef,
     // 천장 게이지 / 성공 숙련 (M1.1)
     gaugeIndex, masteryIndex, masteryBonus, masteryCount, gaugeInfo, isGaugeFull, enhanceOpts, currentChances,

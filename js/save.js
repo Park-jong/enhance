@@ -14,13 +14,17 @@
   const CORRUPT_BACKUP_KEY = C.SAVE_KEY + '-corrupt';
   const MIN_MS = 60 * 1000;
   const STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned',
-    'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold', 'sinkGold', 'traitRolls'];
+    'shardsGained', 'protectSaved', 'delivered', 'crafted', 'huntGold', 'offlineGold', 'sinkGold', 'traitRolls',
+    'hunts', 'sells', 'autoRuns', 'dailyDone', 'dailyAll', 'rewardGold', 'eventsSeen'];
   const V1_STAT_KEYS = ['tries', 'success', 'fail', 'destroy', 'earned'];
+  // 일일 과제 지표가 stats 키가 아니면 진행도가 NaN이 되므로 로드 시점에 막는다(풀 표 자체 검사는 constants.js)
+  if (C.DAILY_POOL.some(e => !STAT_KEYS.includes(e.metric))) throw new Error('DAILY_POOL metric is not a stats key');
   const USE_KEYS = C.TRAY_TOGGLES.concat('seal');
 
   const zeros = keys => keys.reduce((o, k) => { o[k] = 0; return o; }, {});
   const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
   const obj = v => (isObj(v) ? v : {});
+  const emptyDaily = maxDay => ({ maxDay, tasks: [], bonus: 0 });
 
   /** 숫자로 읽을 수 있으면 정수로 내리고 [min,max]로 자름, 아니면 기본값. 범위는 항상 안전 정수 안 */
   function int(v, def, min, max) {
@@ -62,6 +66,9 @@
       idle: { autoOn: false, up: zeros(C.UPGRADES.map(u => u.id)), lastSeen: now, boostUntil: 0 },
       settings: { muted: false, skipFx: false },
       stats: zeros(STAT_KEYS),
+      achievements: {},
+      title: C.TITLE_NONE,
+      daily: emptyDaily(0),
     };
   }
 
@@ -121,6 +128,44 @@
 
   const normCounts = (v, keys, max) => keys.reduce((o, k) => { o[k] = int(obj(v)[k], 0, 0, max); return o; }, {});
 
+  /** 업적 상태(m2-achievements §13): 업적 표에 있는 id만, 값 1..ACH_CLAIMED. 0·무효는 버린다(희소 객체) */
+  function normAchievements(v) {
+    const src = obj(v);
+    return C.ACHIEVEMENTS.reduce((o, a) => {
+      const state = R.hasOwn(src, a.id) ? int(src[a.id], 0, 0, C.ACH_CLAIMED) : 0;
+      if (state > 0) o[a.id] = state;
+      return o;
+    }, {});
+  }
+
+  /** 칭호: 수령 완료한 업적 id만, 아니면 없음 */
+  const normTitle = (v, achievements) =>
+    (typeof v === 'string' && R.hasOwn(achievements, v) && achievements[v] === C.ACH_CLAIMED ? v : C.TITLE_NONE);
+
+  /** 일일 과제 1개: 그 슬롯 풀의 항목이 아니면 null. base는 현재 지표값을 넘지 않는다(줄어든 평생 지표에서도 끝날 수 있게) */
+  function normDailyTask(t, slot, stats) {
+    if (!isObj(t) || typeof t.e !== 'string' || !R.hasOwn(C.DAILY_POOL_BY_ID, t.e)) return null;
+    const entry = C.DAILY_POOL_BY_ID[t.e];
+    if (entry.slot !== slot) return null;
+    return {
+      e: t.e,
+      goal: int(t.goal, 1, 1, C.DAILY_GOAL_MAX),
+      base: Math.min(int(t.base, 0, 0), stats[entry.metric]),
+      item: C.DAILY_ITEM_KINDS.includes(t.item) ? t.item : null,
+      claimed: t.claimed ? 1 : 0,
+    };
+  }
+
+  /** 일일 세트: 과제가 정확히 DAILY_TASKS개이고 모두 유효할 때만 유지, 아니면 빈 세트(maxDay는 유지) */
+  function normDaily(v, stats) {
+    const d = obj(v);
+    const maxDay = int(d.maxDay, 0, 0, C.DAILY_MAXDAY_CAP);
+    const src = Array.isArray(d.tasks) && d.tasks.length === C.DAILY_TASKS ? d.tasks : [];
+    const tasks = src.map((t, slot) => normDailyTask(t, slot, stats));
+    if (tasks.length === 0 || tasks.includes(null)) return emptyDaily(maxDay);
+    return { maxDay, tasks, bonus: d.bonus ? 1 : 0 };
+  }
+
   /** 저장 데이터(부분/손상 포함)를 기본값과 병합하고 정합성을 맞춘다 (m1-storage §3 로드 규칙 4·5) */
   function normalize(d, now) {
     const S = defaultState(now);
@@ -166,6 +211,9 @@
     const settings = obj(d.settings);
     S.settings = { muted: bool(settings.muted, false), skipFx: bool(settings.skipFx, false) };
     S.stats = normCounts(d.stats, STAT_KEYS);
+    S.achievements = normAchievements(d.achievements);
+    S.title = normTitle(d.title, S.achievements);
+    S.daily = normDaily(d.daily, S.stats);
 
     R.cleanupUse(S);
     return S;

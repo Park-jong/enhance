@@ -143,3 +143,17 @@
 - 산출물: js/view.js, js/main.js, tests/smoke-dom.js (388)
 - 결정 사항: 최고 등급은 잠금 사유와 무관하게 "최고 등급" 비활성 표시(V7), 바쁨 테스트는 Math.random 고정으로 결정적화(20회 연속 통과, V6), 탭 전환 시 disarmSinks, 기념비 골드 부족 사유 한 줄, 미사용 export 제거.
 - 남은 문제: 기념비 사유는 칸 안이 아닌 격자 아래 한 줄. 기록 탭 새 줄의 눈 확인은 하지 않음.
+
+## 2026-11-23 — 6-A 업적(F12)·일일 과제 규칙/저장 계층
+- 지시: 디렉터 / 관련 단계: 6단계 6-A / 처리한 요청: REQ-034 (in_progress 유지, 6-B UI·7~8단계 남음)
+- 참여 팀원: client-programmer
+- 산출물: js/achievements.js(신규, SG.ach), constants.js, rules.js, idle.js, save.js, main.js, index.html, test.html, tests/run-tests.js(288→357), tests/smoke-dom.js(388→406), docs/design/m1-storage.md(필드 행만)
+- 결정 사항: 기존 게임 rng(Math.random)를 그대로 주입하고 새 세트 생성 시에만 정확히 9회 호출(잠김·같은 날·역행·badClock은 0회). refreshDaily는 resume과 매 tick, syncAchievements는 afterChange·resume. 수령은 afterChange로 즉시 저장. stale 시 저장본이 더 새로울 때만 이어받음. eventsSeen 통계 키 추가(F13 훅). 토스트는 6-B로 미룸. 7개 검사 통과(run-tests 357, smoke 406, QA 29/36/189, browser-strip 91, selfcheck 13), QA 소유 테스트 수정 불필요.
+- 남은 문제: m1-storage.md §3 JSON 예시 블록에 M2 필드 누락(기획팀 정리 필요). 기획서 §1/§13/§14는 통계 키 6개로 표기(코드는 eventsSeen 포함 7개). UI·토스트는 6-B.
+
+## 2026-11-23 — 6-A 수정 사이클 2 (QA 요청 C1~C6)
+- 지시: 디렉터(QA 수정 지시) / 관련 단계: 6단계 6-A / 처리한 요청: REQ-034 (in_progress 유지)
+- 참여 팀원: client-programmer
+- 산출물: js/achievements.js, main.js, constants.js, save.js(통계 키 가드), tests/run-tests.js(364), tests/smoke-dom.js(412)
+- 결정 사항: 먼 미래 시계(day > DAILY_MAXDAY_CAP)는 badClock. stale 시 이어받기 후 새 세트가 생기면 즉시 저장(resume 경유 안 함: 낡은 세트 덮어쓰기 방지). claimAll은 stale:true 반환, 저장하지 않음. dailyKeyOf는 정규 정수만 변환. 로드 가드 보강(save.js 포함). 클릭당 peek 1회. 7개 검사 통과(smoke 12회 반복).
+- 남은 문제: 기획서 §9.2/AC10c(badClock 범위)·§10 claimAll stale 반영 필요(기획팀).

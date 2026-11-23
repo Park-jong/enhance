@@ -12,6 +12,7 @@ const F = require(js('forge.js'));
 const I = require(js('idle.js'));
 const Q = require(js('quests.js'));
 const SV = require(js('save.js'));
+const A = require(js('achievements.js'));
 
 // ------------------------------------------------------------ 하네스
 const results = { pass: 0, fail: 0 };
@@ -792,7 +793,8 @@ describe('save & migrate', () => {
     assert.strictEqual(S.found.length, 21);
     assert.strictEqual(S.found[12], true);
     assert.strictEqual(S.found[9], false);   // not back-filled up to best
-    assert.deepStrictEqual(S.stats, { tries: 40, success: 20, fail: 15, destroy: 5, earned: 9000, shardsGained: 0, protectSaved: 0, delivered: 0, crafted: 0, huntGold: 0, offlineGold: 0, sinkGold: 0, traitRolls: 0 });
+    assert.deepStrictEqual(S.stats, { tries: 40, success: 20, fail: 15, destroy: 5, earned: 9000, shardsGained: 0, protectSaved: 0, delivered: 0, crafted: 0, huntGold: 0, offlineGold: 0, sinkGold: 0, traitRolls: 0,
+      hunts: 0, sells: 0, autoRuns: 0, dailyDone: 0, dailyAll: 0, rewardGold: 0, eventsSeen: 0 });
     assert.strictEqual(S.idle.lastSeen, NOW);
     assert.ok(st.dump['sword-enhance-v2']);
     assert.ok(st.dump['sword-enhance-v1']);
@@ -2897,6 +2899,730 @@ describe('M2-A regression: no traits and no monuments keep every old output and 
     const base = outputs(make(null));
     assert.strictEqual(outputs(make(tr('anvil', 3))), base);
     assert.strictEqual(outputs(make(tr('shard', 3))), base);
+  });
+});
+
+// ============================================================ M2-B F12 업적·일일 과제 (m2-achievements §16 AC 1~54)
+// rng는 위의 countedSeq(고정 값 + 호출 횟수)만 쓴다. 실제 Math.random 없음(V6)
+const KST = -540;
+const tzEnv = off => ({ tzOffsetMin: () => off });
+/** 지역(오프셋 off) 04:00에 dayKey가 d가 되는 시각 */
+const dayStartMs = (d, off = KST) => d * C.DAY_MS + C.DAILY_RESET_HOUR * HOUR + off * MIN;
+const D0 = 20777;
+const ACTIVE = { active: true };
+const json = x => JSON.stringify(x);
+function dailyState(best = 5) {
+  const S = fresh();
+  S.best = best;
+  S.swords[0].lv = best;
+  return S;
+}
+const task = (e, goal, base = 0, item = null, claimed = 0) => ({ e, goal, base, item, claimed });
+/** 세 과제(hunts 10, success 4, delivered 1)를 가진 세트. done이면 지표를 목표만큼 올린다 */
+function withSet(S, opts = {}) {
+  S.daily = { maxDay: opts.day || D0, tasks: [task('hunt_s', 10), task('succ_m', 4, 0, opts.item || null), task('dlv_l', 1)], bonus: 0 };
+  if (opts.done) Object.assign(S.stats, { hunts: 10, success: 4, delivered: 1 });
+  return S;
+}
+const generate = (S, rng) => A.generateDaily(S, D0, rng).tasks;
+
+describe('F12 day key and clock (AC 1-10c)', () => {
+  test('AC1: KST 04:00 boundary 1795114799000 → 20776, 1795114800000 → 20777', () => {
+    assert.deepStrictEqual([A.dayKey(1795114799000, KST), A.dayKey(1795114800000, KST)], [20776, 20777]);
+  });
+  test('AC2: UTC and EST 04:00 boundaries → 20776/20777', () => {
+    assert.deepStrictEqual([A.dayKey(1795147199000, 0), A.dayKey(1795147200000, 0)], [20776, 20777]);
+    assert.deepStrictEqual([A.dayKey(1795165199000, 300), A.dayKey(1795165200000, 300)], [20776, 20777]);
+  });
+  test('AC2 extra: 03:59 / 04:00 / 04:01 local across offsets -540, 0, 300, 330, -600', () => {
+    [-540, 0, 300, 330, -600].forEach(off => {
+      const t = dayStartMs(D0, off);
+      assert.deepStrictEqual([A.dayKey(t - MIN, off), A.dayKey(t, off), A.dayKey(t + MIN, off)], [D0 - 1, D0, D0], `off ${off}`);
+    });
+  });
+  test('AC3: a time-dependent tzOffsetMin is called with nowMs and gives the same day for the same nowMs', () => {
+    const switchAt = dayStartMs(D0, 300) - 2 * HOUR;
+    const calls = [];
+    const env = { tzOffsetMin: ms => { calls.push(ms); return ms < switchAt ? 300 : 240; } };
+    const t = dayStartMs(D0, 240) + MIN;
+    const a = dailyState(); const b = dailyState();
+    A.refreshDaily(a, t, countedSeq(0), env);
+    A.refreshDaily(b, t, countedSeq(0), env);
+    assert.deepStrictEqual([a.daily.maxDay, b.daily.maxDay], [A.dayKey(t, 240), A.dayKey(t, 240)]);
+    assert.ok(calls.length === 2 && calls.every(ms => ms === t));
+  });
+  test('AC4: best 4 → locked, daily and rng untouched; best 5 → a set is created', () => {
+    const S = dailyState(4);
+    const before = json(S.daily);
+    const rng = countedSeq(0);
+    assert.deepStrictEqual(A.refreshDaily(S, dayStartMs(D0), rng, tzEnv(KST)), { created: false, reason: 'locked' });
+    assert.deepStrictEqual([json(S.daily), rng.calls], [before, 0]);
+    assert.strictEqual(A.refreshDaily(dailyState(5), dayStartMs(D0), rng, tzEnv(KST)).created, true);
+  });
+  test('AC5: new game best 5 on day 20777 → created, maxDay 20777, 3 tasks, exactly 9 rng calls', () => {
+    const S = dailyState();
+    const rng = countedSeq(0);
+    assert.deepStrictEqual(A.refreshDaily(S, dayStartMs(D0), rng, tzEnv(KST)), { created: true, day: D0 });
+    assert.deepStrictEqual([S.daily.maxDay, S.daily.tasks.length, S.daily.bonus, rng.calls], [D0, 3, 0, 9]);
+  });
+  test('AC6: same day again → same, 0 rng calls, set unchanged (also at 23:59 local of that day)', () => {
+    const S = dailyState();
+    A.refreshDaily(S, dayStartMs(D0), countedSeq(0), tzEnv(KST));
+    const before = json(S.daily);
+    const rng = countedSeq(0.5);
+    assert.deepStrictEqual(A.refreshDaily(S, dayStartMs(D0 + 1) - MIN, rng, tzEnv(KST)), { created: false, reason: 'same' });
+    assert.deepStrictEqual([json(S.daily), rng.calls], [before, 0]);
+  });
+  test('AC7: clock one day back → rollback, set/progress/claims/rng unchanged', () => {
+    const S = withSet(dailyState(13), { done: true });
+    assert.ok(A.claimDaily(S, 0, ACTIVE).ok);
+    const before = json(S);
+    const rng = countedSeq(0);
+    assert.deepStrictEqual(A.refreshDaily(S, dayStartMs(D0 - 1), rng, tzEnv(KST)), { created: false, reason: 'rollback' });
+    assert.deepStrictEqual([json(S), rng.calls], [before, 0]);
+  });
+  test('AC8: back to the original day → same, and the claimed task cannot be claimed again', () => {
+    const S = withSet(dailyState(13), { done: true });
+    A.claimDaily(S, 0, ACTIVE);
+    A.refreshDaily(S, dayStartMs(D0 - 1), countedSeq(0), tzEnv(KST));
+    assert.strictEqual(A.refreshDaily(S, dayStartMs(D0), countedSeq(0), tzEnv(KST)).reason, 'same');
+    assert.deepStrictEqual(A.claimDaily(S, 0, ACTIVE), { ok: false, reason: 'claimed' });
+  });
+  test('AC9: one day forward → one new set, maxDay 20778, previous progress and claims discarded', () => {
+    const S = withSet(dailyState(13), { done: true });
+    A.claimDaily(S, 0, ACTIVE); A.claimDaily(S, 'bonus', ACTIVE);
+    const r = A.refreshDaily(S, dayStartMs(D0 + 1), countedSeq(0), tzEnv(KST));
+    assert.deepStrictEqual(r, { created: true, day: D0 + 1 });
+    assert.strictEqual(S.daily.bonus, 0);
+    assert.ok(S.daily.tasks.every((t, i) => t.claimed === 0 && A.dailyProgress(S, i) === 0));
+  });
+  test('AC10: jumps of +30, +8, +10000 days each create exactly one set (9 rng calls) and set maxDay', () => {
+    [30, 8, 10000].forEach(n => {
+      const S = withSet(dailyState());
+      const rng = countedSeq(0);
+      assert.deepStrictEqual(A.refreshDaily(S, dayStartMs(D0 + n), rng, tzEnv(KST)), { created: true, day: D0 + n });
+      assert.strictEqual(rng.calls, 9);
+      assert.strictEqual(A.refreshDaily(S, dayStartMs(D0 + n) + HOUR, rng, tzEnv(KST)).reason, 'same');
+      assert.strictEqual(rng.calls, 9, `+${n}: no second set`);
+    });
+  });
+  test('AC10a: after a +30 jump the real date (20778) is a rollback until it catches up', () => {
+    const S = withSet(dailyState());
+    A.refreshDaily(S, dayStartMs(D0 + 30), countedSeq(0), tzEnv(KST));
+    assert.strictEqual(A.refreshDaily(S, dayStartMs(D0 + 1), countedSeq(0), tzEnv(KST)).reason, 'rollback');
+    assert.strictEqual(A.refreshDaily(S, dayStartMs(D0 + 31), countedSeq(0), tzEnv(KST)).created, true);
+  });
+  test('AC10b: a week offline with auto ON → offline settle then one set, no stacked or carried-over rewards', () => {
+    const S = withSet(dailyState(8), { done: true });
+    S.idle.autoOn = true;
+    S.idle.lastSeen = dayStartMs(D0) + HOUR;
+    const t = S.idle.lastSeen + 7 * 24 * HOUR;
+    const stats = json([S.stats.autoRuns, S.stats.hunts, S.stats.huntGold]);
+    const off = I.settleOffline(S, t);
+    assert.ok(off.gold > 0);
+    assert.strictEqual(json([S.stats.autoRuns, S.stats.hunts, S.stats.huntGold]), stats);
+    const rng = countedSeq(0);
+    assert.strictEqual(A.refreshDaily(S, t, rng, tzEnv(KST)).created, true);
+    assert.strictEqual(rng.calls, 9);
+    assert.ok(S.daily.tasks.every((x, i) => !A.dailyDone(S, i)) && A.claimableCount(S) === 0, 'previous unclaimed rewards are gone');
+  });
+  test('AC10c: NaN / Infinity / string now → badClock, state unchanged; a non-finite offset is badClock too', () => {
+    [NaN, Infinity, '1795114800000', undefined].forEach(now => {
+      const S = dailyState();
+      const before = json(S);
+      assert.deepStrictEqual(A.refreshDaily(S, now, countedSeq(0), tzEnv(KST)), { created: false, reason: 'badClock' });
+      assert.strictEqual(json(S), before);
+    });
+    assert.strictEqual(A.refreshDaily(dailyState(), dayStartMs(D0), countedSeq(0), tzEnv(NaN)).reason, 'badClock');
+  });
+  test('V8: far-future clock (year 5000) → badClock; a save → normalize → refreshDaily loop never creates a set', () => {
+    const t = Date.UTC(5000, 0, 1);
+    assert.ok(A.dayKey(t, KST) > C.DAILY_MAXDAY_CAP);
+    let S = withSet(dailyState());
+    let created = 0;
+    for (let i = 0; i < 5; i++) {
+      const rng = countedSeq(0.5);
+      const r = A.refreshDaily(S, t, rng, tzEnv(KST));
+      if (r.created) created++;
+      assert.deepStrictEqual([r.reason, rng.calls], ['badClock', 0], `round ${i}`);
+      S = SV.normalize(JSON.parse(JSON.stringify(S)), NOW);
+    }
+    assert.deepStrictEqual([created, S.daily.maxDay, S.daily.tasks.length], [0, D0, 3]);
+  });
+  test('V8: dayKey exactly DAILY_MAXDAY_CAP creates once and is "same" after reload; CAP + 1 is badClock', () => {
+    let S = dailyState();
+    const cap = dayStartMs(C.DAILY_MAXDAY_CAP);
+    assert.strictEqual(A.refreshDaily(S, cap, countedSeq(0.5), tzEnv(KST)).created, true);
+    S = SV.normalize(JSON.parse(JSON.stringify(S)), NOW);
+    assert.strictEqual(A.refreshDaily(S, cap + HOUR, countedSeq(0.5), tzEnv(KST)).reason, 'same');
+    assert.strictEqual(A.refreshDaily(S, dayStartMs(C.DAILY_MAXDAY_CAP + 1), countedSeq(0.5), tzEnv(KST)).reason, 'badClock');
+  });
+});
+
+describe('F12 daily generation (AC 11-18b)', () => {
+  test('AC11: all-zero rng at best 5 → hunt_s/succ_m/dlv_l, every task has a shard item, 9 calls', () => {
+    const rng = countedSeq(0);
+    const tasks = generate(dailyState(), rng);
+    assert.deepStrictEqual(tasks.map(t => [t.e, t.item]), [['hunt_s', 'shard'], ['succ_m', 'shard'], ['dlv_l', 'shard']]);
+    assert.strictEqual(rng.calls, 9);
+  });
+  test('AC11: per slot the rng order is (entry, has item, item kind)', () => {
+    const tasks = generate(dailyState(), countedSeq(0.99, 0.0, 0.99, 0.0, 0.5, 0.0, 0.0, 0.39, 0.0));
+    assert.deepStrictEqual(tasks.map(t => [t.e, t.item]), [['tries_s', 'ore'], ['succ_m', null], ['dlv_l', 'shard']]);
+  });
+  test('AC12: fewer than 6 anvils, all 0.99 → tries_s, craft_m, hunt_l, no items, 9 calls', () => {
+    const rng = countedSeq(0.99);
+    const tasks = generate(dailyState(), rng);
+    assert.deepStrictEqual(tasks.map(t => [t.e, t.item]), [['tries_s', null], ['craft_m', null], ['hunt_l', null]]);
+    assert.strictEqual(rng.calls, 9);
+  });
+  test('AC13: slot 2 drops entries whose metric an earlier slot used', () => {
+    const S = dailyState();
+    assert.deepStrictEqual(A.dailyCandidates(S, 2, ['hunts', 'success']).map(e => e.id), ['dlv_l', 'tries_l']);
+    assert.deepStrictEqual(A.dailyCandidates(S, 2, ['autoRuns', 'success']).map(e => e.id), ['dlv_l', 'hunt_l', 'tries_l']);
+  });
+  test('AC14: same state and rng sequence → identical sets', () => {
+    const vals = [0.1, 0.7, 0.2, 0.6, 0.3, 0.9, 0.5, 0.05, 0.8];
+    assert.strictEqual(json(generate(dailyState(), countedSeq(...vals))), json(generate(dailyState(), countedSeq(...vals))));
+  });
+  test('AC15: goals follow the band of best 5/10/15/20; gold_m goal = mult × huntReward(best)', () => {
+    assert.deepStrictEqual([5, 10, 15, 20].map(b => generate(dailyState(b), countedSeq(0))[0].goal), [10, 15, 20, 25]);
+    assert.deepStrictEqual([5, 10, 15, 20].map(b => generate(dailyState(b), countedSeq(0, 0, 0, 0.3, 0, 0, 0))[1]),
+      [5, 10, 15, 20].map((b, i) => task('gold_m', [20, 25, 30, 30][i] * R.huntReward(b), 0, 'shard')));
+    assert.deepStrictEqual([4, 5, 9, 10, 14, 15, 19, 20].map(A.bandOf), [-1, 0, 0, 1, 1, 2, 2, 3]);
+  });
+  test('AC16: base is the metric at generation, progress starts at 0 and counts only the increase', () => {
+    const S = dailyState();
+    S.stats.hunts = 7;
+    generate(S, countedSeq(0));
+    assert.deepStrictEqual([S.daily.tasks[0].base, A.dailyProgress(S, 0), A.dailyDone(S, 0)], [7, 0, false]);
+    S.stats.hunts += 4;
+    assert.strictEqual(A.dailyProgress(S, 0), 4);
+    S.stats.hunts += 100;
+    assert.deepStrictEqual([A.dailyProgress(S, 0), A.dailyDone(S, 0)], [10, true]);
+  });
+  test('AC17: large lifetime counters (hunts 500) are not double counted', () => {
+    const S = dailyState();
+    S.stats.hunts = 500;
+    generate(S, countedSeq(0));
+    assert.deepStrictEqual([S.daily.tasks[0].base, A.dailyProgress(S, 0)], [500, 0]);
+  });
+  test('AC18a: 6 anvils → slot 1 candidates succ_m/gold_m/sell_m and sell_m is picked; 5 anvils → craft_m included; 9 calls each', () => {
+    const S = dailyState();
+    for (let i = 0; i < C.ANVIL_OWN_MAX; i++) R.addAnvil(S, 1);
+    assert.deepStrictEqual(A.dailyCandidates(S, 1, ['tries']).map(e => e.id), ['succ_m', 'gold_m', 'sell_m']);
+    let rng = countedSeq(0.99);
+    assert.strictEqual(generate(S, rng)[1].e, 'sell_m');
+    assert.strictEqual(rng.calls, 9);
+    S.anvils.pop();
+    rng = countedSeq(0.99);
+    assert.strictEqual(generate(S, rng)[1].e, 'craft_m');
+    assert.strictEqual(rng.calls, 9);
+  });
+  test('AC18b: best 5/10/15/20 × anvils 0/5/6 × rng all 0 / all 0.99 (24 cases) → 3 defined tasks, dlv_l always a slot-2 candidate, 9 calls', () => {
+    let cases = 0;
+    [5, 10, 15, 20].forEach(best => [0, 5, 6].forEach(anvils => [0, 0.99].forEach(v => {
+      const S = dailyState(best);
+      for (let i = 0; i < anvils; i++) R.addAnvil(S, 1);
+      const rng = countedSeq(v);
+      const tasks = generate(S, rng);
+      const used = tasks.slice(0, 2).map(t => C.DAILY_POOL_BY_ID[t.e].metric);
+      assert.ok(tasks.length === 3 && tasks.every(t => t.e && C.DAILY_POOL_BY_ID[t.e] && t.goal >= 1), `${best}/${anvils}/${v}`);
+      [0, 1, 2].forEach(slot => assert.ok(A.dailyCandidates(S, slot, used.slice(0, slot)).length >= 1));
+      assert.ok(A.dailyCandidates(S, 2, used).some(e => e.id === 'dlv_l'));
+      assert.strictEqual(rng.calls, 9);
+      cases++;
+    })));
+    assert.strictEqual(cases, 24);
+  });
+  test('AC18: even at best 13 the pool has no destroy or sink tasks', () => {
+    assert.ok(C.DAILY_POOL.every(e => !['destroy', 'sinkGold', 'traitRolls'].includes(e.metric)));
+    const tasks = generate(dailyState(13), countedSeq(0.5));
+    assert.ok(tasks.every(t => C.DAILY_POOL_BY_ID[t.e]));
+  });
+});
+
+describe('F12 counters and offline (AC 19-22)', () => {
+  test('AC19: 3 auto runs add 3 to autoRuns; settleOffline leaves autoRuns/hunts/huntGold alone', () => {
+    const S = dailyState(8);
+    S.idle.autoOn = true;
+    const r = I.runAutoCatchup(S, NOW + 2 * I.autoInterval(S), NOW, () => 0.5);
+    assert.deepStrictEqual([r.runs, S.stats.autoRuns], [3, 3]);
+    S.idle.lastSeen = NOW;
+    const before = json([S.stats.autoRuns, S.stats.hunts, S.stats.huntGold]);
+    assert.ok(I.settleOffline(S, NOW + 3 * HOUR).gold > 0);
+    assert.strictEqual(json([S.stats.autoRuns, S.stats.hunts, S.stats.huntGold]), before);
+  });
+  test('AC20: selling a +5 sword adds 1 to sells, +0~+4 does not', () => {
+    const S = stateWith({ swords: [sword(1, 5), sword(2, 4), sword(3, 1)] });
+    R.sellSword(S, 2); R.sellSword(S, 3);
+    assert.strictEqual(S.stats.sells, 0);
+    R.sellSword(S, 1);
+    assert.strictEqual(S.stats.sells, 1);
+  });
+  test('AC21/53: a manual hunt adds 1 to hunts; its gold and ore are unchanged', () => {
+    const S = dailyState(9);
+    const want = I.manualHuntGold(S, NOW);
+    const r = I.manualHunt(S, NOW, () => 0.3);
+    assert.deepStrictEqual([r.gold, r.ore, S.stats.hunts], [want, F.rollOre(dailyState(9), () => 0.3), 1]);
+  });
+  test('AC22: 8 hours offline does not move daily progress', () => {
+    const S = dailyState(8);
+    generate(S, countedSeq(0.5));
+    S.idle.autoOn = true; S.idle.lastSeen = NOW;
+    const before = [0, 1, 2].map(i => A.dailyProgress(S, i));
+    I.settleOffline(S, NOW + 8 * HOUR);
+    assert.deepStrictEqual([0, 1, 2].map(i => A.dailyProgress(S, i)), before);
+  });
+});
+
+describe('F12 daily claims (AC 23-28)', () => {
+  test('AC23: slot 1 done at best 13 → +8,030G, claimed, rewardGold and dailyDone +1; shard item 39, ore item 20 silver', () => {
+    const S = withSet(dailyState(13), { done: true });
+    const gold = S.gold;
+    const r = A.claimDaily(S, 1, ACTIVE);
+    assert.deepStrictEqual(r, { ok: true, gold: 8030, shards: 0, ore: {} });
+    assert.deepStrictEqual([S.gold - gold, S.daily.tasks[1].claimed, S.stats.rewardGold, S.stats.dailyDone], [8030, 1, 8030, 1]);
+    const sh = withSet(dailyState(13), { done: true, item: 'shard' });
+    assert.strictEqual(A.claimDaily(sh, 1, ACTIVE).shards, 39);
+    assert.strictEqual(sh.shards, 39);
+    const ore = withSet(dailyState(13), { done: true, item: 'ore' });
+    assert.deepStrictEqual(A.claimDaily(ore, 1, ACTIVE).ore, { silver: 20 });
+    const iron = withSet(dailyState(6), { done: true, item: 'ore' });
+    assert.deepStrictEqual(A.claimDaily(iron, 1, ACTIVE).ore, { iron: 20 });
+  });
+  test('AC24: the same claim again → claimed, gold/shards/ore unchanged', () => {
+    const S = withSet(dailyState(13), { done: true, item: 'shard' });
+    A.claimDaily(S, 1, ACTIVE);
+    const before = json(S);
+    assert.deepStrictEqual(A.claimDaily(S, 1, ACTIVE), { ok: false, reason: 'claimed' });
+    assert.strictEqual(json(S), before);
+  });
+  test('AC25: progress below the goal → notDone', () => {
+    const S = withSet(dailyState(13));
+    S.stats.success = 3;
+    assert.deepStrictEqual(A.claimDaily(S, 1, ACTIVE), { ok: false, reason: 'notDone' });
+  });
+  test('AC26: which 3 / -1 / "x" / undefined / "1" → invalid; empty tasks with a valid which → noDaily', () => {
+    const S = withSet(dailyState(13), { done: true });
+    [3, -1, 'x', undefined, '1', 1.5].forEach(w => assert.deepStrictEqual(A.claimDaily(S, w, ACTIVE), { ok: false, reason: 'invalid' }, String(w)));
+    const E = dailyState(13);
+    assert.deepStrictEqual(A.claimDaily(E, 0, ACTIVE), { ok: false, reason: 'noDaily' });
+    assert.deepStrictEqual(A.claimDaily(E, 'bonus', ACTIVE), { ok: false, reason: 'noDaily' });
+  });
+  test('AC27: bonus with all 3 done → +16,060G, shards 2×39, bonus 1, dailyAll +1; not all done → notDone; again → claimed', () => {
+    const N = withSet(dailyState(13));
+    Object.assign(N.stats, { hunts: 10, success: 4 });
+    assert.deepStrictEqual(A.claimDaily(N, 'bonus', ACTIVE), { ok: false, reason: 'notDone' });
+    const S = withSet(dailyState(13), { done: true });
+    assert.deepStrictEqual(A.claimDaily(S, 'bonus', ACTIVE), { ok: true, gold: 16060, shards: 78, ore: {} });
+    assert.deepStrictEqual([S.daily.bonus, S.stats.dailyAll, S.stats.dailyDone], [1, 1, 0]);
+    assert.deepStrictEqual(A.claimDaily(S, 'bonus', ACTIVE), { ok: false, reason: 'claimed' });
+  });
+  test('AC27a: the bonus needs the tasks done, not claimed', () => {
+    const S = withSet(dailyState(13), { done: true });
+    assert.ok(S.daily.tasks.every(t => t.claimed === 0));
+    assert.ok(A.claimDaily(S, 'bonus', ACTIVE).ok);
+  });
+  test('AC28: reason order inactiveTab → invalid → noDaily → claimed → notDone (daily) and → notReached (achievements)', () => {
+    const S = withSet(dailyState(13));
+    S.daily.tasks[0].claimed = 1;
+    assert.strictEqual(A.claimDaily(S, 9, { active: false }).reason, 'inactiveTab');
+    assert.strictEqual(A.claimDaily(S, 9, undefined).reason, 'inactiveTab');
+    assert.strictEqual(A.claimDaily(S, 9, ACTIVE).reason, 'invalid');
+    assert.strictEqual(A.claimDaily(dailyState(13), 0, ACTIVE).reason, 'noDaily');
+    assert.strictEqual(A.claimDaily(S, 0, ACTIVE).reason, 'claimed');
+    assert.strictEqual(A.claimDaily(S, 1, ACTIVE).reason, 'notDone');
+    const T = fresh();
+    T.achievements.tries_1 = C.ACH_CLAIMED;
+    assert.strictEqual(A.claimAchievement(T, 'bogus', { active: false }).reason, 'inactiveTab');
+    assert.strictEqual(A.claimAchievement(T, 'bogus', ACTIVE).reason, 'invalid');
+    assert.strictEqual(A.claimAchievement(T, 'constructor', ACTIVE).reason, 'invalid');
+    assert.strictEqual(A.claimAchievement(T, 'tries_1', ACTIVE).reason, 'claimed');
+    assert.strictEqual(A.claimAchievement(T, 'tries_2', ACTIVE).reason, 'notReached');
+  });
+});
+
+describe('F12 two tabs and idempotent claims (AC 29-30d)', () => {
+  /** 탭 하나: 같은 메모리 저장소를 읽는 storedClaimed 주입(main.js와 같은 방식) */
+  const tabCtx = st => ({ active: true, storedClaimed: (kind, key, day) => A.storedClaimedIn(SV.peek(st, NOW).state, kind, key, day) });
+  function twoTabs() {
+    const S0 = withSet(dailyState(13), { done: true });
+    S0.stats.tries = 100;
+    A.syncAchievements(S0);
+    const st = memStorage();
+    SV.save(st, S0, NOW);
+    return { st, tabA: SV.load(st, NOW).state, tabB: SV.load(st, NOW).state };
+  }
+  test('AC29: active false → inactiveTab from every claim function; nothing changes', () => {
+    const S = withSet(dailyState(13), { done: true });
+    S.stats.tries = 100; A.syncAchievements(S);
+    const before = json(S);
+    const off = { active: false, storedClaimed: () => { throw new Error('must not read storage'); } };
+    assert.deepStrictEqual([A.claimAchievement(S, 'tries_1', off), A.claimDaily(S, 0, off), A.claimAll(S, off)].map(r => r.reason),
+      ['inactiveTab', 'inactiveTab', 'inactiveTab']);
+    assert.strictEqual(json(S), before);
+  });
+  test('AC30: tab A claims and saves; stale tab B (still active) gets claimed with no reward and its memory marked claimed', () => {
+    const { st, tabA, tabB } = twoTabs();
+    assert.ok(A.claimAchievement(tabA, 'tries_1', tabCtx(st)).ok);
+    assert.ok(A.claimDaily(tabA, 0, tabCtx(st)).ok);
+    SV.save(st, tabA, NOW);
+    const gold = tabB.gold;
+    assert.deepStrictEqual(A.claimAchievement(tabB, 'tries_1', tabCtx(st)), { ok: false, reason: 'claimed' });
+    assert.deepStrictEqual(A.claimDaily(tabB, 0, tabCtx(st)), { ok: false, reason: 'claimed' });
+    assert.deepStrictEqual([tabB.gold, tabB.stats.rewardGold, tabB.achievements.tries_1, tabB.daily.tasks[0].claimed], [gold, 0, 2, 1]);
+  });
+  test('AC30d: stored daily is a newer day → stale; nothing in tab B or storage changes. Same day + claimed → claimed; same day unclaimed → ok', () => {
+    const { st, tabA, tabB } = twoTabs();
+    A.refreshDaily(tabA, dayStartMs(D0 + 1), countedSeq(0.5), tzEnv(KST));
+    SV.save(st, tabA, NOW);
+    const raw = st.dump[C.SAVE_KEY];
+    const before = json(tabB);
+    assert.deepStrictEqual(A.claimDaily(tabB, 1, tabCtx(st)), { ok: false, reason: 'stale' });
+    assert.deepStrictEqual([json(tabB), st.dump[C.SAVE_KEY]], [before, raw]);
+    assert.ok(A.claimAchievement(tabB, 'tries_1', tabCtx(st)).ok, 'achievements never compare maxDay');
+
+    const same = twoTabs();
+    same.tabA.daily.tasks[1].claimed = 1;
+    SV.save(same.st, same.tabA, NOW);
+    assert.strictEqual(A.claimDaily(same.tabB, 1, tabCtx(same.st)).reason, 'claimed');
+    const fresh2 = twoTabs();
+    assert.ok(A.claimDaily(fresh2.tabB, 1, tabCtx(fresh2.st)).ok);
+  });
+  test('AC30d: storedClaimedIn returns stale / true / false and false when there is no stored save', () => {
+    const S = withSet(dailyState(13));
+    S.daily.tasks[2].claimed = 1;
+    S.achievements.succ_1 = C.ACH_CLAIMED;
+    assert.deepStrictEqual([A.storedClaimedIn(S, 'daily', 2, D0 + 1), A.storedClaimedIn(S, 'daily', 2, D0), A.storedClaimedIn(S, 'daily', 1, D0),
+      A.storedClaimedIn(S, 'daily', 'bonus', D0), A.storedClaimedIn(S, 'ach', 'succ_1'), A.storedClaimedIn(S, 'ach', 'tries_1'),
+      A.storedClaimedIn(null, 'daily', 0, D0)], ['stale', true, false, false, true, false, false]);
+  });
+  test('claimAll with a stale stored daily set → stale: true; daily items skipped, tab B daily and storage unchanged', () => {
+    const { st, tabA, tabB } = twoTabs();
+    A.refreshDaily(tabA, dayStartMs(D0 + 1), countedSeq(0.5), tzEnv(KST));
+    SV.save(st, tabA, NOW);
+    const raw = st.dump[C.SAVE_KEY];
+    const daily = json(tabB.daily);
+    const r = A.claimAll(tabB, tabCtx(st));
+    assert.deepStrictEqual([r.ok, r.stale], [true, true]);
+    assert.ok(r.claimed.length > 0 && r.claimed.every(c => c.kind === 'ach'), 'achievements are still claimed: ' + json(r.claimed));
+    assert.deepStrictEqual([json(tabB.daily), st.dump[C.SAVE_KEY]], [daily, raw]);
+    const same = twoTabs();
+    assert.ok(!('stale' in A.claimAll(same.tabB, tabCtx(same.st))), 'no stale flag when the stored day matches');
+  });
+  test('AC30a: after A saves, B takes over the stored save → same flags, claiming again → claimed', () => {
+    const { st, tabA } = twoTabs();
+    A.claimAchievement(tabA, 'tries_1', tabCtx(st));
+    A.claimDaily(tabA, 2, tabCtx(st));
+    SV.save(st, tabA, NOW);
+    const tabB = SV.load(st, NOW).state;
+    assert.deepStrictEqual([tabB.achievements, tabB.daily], [tabA.achievements, tabA.daily]);
+    assert.strictEqual(A.claimAchievement(tabB, 'tries_1', tabCtx(st)).reason, 'claimed');
+    assert.strictEqual(A.claimDaily(tabB, 2, tabCtx(st)).reason, 'claimed');
+  });
+  test('AC30b: the saved JSON after a claim has both the reward and the flag; reload + claim → claimed', () => {
+    const { st, tabA } = twoTabs();
+    const gold = tabA.gold;
+    const r = A.claimDaily(tabA, 1, tabCtx(st));
+    SV.save(st, tabA, NOW);
+    const d = JSON.parse(st.dump[C.SAVE_KEY]);
+    assert.deepStrictEqual([d.gold, d.daily.tasks[1].claimed, d.stats.rewardGold], [gold + r.gold, 1, r.gold]);
+    assert.strictEqual(A.claimDaily(SV.load(st, NOW).state, 1, ACTIVE).reason, 'claimed');
+  });
+});
+
+describe('F12 achievements (AC 31-43)', () => {
+  // §5 표 그대로: [id, 목표, k, 파편 m, 광석, 칭호]
+  const TABLE = [
+    ['tries_1', 100, 1, 0, null, '견습 대장장이'], ['tries_2', 1000, 3, 1, null, '숙련 대장장이'], ['tries_3', 5000, 6, 2, null, '전설의 대장장이'],
+    ['succ_1', 50, 1, 0, null, '행운의 손'], ['succ_2', 500, 3, 1, null, '명장의 손'], ['succ_3', 2500, 6, 2, null, '백전백승'],
+    ['best_1', 10, 1, 0, null, '희귀 감정사'], ['best_2', 15, 4, 1, null, '영웅 대장장이'], ['best_3', 20, 8, 2, null, '신화를 벼린 자'],
+    ['dest_1', 1, 1, 0, null, '깨진 검의 증인'], ['dest_2', 25, 3, 1, null, '오뚝이'], ['dest_3', 100, 5, 2, null, '폐허의 군주'],
+    ['hunt_1', 100, 1, 0, null, '초보 사냥꾼'], ['hunt_2', 1000, 3, 1, { iron: 40 }, '베테랑 사냥꾼'], ['hunt_3', 5000, 6, 2, { silver: 40 }, '사냥왕'],
+    ['dlv_1', 5, 1, 0, null, '심부름꾼'], ['dlv_2', 25, 3, 1, { iron: 30 }, '단골 납품업자'], ['dlv_3', 100, 6, 1, { silver: 30 }, '납품왕'],
+    ['sink_1', 500000, 3, 0, null, '후원자'], ['sink_2', 10000000, 6, 0, null, '큰손'], ['sink_3', 100000000, 10, 0, null, '재벌'],
+    ['trt_1', 1, 1, 0, null, '각인사'], ['trt_2', 5, 3, 1, null, '각인 장인'], ['trt_3', 20, 5, 2, null, '각인의 달인'],
+    ['knd_1', 3, 1, 0, null, '재능 수집가'], ['knd_2', 5, 3, 1, null, '다재다능'], ['knd_3', 6, 6, 2, null, '전종 수집가'],
+    ['mon_1', 1, 3, 0, null, '기념비 건립자'], ['mon_2', 4, 6, 1, null, '기념비 수호자'], ['mon_3', 8, 10, 2, null, '기념비의 주인'],
+    ['day_1', 10, 1, 0, null, '성실한 사람'], ['day_2', 50, 3, 1, null, '꾸준한 사람'], ['day_3', 200, 6, 2, null, '일과의 달인'],
+    ['perfect', 1, 2, 1, null, '완벽주의자'],
+  ];
+  const ach = id => C.ACH_BY_ID[id];
+  test('AC31: 34 unique ids matching §5 (need, k, shard, ore, title), unique titles, k sum 131, shard sum 30, ore iron 70 / silver 70', () => {
+    assert.deepStrictEqual(C.ACHIEVEMENTS.map(a => [a.id, a.need, a.k, a.shard, a.ore, a.title]), TABLE);
+    assert.strictEqual(new Set(C.ACHIEVEMENTS.map(a => a.id)).size, 34);
+    assert.strictEqual(new Set(C.ACHIEVEMENTS.map(a => a.title)).size, 34);
+    const sum = f => C.ACHIEVEMENTS.reduce((s, a) => s + f(a), 0);
+    assert.deepStrictEqual([sum(a => a.k), sum(a => a.shard), sum(a => (a.ore && a.ore.iron) || 0), sum(a => (a.ore && a.ore.silver) || 0)], [131, 30, 70, 70]);
+    const tracks = {};
+    C.ACHIEVEMENTS.forEach(a => { tracks[a.track] = (tracks[a.track] || 0) + 1; });
+    assert.deepStrictEqual(Object.values(tracks).sort(), [1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]);
+    assert.ok(C.ACHIEVEMENTS.every(a => Object.prototype.hasOwnProperty.call(C.ACH_METRICS, a.metric)));
+  });
+  test('AC32: tries 99 → tries_1 stays 0; 100 → reached and returned; a second sync returns []', () => {
+    const S = fresh();
+    S.stats.tries = 99;
+    assert.deepStrictEqual([A.syncAchievements(S), A.achState(S, 'tries_1')], [[], 0]);
+    S.stats.tries = 100;
+    assert.deepStrictEqual(A.syncAchievements(S), ['tries_1']);
+    assert.strictEqual(S.achievements.tries_1, C.ACH_REACHED);
+    assert.deepStrictEqual(A.syncAchievements(S), []);
+  });
+  test('AC33: knd_1 stays reached after selling drops the kind count to 2; claimed never goes down', () => {
+    const S = stateWith({ swords: [sword(1, 6, tr('hunt', 1)), sword(2, 6, tr('work', 1)), sword(3, 6, tr('trade', 1))] });
+    assert.deepStrictEqual(A.syncAchievements(S), ['knd_1']);
+    R.sellSword(S, 3);
+    assert.strictEqual(A.traitKindCount(S), 2);
+    A.syncAchievements(S);
+    assert.strictEqual(S.achievements.knd_1, C.ACH_REACHED);
+    assert.ok(A.claimAchievement(S, 'knd_1', ACTIVE).ok);
+    A.syncAchievements(S);
+    assert.strictEqual(S.achievements.knd_1, C.ACH_CLAIMED);
+  });
+  test('AC34: monuments [1,0,1,0,0,0,0,0] → count 2, only mon_1; all 8 → mon_3', () => {
+    const S = fresh();
+    S.monuments = [1, 0, 1, 0, 0, 0, 0, 0];
+    assert.strictEqual(A.monumentCount(S), 2);
+    assert.deepStrictEqual(A.syncAchievements(S), ['mon_1']);
+    S.monuments = Array(8).fill(1);
+    assert.deepStrictEqual(A.syncAchievements(S), ['mon_2', 'mon_3']);
+  });
+  test('AC35: traits hunt2/work1/trade3/null → kind count 3 (knd_1), perfect; two of one kind count once', () => {
+    const S = stateWith({ swords: [sword(1, 6, tr('hunt', 2)), sword(2, 6, tr('work', 1)), sword(3, 6, tr('trade', 3)), sword(4, 2)] });
+    assert.deepStrictEqual([A.traitKindCount(S), A.hasPerfectTrait(S)], [3, true]);
+    assert.deepStrictEqual(A.syncAchievements(S), ['knd_1', 'perfect']);
+    const T = stateWith({ swords: [sword(1, 6, tr('hunt', 1)), sword(2, 6, tr('hunt', 2))] });
+    assert.deepStrictEqual([A.traitKindCount(T), A.hasPerfectTrait(T)], [1, false]);
+  });
+  test('AC36: best_1 at best 10 → 210G (50%: floor(423×50/100)=211 → 210); at best 13 → 2,680G', () => {
+    const S = stateWith({ sword: { lv: 10 } });
+    assert.strictEqual(A.claimAchievement(S, 'best_1', ACTIVE).gold, 210);
+    const T = stateWith({ sword: { lv: 13 } });
+    assert.strictEqual(A.claimAchievement(T, 'best_1', ACTIVE).gold, 2680);
+  });
+  test('AC37: claims, refreshDaily and setTitle leave chances/gauge/mastery/BONUS_CAP unchanged and never read them', () => {
+    const S = withSet(stateWith({ sword: { lv: 16, pity: 3 }, inv: { bless: 2 }, use: { bless: true } }), { done: true });
+    S.gauge = [1, 2, 0, 0, 0]; S.mastery = [1, 1, 0, 0, 0]; S.stats.tries = 1000;
+    const snap = () => json([R.currentChances(S), S.gauge, S.mastery, C.BONUS_CAP, S.swords[0].pity]);
+    const before = snap();
+    A.syncAchievements(S);
+    A.claimAll(S, ACTIVE);
+    A.setTitle(S, 'tries_2');
+    A.refreshDaily(S, dayStartMs(D0 + 1), countedSeq(0.4), tzEnv(KST));
+    assert.strictEqual(snap(), before);
+    const src = fs.readFileSync(js('achievements.js'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    assert.ok(!/chances|gauge|mastery|BONUS_CAP|SUCC_CEIL|pity/.test(src), 'achievements.js does not touch chance inputs');
+  });
+  test('AC38: title not selectable before claiming; after claiming setTitle works; "" (none) always ok', () => {
+    const S = fresh();
+    S.stats.tries = 100; A.syncAchievements(S);
+    assert.deepStrictEqual(A.setTitle(S, 'tries_1'), { ok: false, reason: 'invalid' });
+    assert.deepStrictEqual([A.setTitle(S, 'bogus').reason, A.setTitle(S, 'constructor').reason, A.setTitle(S, 3).reason], ['invalid', 'invalid', 'invalid']);
+    assert.strictEqual(S.title, '');
+    const r = A.claimAchievement(S, 'tries_1', ACTIVE);
+    assert.strictEqual(r.title, '견습 대장장이');
+    assert.deepStrictEqual([A.setTitle(S, 'tries_1'), S.title], [{ ok: true }, 'tries_1']);
+    assert.deepStrictEqual([A.setTitle(S, ''), S.title], [{ ok: true }, '']);
+  });
+  test('AC39: reward gold goes to gold and stats.rewardGold only (earned/huntGold/offlineGold/shardsGained unchanged)', () => {
+    const S = stateWith({ sword: { lv: 13 } });
+    S.stats.tries = 1000;
+    const keep = () => json([S.stats.earned, S.stats.huntGold, S.stats.offlineGold, S.stats.shardsGained]);
+    const before = keep();
+    const gold = S.gold;
+    const r = A.claimAchievement(S, 'tries_2', ACTIVE);
+    assert.deepStrictEqual([S.gold - gold, S.stats.rewardGold, S.shards, keep()], [r.gold, r.gold, r.shards, before]);
+  });
+  test('AC40: hunt_2 with 9,990 iron → 9,999 (cap) and the claim still succeeds', () => {
+    const S = stateWith({ sword: { lv: 13 } });
+    S.stats.hunts = 1000; S.ore.iron = 9990;
+    const r = A.claimAchievement(S, 'hunt_2', ACTIVE);
+    assert.deepStrictEqual([r.ok, r.ore, S.ore.iron, S.achievements.hunt_2], [true, { iron: 9 }, C.ORE_MAX, C.ACH_CLAIMED]);
+  });
+  test('AC41: best 17 tries_3 → 188,070G + 136 shards; best 20 best_3 → 1,587,700G + 200 shards', () => {
+    const S = stateWith({ sword: { lv: 17 } });
+    S.stats.tries = 5000;
+    assert.deepStrictEqual(A.claimAchievement(S, 'tries_3', ACTIVE), { ok: true, gold: 188070, shards: 136, ore: {}, title: '전설의 대장장이' });
+    const T = stateWith({ sword: { lv: 20 } });
+    const r = A.claimAchievement(T, 'best_3', ACTIVE);
+    assert.deepStrictEqual([r.gold, r.shards], [1587700, 200]);
+  });
+  test('AC42: roundTo runs once at the end (best 17 k=3 → 94,040, k=5 → 156,730; §7.5 table; early 50% examples)', () => {
+    const at = best => Object.assign(fresh(), { best });
+    assert.deepStrictEqual([A.rewardGold(at(17), 3), A.rewardGold(at(17), 5)], [94040, 156730]);
+    const table = { 1: [2680, 9160, 31350, 198460], 2: [5350, 18320, 62690, 396920], 3: [8030, 27470, 94040, 595390], 5: [13380, 45790, 156730, 992310],
+      6: [16060, 54950, 188070, 1190770], 8: [21410, 73260, 250760, 1587700], 10: [26760, 91580, 313450, 1984620] };
+    Object.keys(table).forEach(k => assert.deepStrictEqual([13, 15, 17, 20].map(b => A.rewardGold(at(b), +k)), table[k], `k=${k}`));
+    assert.deepStrictEqual([13, 15, 17, 20].map(b => [2, 3, 5, 6].reduce((s, k) => s + A.rewardGold(at(b), k), 0)), [42820, 146530, 501530, 3175390]);
+    assert.deepStrictEqual([A.rewardGold(at(7), 2), A.rewardGold(at(10), 1), A.rewardGold(at(4), 1)], [70, 210, 10]);
+    assert.deepStrictEqual([A.shardReward(at(7), 1), A.shardReward(at(17), 2), A.shardReward(at(2), 1)], [14, 136, R.shardGain(5)]);
+  });
+  test('AC43: claimAll takes 2 achievements then daily slot order (bonus not ready); inactive → inactiveTab', () => {
+    const S = withSet(stateWith({ sword: { lv: 9 } }));
+    Object.assign(S.stats, { tries: 100, destroy: 1, hunts: 10 });
+    const r = A.claimAll(S, ACTIVE);
+    assert.deepStrictEqual(r.claimed, [{ kind: 'ach', key: 'tries_1' }, { kind: 'ach', key: 'dest_1' }, { kind: 'daily', key: 0 }]);
+    assert.deepStrictEqual([r.ok, r.gold, r.shards], [true, 2 * A.rewardGold(S, 1) + A.rewardGold(S, 2), 0]);
+    assert.deepStrictEqual(A.claimAll(S, ACTIVE), { ok: true, claimed: [], gold: 0, shards: 0, ore: {} });
+    assert.strictEqual(A.claimAll(S, { active: false }).reason, 'inactiveTab');
+  });
+  test('claimableCount / claimableAny follow reached achievements, done daily tasks and the bonus', () => {
+    const S = withSet(stateWith({ sword: { lv: 13 } }), { done: true });
+    assert.deepStrictEqual([A.claimableCount(S), A.claimableAny(S)], [4, true]);
+    S.stats.tries = 100; A.syncAchievements(S);
+    assert.strictEqual(A.claimableCount(S), 6, 'tries_1 + best_1 + 3 tasks + bonus');
+    A.claimAll(S, ACTIVE);
+    assert.deepStrictEqual([A.claimableCount(S), A.claimableAny(S)], [0, false]);
+  });
+});
+
+describe('F12 save and normalization (AC 44-51)', () => {
+  const NEW_STATS = ['hunts', 'sells', 'autoRuns', 'dailyDone', 'dailyAll', 'rewardGold', 'eventsSeen'];
+  const norm = d => SV.normalize(Object.assign(fresh(), d), NOW);
+  test('AC44: new game → achievements {}, title "", daily {maxDay 0, tasks [], bonus 0}, new stats 0 (incl. eventsSeen hook)', () => {
+    const S = fresh();
+    assert.deepStrictEqual([S.achievements, S.title, S.daily], [{}, '', { maxDay: 0, tasks: [], bonus: 0 }]);
+    assert.deepStrictEqual(NEW_STATS.map(k => S.stats[k]), [0, 0, 0, 0, 0, 0, 0]);
+  });
+  test('AC45: achievements [] / "x" / mixed object → {}, {}, {tries_1:2, succ_1:1, best_1:2}; __proto__ key ignored', () => {
+    assert.deepStrictEqual(norm({ achievements: [] }).achievements, {});
+    assert.deepStrictEqual(norm({ achievements: 'x' }).achievements, {});
+    assert.deepStrictEqual(norm({ achievements: { tries_1: 2, bogus: 1, constructor: 2, succ_1: '1', best_1: 9, dest_1: 0 } }).achievements,
+      { tries_1: 2, succ_1: 1, best_1: 2 });
+    assert.deepStrictEqual(SV.normalize(JSON.parse('{"achievements":{"__proto__":{"tries_1":2},"succ_1":2}}'), NOW).achievements, { succ_1: 2 });
+  });
+  test('AC46: title 5 / unclaimed tries_1 / claimed tries_1 → "", "", "tries_1"', () => {
+    assert.strictEqual(norm({ title: 5 }).title, '');
+    assert.strictEqual(norm({ title: 'tries_1', achievements: { tries_1: 1 } }).title, '');
+    assert.strictEqual(norm({ title: 'tries_1', achievements: { tries_1: 2 } }).title, 'tries_1');
+    assert.strictEqual(norm({ title: 'constructor', achievements: {} }).title, '');
+  });
+  test('AC47: daily missing / null / [] / 2 tasks → default daily (tasks []), maxDay kept when present', () => {
+    const empty = { maxDay: 0, tasks: [], bonus: 0 };
+    const d = fresh(); delete d.daily;
+    assert.deepStrictEqual(SV.normalize(d, NOW).daily, empty);
+    assert.deepStrictEqual(norm({ daily: null }).daily, empty);
+    assert.deepStrictEqual(norm({ daily: [] }).daily, empty);
+    assert.deepStrictEqual(norm({ daily: { maxDay: D0, tasks: [task('hunt_s', 10), task('succ_m', 4)], bonus: 1 } }).daily, { maxDay: D0, tasks: [], bonus: 0 });
+  });
+  test('AC48: a task outside its slot pool → tasks []; goal "20" → 20, 0 → 1; base above the metric → clamped to it', () => {
+    const set = tasks => ({ daily: { maxDay: D0, tasks, bonus: 0 } });
+    assert.deepStrictEqual(norm(set([task('succ_m', 4), task('succ_m', 4), task('dlv_l', 1)])).daily.tasks, []);
+    assert.deepStrictEqual(norm(set([task('nope', 4), task('succ_m', 4), task('dlv_l', 1)])).daily.tasks, []);
+    const S = norm(Object.assign(set([task('hunt_s', '20', 99, 'gem', 'yes'), task('succ_m', 0, 2, 'ore'), task('dlv_l', 1, -3, 'shard')]),
+      { stats: { hunts: 40, success: 1 } }));
+    assert.deepStrictEqual(S.daily.tasks, [task('hunt_s', 20, 40, null, 1), task('succ_m', 1, 1, 'ore'), task('dlv_l', 1, 0, 'shard')]);
+    assert.deepStrictEqual(SV.normalize(JSON.parse(JSON.stringify(S)), NOW).daily, S.daily, 'idempotent');
+  });
+  test('AC49: maxDay "20777" / -5 / 1e9 → 20777, 0, 1,000,000', () => {
+    assert.deepStrictEqual(['20777', -5, 1e9].map(v => norm({ daily: { maxDay: v } }).daily.maxDay), [20777, 0, C.DAILY_MAXDAY_CAP]);
+  });
+  test('AC50: an old v2 save without the new fields loads with defaults, other fields and v=2 kept, and round-trips', () => {
+    const old = JSON.parse(JSON.stringify(fresh()));
+    ['achievements', 'title', 'daily'].forEach(k => delete old[k]);
+    NEW_STATS.forEach(k => delete old.stats[k]);
+    Object.assign(old, { gold: 12345, best: 9 });
+    old.stats.tries = 77;
+    const st = memStorage({ [C.SAVE_KEY]: JSON.stringify(old) });
+    const S = SV.load(st, NOW).state;
+    assert.deepStrictEqual([S.v, S.gold, S.best, S.stats.tries, S.achievements, S.title, S.daily.tasks, S.stats.hunts], [2, 12345, 9, 77, {}, '', [], 0]);
+    SV.save(st, S, NOW);
+    assert.deepStrictEqual(SV.load(st, NOW).state, S);
+  });
+  test('save round-trip keeps achievements, title, daily and the 7 new stats', () => {
+    const S = withSet(dailyState(13), { done: true, item: 'ore' });
+    S.stats.tries = 100; A.syncAchievements(S); A.claimAchievement(S, 'tries_1', ACTIVE); A.setTitle(S, 'tries_1');
+    A.claimDaily(S, 1, ACTIVE);
+    NEW_STATS.forEach((k, i) => { S.stats[k] += i + 1; });
+    const st = memStorage();
+    SV.save(st, S, NOW);
+    const L = SV.load(st, NOW).state;
+    assert.deepStrictEqual([L.achievements, L.title, L.daily, NEW_STATS.map(k => L.stats[k])], [S.achievements, S.title, S.daily, NEW_STATS.map(k => S.stats[k])]);
+    assert.deepStrictEqual(L, S);
+  });
+  test('AC51: empty tasks with maxDay D: dayKey D → recovery set (9 calls); dayKey < D → none', () => {
+    const S = dailyState();
+    S.daily = { maxDay: D0, tasks: [], bonus: 0 };
+    let rng = countedSeq(0);
+    assert.strictEqual(A.refreshDaily(S, dayStartMs(D0 - 1), rng, tzEnv(KST)).reason, 'rollback');
+    assert.strictEqual(rng.calls, 0);
+    assert.deepStrictEqual(A.refreshDaily(S, dayStartMs(D0), rng, tzEnv(KST)), { created: true, day: D0 });
+    assert.strictEqual(rng.calls, 9);
+  });
+});
+
+describe('F12 regressions and naming (AC 52-54)', () => {
+  const norm = d => SV.normalize(Object.assign(fresh(), d), NOW);
+  test('AC52: F4 quests are untouched by F12 calls; deliver still adds 1 to delivered', () => {
+    const S = stateWith({ swords: [sword(1, 6), sword(2, 4)], top: { best: 8 } });
+    Q.refreshQuests(S, NOW, () => 0.5);
+    const quests = json(S.quests);
+    A.syncAchievements(S);
+    A.refreshDaily(S, dayStartMs(D0), countedSeq(0.5), tzEnv(KST));
+    A.claimAll(S, ACTIVE);
+    assert.strictEqual(json(S.quests), quests);
+    S.quests.list[0] = { id: 9, tier: 'easy', lv: 4, gold: Q.questGold('easy', 4), item: null };
+    const r = Q.deliver(S, 0, NOW);
+    assert.deepStrictEqual([r.ok, r.gold, S.stats.delivered], [true, Q.questGold('easy', 4), 1]);
+  });
+  test('AC53: locked daily (best < 5) draws no rng, so the game rng sequence of early runs is unchanged', () => {
+    const rng = countedSeq(0.5);
+    [0, 2, 4].forEach(best => assert.strictEqual(A.refreshDaily(dailyState(best), dayStartMs(D0), rng, tzEnv(KST)).reason, 'locked'));
+    const S = dailyState(9);
+    A.refreshDaily(S, dayStartMs(D0), countedSeq(0.5), tzEnv(KST));
+    [1, 2, 3].forEach(n => A.refreshDaily(S, dayStartMs(D0) + n * HOUR, rng, tzEnv(KST)));
+    A.syncAchievements(S);
+    assert.strictEqual(rng.calls, 0, 'same-day / sync paths draw nothing');
+  });
+  test('AC53: eventsSeen is a plain stats counter nothing increments yet (F13 hook)', () => {
+    const S = withSet(stateWith({ sword: { lv: 13 } }), { done: true });
+    I.manualHunt(S, NOW, () => 0.5); A.claimAll(S, ACTIVE);
+    A.refreshDaily(S, dayStartMs(D0 + 1), countedSeq(0.5), tzEnv(KST));
+    assert.strictEqual(S.stats.eventsSeen, 0);
+    assert.strictEqual(norm({ stats: { eventsSeen: '4.7' } }).stats.eventsSeen, 4);
+  });
+  test('AC54: achievement names/titles and daily code never say 의뢰/퀘스트; quests.js has no 과제/일일; separate module SG.ach', () => {
+    assert.ok(C.ACHIEVEMENTS.every(a => !/의뢰|퀘스트/.test(a.name + a.title)));
+    assert.ok(!/의뢰|퀘스트/.test(fs.readFileSync(js('achievements.js'), 'utf8').replace(/F4 납품 의뢰\(quests\.js\)/, '')));
+    assert.ok(!/과제|일일/.test(fs.readFileSync(js('quests.js'), 'utf8')));
+    assert.ok(!Object.keys(Q).some(k => /daily|ach/i.test(k)), 'quests.js is not extended');
+    assert.ok(typeof A.refreshDaily === 'function' && typeof A.claimDaily === 'function');
+  });
+});
+
+describe('F12 daily table load guards', () => {
+  /** constants.js 원문을 patch로 바꿔 새 VM 문맥에 올리고, mutate(C) 뒤 나머지 규칙 모듈을 올린다. 던진 오류 메시지(없으면 null) */
+  function loadError(patch, mutate) {
+    const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
+    ctx.globalThis = ctx;
+    vm.createContext(ctx);
+    try {
+      vm.runInContext(patch(fs.readFileSync(js('constants.js'), 'utf8')), ctx, { filename: 'constants.js' });
+      mutate(ctx.SG.C);
+      ['rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js', 'achievements.js']
+        .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
+      return null;
+    } catch (e) {
+      return e.message;
+    }
+  }
+  const asIs = src => src;
+  const keep = () => {};
+  test('the shipped tables load', () => {
+    assert.strictEqual(loadError(asIs, keep), null);
+  });
+  test('a gate name missing from DAILY_GATES throws at achievements.js load', () => {
+    assert.strictEqual(loadError(asIs, C2 => C2.DAILY_POOL.push({ id: 'x_m', slot: 1, metric: 'crafted', goals: [1, 1, 1, 1], gate: 'noSuchGate' })),
+      'DAILY_POOL gate is not in DAILY_GATES');
+  });
+  test('a daily metric that is not a stats key throws at save.js load', () => {
+    assert.strictEqual(loadError(asIs, C2 => { C2.DAILY_POOL[0].metric = 'bogus'; }), 'DAILY_POOL metric is not a stats key');
+  });
+  test('slot 2 with only metrics used by earlier slots throws at constants.js load (an ungated entry alone is not enough)', () => {
+    const from = "{ id: 'dlv_l',   slot: 2, metric: 'delivered',";
+    const patch = src => { assert.ok(src.includes(from)); return src.replace(from, "{ id: 'dlv_l',   slot: 2, metric: 'success',"); };
+    assert.strictEqual(loadError(patch, keep), 'ACHIEVEMENTS / DAILY_* tables are inconsistent');
   });
 });
 
