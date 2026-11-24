@@ -69,9 +69,10 @@
   const isSuspended = () => tabGuard.isSuspended();
   const whenActive = tabGuard.whenActive;
 
-  function persist() {
+  /** opts.newGame === true: 새 게임 저장(환생 미러도 기본값으로 낮춘다, SV.save). 이벤트 리스너로도 불리므로 opts는 엄격히 비교된다 */
+  function persist(opts) {
     if (isSuspended()) return;
-    if (keeper.save(S, now()) === 'failed') noticeSaveFailedOnce();
+    if (keeper.save(S, now(), opts) === 'failed') noticeSaveFailedOnce();
     lastSaveAt = now();
     showSaveStatus();
   }
@@ -83,7 +84,71 @@
     saveFailNoticed = true;
     FX.toast(V.SAVE_FAILED_TEXT, 'bad');
   }
-  function render() { V.render(S, ui, now(), dailyEnv); }
+  function render() {
+    V.render(S, ui, now(), dailyEnv);
+    // 확인 창이 열린 동안 자동 사냥으로 골드가 늘면 '현재 골드·사라지는 골드'를 맞춘다(버튼·포커스는 그대로)
+    if (modalIs(REBIRTH_MODAL)) V.renderRebirthConfirm(S);
+  }
+
+  // ============================================================ 확인 창 (#modal: 오프라인 보상·환생 확인이 같은 자리를 쓴다)
+  const REBIRTH_MODAL = 'rebirth';
+  let modalReturnFocus = null;
+  const modalIs = kind => !$('#modal').hidden && $('#modal').dataset.kind === kind;
+  /**
+   * 창이 열린 동안 창 밖의 페이지(헤더·본문·테스트 막대 등 body의 다른 자식)를 inert로 막는다(V1: 키보드·포인터가 창 뒤에 닿지 않게).
+   * 이 창이 inert로 만든 요소만 기억했다가 되돌린다: 탭 잠금(tab-guard)이 건 inert는 건드리지 않는다
+   */
+  let inertByModal = [];
+  function setPageInert(on) {
+    if (!on) {
+      inertByModal.forEach(el => { el.inert = false; });
+      inertByModal = [];
+      return;
+    }
+    const modal = $('#modal');
+    inertByModal = Array.from(document.body.children).filter(el => el !== modal && !el.inert);
+    inertByModal.forEach(el => { el.inert = true; });
+  }
+  /** 창을 연다(창 밖 inert). 다른 창을 덮어쓰면 처음 연 쪽의 포커스를 기억한다 */
+  function openModal(kind, html) {
+    const modal = $('#modal');
+    if (modal.hidden) {
+      modalReturnFocus = document.activeElement || null;
+      setPageInert(true);
+    }
+    modal.innerHTML = html;
+    modal.dataset.kind = kind;
+    modal.hidden = false;
+  }
+  /** 창을 닫고(창 밖 inert 해제) 연 버튼으로 포커스를 돌려준다(그 버튼이 다시 그려져 사라졌으면 그대로). 모든 닫힘 경로가 여기를 지난다 */
+  function closeModal() {
+    const modal = $('#modal');
+    if (modal.hidden) return;
+    modal.hidden = true;
+    setPageInert(false);   // inert 요소는 포커스를 받지 못하므로 포커스 복귀보다 먼저
+    const back = modalReturnFocus;
+    modalReturnFocus = null;
+    if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+  }
+  const MODAL_FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  /**
+   * 열린 창 안에서 Tab/Shift+Tab을 순환시킨다: 창 밖이 inert여도 마지막 버튼에서 Tab하면 주소창 등 브라우저 UI로 나가므로
+   * 끝에서 반대쪽 끝으로 돌린다. 포커스가 창 밖(body 등)이면 방향에 맞는 끝으로 들인다
+   */
+  function trapModalFocus(e) {
+    const items = Array.from($('#modal').querySelectorAll(MODAL_FOCUSABLE));
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (items.includes(active) && active !== (e.shiftKey ? first : last)) return;
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  }
+  /** 환생 확인 창만 닫는다(상태 교체·잠금·취소). 오프라인 보상 창은 건드리지 않는다 */
+  function closeRebirthConfirm() {
+    if (modalIs(REBIRTH_MODAL)) closeModal();
+  }
   function afterChange() {
     R.cleanupUse(S);
     Q.refreshQuests(S, now(), rng);
@@ -241,7 +306,8 @@
 
   async function enhance() {
     const startedAt = now();
-    if (ui.busy || startedAt < ui.nextEnhanceAt) return;
+    // 환생 확인 창이 열린 동안은 강화하지 않는다(V1: 창 뒤에서 busy·미리보기가 바뀌지 않게)
+    if (ui.busy || startedAt < ui.nextEnhanceAt || modalIs(REBIRTH_MODAL)) return;
     const prevBest = S.best;
     const before = R.activeSword(S);
     const traitBefore = before ? before.trait : null;
@@ -445,16 +511,40 @@
    * 교체는 이어받기·새 게임과 같은 resetUiFor(연출·2회 클릭 확인·이벤트 팝오버 취소), 저장은 afterChange의 persist 1번
    */
   function rebirthNow() {
-    // 강화 연출 중에는 무시: 결과 공개·지연 토스트를 끊지 않는다(activate와 같다)
-    if (ui.busy) return;
+    // 확인 창의 확인 버튼에서만 실행한다(N3): 창 없이 data-act="rebirth"가 눌려도 환생하지 않는다
+    if (!modalIs(REBIRTH_MODAL)) return;
+    closeRebirthConfirm();
+    // 강화 연출 중이면 환생하지 않고(결과 공개·지연 토스트를 끊지 않게) 창을 닫은 뒤 알린다(§7.1).
+    // 창이 열린 동안은 강화가 시작되지 않으므로 방어 분기다
+    if (ui.busy) return reject('busy', V.REBIRTH_REASON);
     const t = now();
     const draft = SV.normalize(JSON.parse(JSON.stringify(S)), t);
+    // RB.rebirth가 canRebirth를 다시 검사한다: 확인 창을 연 뒤 골드·검이 바뀌었으면 여기서 막힌다(§7)
     const r = RB.rebirth(draft, t);
-    if (!r.ok) return reject(r.reason);
+    if (!r.ok) return reject(r.reason, V.REBIRTH_REASON);
     resetUiFor(draft, t);
     FX.toast(`환생! 명성 +${r.fameGain}`, 'special');
     FX.log(`환생했습니다. 명성 ${r.fame} · 환생 ${r.count}회`, 'good');
     afterChange();
+    scrollToTop();
+  }
+  /**
+   * [환생] → 확인 창(§7). 강화 연출 중에는 열지 않는다(V1·V9: 연출 뒤 결과가 창 뒤에서 바뀌지 않게).
+   * 포커스는 취소 버튼으로: 되돌릴 수 없는 동작이라 Enter 한 번으로 실행되지 않게 한다
+   */
+  function askRebirth() {
+    if (ui.busy) return;
+    const check = RB.canRebirth(S);
+    if (!check.ok) return reject(check.reason, V.REBIRTH_REASON);
+    openModal(REBIRTH_MODAL, V.rebirthConfirmHTML(S));
+    const cancel = $('#modal').querySelector('[data-act="cancelRebirth"]');
+    // 낮은 화면에서 창이 스크롤될 때 제목부터 보이게 포커스 이동으로 스크롤하지 않는다
+    if (cancel) cancel.focus({ preventScroll: true });
+  }
+  /** 환생 직후 화면 맨 위로(모바일은 페이지, 데스크톱은 스크롤되는 오른쪽 패널도) */
+  function scrollToTop() {
+    if (typeof root.scrollTo === 'function') root.scrollTo(0, 0);
+    $('.side').scrollTop = 0;
   }
 
   const ACTIONS = {
@@ -507,13 +597,16 @@
       persist();
       render();
     },
-    // 환생·명성 상점 (F11): 버튼·확인 창은 8-B. 탭 잠금 중에는 클릭 위임(whenActive)이 막는다
+    // 환생·명성 상점 (F11, 기록 탭 환생 섹션). [환생]은 확인 창만 열고, 창의 확인 버튼이 rebirth를 1번 부른다.
+    // 탭 잠금 중에는 클릭 위임(whenActive)이 막는다
+    askRebirth: () => askRebirth(),
     rebirth: () => rebirthNow(),
+    cancelRebirth: () => closeRebirthConfirm(),
     buyFame: track => settle(RB.buyFame(S, track), r => `${C.FAME_SHOP[track].name} Lv ${r.level} (명성 -${r.cost})`),
     copyCorrupt: () => copyGuardedRaw(),
     retryBackup: () => retryCorruptBackup(),
     abandonCorrupt: () => abandonCorruptSave(),
-    closeModal: () => { $('#modal').hidden = true; sfx('offlineCollect'); },
+    closeModal: () => { closeModal(); sfx('offlineCollect'); },
   };
 
   const CHANGES = {
@@ -528,8 +621,7 @@
 
   // ============================================================ 오프라인 / 주기 갱신
   function showOffline(r) {
-    $('#modal').innerHTML = V.offlineModalHTML(r);
-    $('#modal').hidden = false;
+    openModal('offline', V.offlineModalHTML(r));
     FX.log(`자리 비운 동안 ${fmt(r.gold)}G를 벌었습니다.`, 'gold');
   }
   let stripDrag = null;
@@ -540,6 +632,7 @@
    */
   function resetUiFor(state, t) {
     cancelDrag();
+    closeRebirthConfirm();   // 이전 상태로 연 확인 창은 새 상태에서 실행되지 않게 닫는다(V1)
     S = state;
     ui.epoch++;
     FX.setSwordAnim(null);
@@ -699,7 +792,7 @@
   function suspendForOtherTab() {
     cancelDrag();
     ui.armed = {};
-    $('#modal').hidden = true;
+    closeModal();
     $('#settingsPop').hidden = true;
     closeEventPop();
   }
@@ -741,7 +834,7 @@
     resetUiFor(SV.defaultState(t), t);
     $('#log').innerHTML = '';
     $('#settingsPop').hidden = true;
-    persist();
+    persist({ newGame: true });   // 명성까지 지우는 유일한 길: 환생 미러도 기본값으로 낮춘다(REQ-037)
     render();
     FX.log('새 게임을 시작했습니다. 행운을 빕니다!');
   }
@@ -750,6 +843,8 @@
     startNewGame();
   }));
   $('#banner').addEventListener('click', () => $('#banner').classList.remove('show'));
+  // 환생 확인 창 바깥(어두운 배경)을 누르면 취소. 창 안의 클릭은 target이 배경이 아니다
+  $('#modal').addEventListener('click', whenActive(e => { if (e.target === $('#modal')) closeRebirthConfirm(); }));
 
   // 보관함 칸 드래그: 놓은 자리로 순서만 바꾼다(활성 검은 그대로). 강화 연출 중·탭 잠금 중에는 시작하지 않는다
   stripDrag = SG.createStripDrag($('#strip'), {
@@ -774,8 +869,12 @@
   }
 
   document.addEventListener('keydown', whenActive(e => {
-    if (e.ctrlKey || e.metaKey || e.altKey || isTextEntry(e.target)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.code === 'Tab' && !$('#modal').hidden) return trapModalFocus(e);
+    if (isTextEntry(e.target)) return;
     if (ui.dragId !== null && (e.code === 'Space' || e.code === 'KeyS')) { e.preventDefault(); return; }   // 드래그 중에는 강화·판매 금지
+    // 환생 확인 창이 열린 동안 창 뒤의 강화·판매·사냥 단축키는 쓰지 않는다(Esc만 = 취소)
+    if (modalIs(REBIRTH_MODAL) && e.code !== 'Escape') return;
     if (e.code === 'Space') {
       e.preventDefault();
       if (!e.repeat) enhance();
@@ -785,7 +884,7 @@
       hunt();
     } else if (e.code === 'Escape') {
       $('#banner').classList.remove('show');
-      $('#modal').hidden = true;
+      closeModal();
       $('#settingsPop').hidden = true;
       closeEventPop();
     }

@@ -332,7 +332,7 @@ describe('two-tab: save sharing and offline settlement', () => {
     const guard = fs.readFileSync(path.join(__dirname, '..', 'js', 'tab-guard.js'), 'utf8');
     assert.ok(/addEventListener\('storage'[^\n]*concernsSave/.test(guard) && /e\.key === opts\.key/.test(guard), 'guard storage listener filters the save key');
     assert.ok(/createTabGuard\(\{[\s\S]*?key: C\.SAVE_KEY/.test(src), 'main.js passes SAVE_KEY to the guard');
-    assert.ok(/function persist\(\) \{\s*if \(isSuspended\(\)\) return;/.test(src), 'persist guarded');
+    assert.ok(/function persist\((opts)?\) \{\s*if \(isSuspended\(\)\) return;/.test(src), 'persist guarded');
     assert.ok(/if \(isSuspended\(\) \|\| document\.hidden\) return;/.test(src), 'tick guarded');
     assert.ok(/function takeOver\(\)[\s\S]*?adoptStoredSave\(now\(\), true\);[\s\S]*?resume\(\);/.test(src), 'takeOver force-adopts then resumes');
     const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');

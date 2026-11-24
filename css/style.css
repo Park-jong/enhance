@@ -577,3 +577,24 @@ main {
   background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 999px; font-size: 12px;
 }
 .title-opt.on { border-color: var(--gold); color: var(--gold); }
+
+/* ---------- 환생·명성 상점 (M2 F11, 기록 탭 맨 위) ---------- */
+/* 모든 줄은 flex-wrap/overflow-wrap으로 360px에서도 가로로 넘치지 않는다(V4: min-width:0은 줄바꿈되는 칸에만) */
+.rebirth-section { margin-bottom: 16px; }
+.rebirth-locked { margin: 0; }
+.fame-balance { font-size: 13px; white-space: nowrap; }
+.fame-balance b { color: var(--gold); font-variant-numeric: tabular-nums; }
+.fame-row .buy { flex-shrink: 0; }
+.rebirth-act { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 12px; }
+.rebirth-btn { flex-shrink: 0; padding: 8px 18px; }
+.rebirth-note { flex: 1 1 160px; min-width: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.rebirth-reason { color: var(--warn); }
+/* 확인 창: 내용이 길어 낮은 화면에서는 창 안에서 스크롤한다 */
+#modal .rebirth-sheet { max-height: 90vh; overflow-y: auto; overflow-wrap: anywhere; }
+#modal .rebirth-sheet h4 { margin: 12px 0 4px; font-size: 13px; }
+#modal .rb-warn { color: var(--warn); }
+.rb-list { display: grid; gap: 4px; margin: 8px 0; }
+.rb-list div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 13px; }
+.rb-list dt { color: var(--muted); }
+.rb-list dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rb-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

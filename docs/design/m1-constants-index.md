@@ -93,11 +93,11 @@
 
 ## 6. 방치 / 연출 스킵
 > 수입 기준 검: 수동 사냥 `huntReward(topLv)`, 자동·오프라인 `autoReward(topLv)`. `topLv = max(swords[].lv)`(활성 여부와 무관, 헬퍼 `topLv()`). 신규 상수 없음, 아래 값 변경 없음(사용자 확정).
-> `AUTO_UNLOCK_BEST` = 5(무료 해금), `OFFLINE_EFF` = 0.25, `OFFLINE_CAP_H` = 8 사용자 확정.
+> `AUTO_UNLOCK_BEST` = 5(무료 해금, 명성 상점 자동 사냥 면허 `autoStart` 보유 시 생략), `OFFLINE_EFF` = 0.25, `OFFLINE_CAP_H` = 8 사용자 확정.
 
 | 이름 | 의미 | 확정값 | 문서 |
 | --- | --- | --- | --- |
-| `AUTO_UNLOCK_BEST` | 자동 사냥 해금 `best` | 5 | idle |
+| `AUTO_UNLOCK_BEST` | 자동 사냥 해금 `best`(명성 상점 자동 사냥 면허 `autoStart` 보유 시 생략) | 5 | idle |
 | `AUTO_CD_MS` | 자동 사냥 기본 간격 | 5000 | idle |
 | ~~`AUTO_REWARD_RATE`~~ | (폐지) | `AUTO_COST_RATIO`로 대체 | idle |
 | `AUTO_COST_RATIO` | 자동·오프라인 1회 보상 `autoReward(l) = max(AUTO_MIN, round(AUTO_COST_RATIO × cost(l)))` | **0.1** (규칙: 신규 식) | idle/bal |

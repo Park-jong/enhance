@@ -1166,7 +1166,7 @@
     "priority": "P2",
     "priorityReason": "8단계 구현 때 처리할 저장 안전 항목",
     "milestone": "8단계",
-    "status": "in_progress",
+    "status": "done",
     "createdAt": "2026-11-20",
     "history": [
       {
@@ -1186,6 +1186,12 @@
         "by": "메인 세션",
         "status": "in_progress",
         "note": "8-A에서 환생 미러 키(sword-enhance-v2-rebirth, 횟수가 많으면 채택) 구현·QA 확인. 남은 틈(이전 상태 메인 키 + 미러 채택으로 같은 +20 검 두 번 환생, 오래된 탭이 미러 횟수를 낮춤)은 8-B에서 nextSwordId 기준값과 횟수 낮춤 방지로 보완 후 완료 처리"
+      },
+      {
+        "at": "2026-11-24",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "8-B: 미러에 mark(환생 직후 nextSwordId) 기준값 추가, 횟수 낮춤 방지(새 게임만 초기화), 8-A 미러는 횟수만으로 채택(호환). 문서 m2-rebirth §8.2, m1-storage. 테스트 run-tests 505. 알려진 잔여: 새 게임 저장 실패 시 미러 미초기화(표식 있는 미러는 새 게임에 채택되지 않음, 8-A 미러는 가능)."
       }
     ]
   },
@@ -1376,7 +1382,7 @@
     "priority": "P2",
     "priorityReason": "문구 한두 줄 불일치라 7단계 완료를 막지 않음. 8단계 환생 작업 때 m2-rebirth.md를 함께 보므로 그때 처리",
     "milestone": "8단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-24",
     "history": [
       {
@@ -1384,6 +1390,12 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P2"
+      },
+      {
+        "at": "2026-11-24",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "8-B에서 m2-events.md 칩 aria-haspopup=\"dialog\"+aria-expanded, m2-rebirth.md test-mode.js 환생 도우미 문구 정정 완료(QA 확인)"
       }
     ]
   },
@@ -1417,6 +1429,27 @@
     "detail": "테스트 패널 startEvent가 잘못된 id에서 TypeError(C.EVENTS[id] 확인 후 실패 알림), 도달 불가한 \"이벤트 효과 없음(천장)\" 분기 정리 또는 테스트, announceEvent가 얼어 있던 탭 복귀(resume) 분기보다 먼저 실행되는 순서, 쓰이지 않는 eventDescription, 분 단위가 아닌 지속 시간 \"4.5분간\" 표기, INCOME_EVENTS 하드코딩, .toast.good CSS 위치, chip.title 매 틱 재설정. 근거: 7-2 QA 코드 리뷰",
     "priority": "P3",
     "priorityReason": "화면에서 일어나지 않거나 아주 드문 경우라 백로그. 9단계 정리 때 함께",
+    "milestone": "9단계",
+    "status": "open",
+    "createdAt": "2026-11-24",
+    "history": [
+      {
+        "at": "2026-11-24",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
+  },
+  {
+    "id": "REQ-048",
+    "from": "tech",
+    "to": "content",
+    "kind": "requirement",
+    "title": "이벤트 아이콘 6종·명성 아이콘과 이벤트·환생 문구 다듬기",
+    "detail": "임시 이모지인 C.EVENTS[id].icon 6종과 ICONS.fame(ICON_ASSET_KEYS 항목 없음)을 교체하고, 이벤트 효과 문장(EVENTS[id].desc)·시작/종료 알림, 환생 확인 창 문구(REBIRTH_TEXT)·명성 상점 이름(FAME_TEXT) 초안을 다듬기. 선택 작업. 근거: 7-1·7-2·8-B 개발 보고",
+    "priority": "P3",
+    "priorityReason": "기능에는 영향 없는 외관·문구 작업이라 백로그. 9단계 화면 정리 때 함께 하면 좋음",
     "milestone": "9단계",
     "status": "open",
     "createdAt": "2026-11-24",

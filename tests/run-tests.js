@@ -5080,6 +5080,9 @@ describe('F11 save: rebirth normalization, old saves, regressions (AC 33~35, 38,
   });
 });
 
+/** 미러 원문: rebirth + mark(기준값, undefined면 8-A 형식) */
+const mirrorOf = (rebirth, mark) => JSON.stringify(Object.assign({}, rebirth, { mark }));
+
 describe('REQ-037: rebirth mirror key protects against old clients dropping the field', () => {
   const MIRROR = SV.REBIRTH_MIRROR_KEY;
   const RB3 = { count: 3, fame: 1, up: { startGold: 2, income: 0, slots: 0, autoStart: 1 } };
@@ -5090,21 +5093,21 @@ describe('REQ-037: rebirth mirror key protects against old clients dropping the 
     assert.strictEqual(MIRROR, 'sword-enhance-v2-rebirth');
     assert.strictEqual(loadTestModeSG().save.REBIRTH_MIRROR_KEY, 'sword-enhance-test-rebirth');
   });
-  test('save writes the mirror right after the main key, only when it differs (absent = default)', () => {
+  test('save writes the mirror (rebirth + mark = nextSwordId) right after the main key, only when it differs (absent = default)', () => {
     const st = countingStorage();
     SV.save(st, fresh(), NOW);
     assert.deepStrictEqual(st.writes, [C.SAVE_KEY]);
     const S = withRebirth(RB3);
     SV.save(st, S, NOW);
     assert.deepStrictEqual(st.writes, [C.SAVE_KEY, C.SAVE_KEY, MIRROR]);
-    assert.strictEqual(st.dump[MIRROR], JSON.stringify(RB3));
+    assert.strictEqual(st.dump[MIRROR], JSON.stringify(Object.assign({}, RB3, { mark: S.nextSwordId })));
     SV.save(st, S, NOW);
     assert.deepStrictEqual(st.writes.slice(3), [C.SAVE_KEY]);
     S.rebirth.fame = 0;
     SV.save(st, S, NOW);
     assert.deepStrictEqual(st.writes.slice(4), [C.SAVE_KEY, MIRROR]);
   });
-  test('adopt: an old client rewrote the main save without rebirth → load, peek and the keeper take the mirror', () => {
+  test('8-A compatibility: an old client rewrote the main save without rebirth and the mirror has no mark → load, peek and the keeper take it (count only)', () => {
     const init = { [C.SAVE_KEY]: oldClientSave(), [MIRROR]: JSON.stringify(RB3) };
     assert.deepStrictEqual(SV.load(memStorage(init), NOW).state.rebirth, RB3);
     assert.deepStrictEqual(SV.peek(memStorage(init), NOW).state.rebirth, RB3);
@@ -5156,11 +5159,182 @@ describe('REQ-037: rebirth mirror key protects against old clients dropping the 
     assert.strictEqual(keeper.save(withRebirth(RB3), NOW), 'blocked');
     assert.deepStrictEqual(guarded.writes, []);
   });
-  test('a new game (default rebirth) overwrites an older mirror, so it is not adopted back on reload', () => {
+  test('a new game (newGame option) overwrites an older mirror with the default, so it is not adopted back on reload', () => {
     const st = memStorage({ [C.SAVE_KEY]: JSON.stringify(withRebirth(RB3)), [MIRROR]: JSON.stringify(RB3) });
-    SV.save(st, fresh(), NOW);
+    SV.save(st, fresh(), NOW, { newGame: true });
     assert.strictEqual(st.dump[MIRROR], JSON.stringify(fresh().rebirth));
     assert.strictEqual(SV.load(st, NOW).state.rebirth.count, 0);
+    const kst = memStorage({ [C.SAVE_KEY]: JSON.stringify(withRebirth(RB3)), [MIRROR]: mirrorOf(RB3, 9) });
+    const keeper = SV.createSaveKeeper(kst);
+    keeper.load(NOW);
+    assert.strictEqual(keeper.save(fresh(), NOW, { newGame: true }), 'saved');
+    assert.strictEqual(kst.dump[MIRROR], JSON.stringify(fresh().rebirth));
+  });
+});
+
+describe('REQ-037 residual windows: mirror watermark (mark = post-rebirth nextSwordId) and no lowering (m2-rebirth §8.2)', () => {
+  const MIRROR = SV.REBIRTH_MIRROR_KEY;
+  const RB1 = { count: 1, fame: 3, up: { startGold: 0, income: 0, slots: 0, autoStart: 0 } };
+  /** main 저장 원문: nextSwordId와 rebirth(없으면 옛 클라이언트가 버린 저장) */
+  const mainSave = (nextSwordId, rebirth) => {
+    const d = fresh();
+    d.swords = [{ id: nextSwordId - 1, lv: 0, prot: C.PROTECT_USES, pity: 0, trait: null }];
+    Object.assign(d, { nextSwordId, active: nextSwordId - 1 });
+    if (rebirth) d.rebirth = deepCopy(rebirth);
+    else delete d.rebirth;
+    return JSON.stringify(d);
+  };
+  const loadRebirth = init => SV.load(memStorage(init), NOW).state.rebirth;
+  const DEF = () => fresh().rebirth;
+
+  test('old-client rewrite of a post-rebirth save (nextSwordId ≥ mark, also after it grew) is still recovered', () => {
+    [10, 11, 40].forEach(next =>
+      assert.deepStrictEqual(loadRebirth({ [C.SAVE_KEY]: mainSave(next, null), [MIRROR]: mirrorOf(RB1, 10) }), RB1, String(next)));
+  });
+  test('a pre-rebirth main state (nextSwordId < mark) is not combined with the newer fame; peek and checkStored agree', () => {
+    const init = { [C.SAVE_KEY]: mainSave(9, null), [MIRROR]: mirrorOf(RB1, 10) };
+    assert.deepStrictEqual(loadRebirth(init), DEF());
+    assert.deepStrictEqual(SV.peek(memStorage(init), NOW).state.rebirth, DEF());
+    assert.deepStrictEqual(SV.createSaveKeeper(memStorage(init)).checkStored(NOW).state.rebirth, DEF());
+    const preWithRebirth = { [C.SAVE_KEY]: mainSave(9, RB1), [MIRROR]: mirrorOf({ count: 2, fame: 6, up: RB1.up }, 10) };
+    assert.deepStrictEqual(loadRebirth(preWithRebirth), RB1);
+  });
+  test('8-A-format mirror (no mark) keeps the 8-A rule: adopted on count alone, even on a lower nextSwordId', () => {
+    assert.deepStrictEqual(loadRebirth({ [C.SAVE_KEY]: mainSave(3, null), [MIRROR]: mirrorOf(RB1) }), RB1);
+  });
+  test('tampered mark: non-numeric → treated as 8-A (count only); numeric string and fractions are floored like other ints; mark < 1 clamps to 1', () => {
+    assert.deepStrictEqual(loadRebirth({ [C.SAVE_KEY]: mainSave(3, null), [MIRROR]: mirrorOf(RB1, 'x') }), RB1);
+    assert.deepStrictEqual(loadRebirth({ [C.SAVE_KEY]: mainSave(3, null), [MIRROR]: mirrorOf(RB1, '12.9') }), DEF());
+    assert.deepStrictEqual(loadRebirth({ [C.SAVE_KEY]: mainSave(12, null), [MIRROR]: mirrorOf(RB1, '12.9') }), RB1);
+    assert.deepStrictEqual(loadRebirth({ [C.SAVE_KEY]: mainSave(2, null), [MIRROR]: mirrorOf(RB1, -5) }), RB1);
+  });
+  test('a raised count sets mark = nextSwordId; equal-count writes (fame purchases) keep the mark fixed while nextSwordId grows', () => {
+    const st = countingStorage();
+    const S = withRebirthState(RB1, 10);
+    SV.save(st, S, NOW);
+    assert.strictEqual(st.dump[MIRROR], mirrorOf(RB1, 10));
+    S.nextSwordId = 25;
+    assert.ok(RB.buyFame(S, 'startGold').ok);
+    SV.save(st, S, NOW);
+    assert.strictEqual(st.dump[MIRROR], mirrorOf(S.rebirth, 10));
+    S.rebirth.count = 2;
+    SV.save(st, S, NOW);
+    assert.strictEqual(st.dump[MIRROR], mirrorOf(S.rebirth, 25));
+  });
+  test('an 8-A mirror stays mark-free on equal-count writes; a raised count upgrades it to a marked mirror', () => {
+    const st = memStorage({ [MIRROR]: mirrorOf(RB1) });
+    const S = withRebirthState(RB1, 30);
+    S.rebirth.fame = 1;
+    SV.save(st, S, NOW);
+    assert.strictEqual(st.dump[MIRROR], mirrorOf(S.rebirth));
+    S.rebirth.count = 2;
+    SV.save(st, S, NOW);
+    assert.strictEqual(st.dump[MIRROR], mirrorOf(S.rebirth, 30));
+  });
+  test('no lowering: a stale state with a lower count (or the default) never overwrites a higher mirror; newGame is the only exception', () => {
+    const higher = mirrorOf({ count: 3, fame: 9, up: RB1.up }, 40);
+    const st = countingStorage({ [MIRROR]: higher });
+    SV.save(st, withRebirthState(RB1, 50), NOW);
+    SV.save(st, fresh(), NOW);
+    const keeper = SV.createSaveKeeper(st);
+    keeper.load(NOW);
+    keeper.save(withRebirthState(RB1, 60), NOW);
+    assert.strictEqual(st.dump[MIRROR], higher);
+    assert.ok(!st.writes.includes(MIRROR));
+    SV.save(st, withRebirthState(RB1, 50), NOW, { newGame: true });
+    assert.strictEqual(st.dump[MIRROR], mirrorOf(RB1, 50));
+  });
+  test('full flow: rebirth → save; an old client rewrites it (recovered); restoring a pre-rebirth snapshot is not', () => {
+    const st = memStorage();
+    const S = rebirthReady({ nextSwordId: 20 });
+    const preRebirth = JSON.stringify(S);
+    rebirthOk(S);
+    SV.save(st, S, T_RB);
+    assert.strictEqual(JSON.parse(st.dump[MIRROR]).mark, 21);
+    const rewritten = JSON.parse(st.dump[C.SAVE_KEY]);
+    delete rewritten.rebirth;
+    rewritten.nextSwordId += 2;
+    st.setItem(C.SAVE_KEY, JSON.stringify(rewritten));
+    assert.deepStrictEqual(SV.load(st, T_RB).state.rebirth, S.rebirth);
+    st.setItem(C.SAVE_KEY, preRebirth);
+    const restored = SV.load(st, T_RB).state;
+    assert.deepStrictEqual([restored.rebirth.count, RB.canRebirth(restored).ok], [0, true]);
+  });
+});
+
+/** rebirth와 nextSwordId를 지정한 정규화 상태 */
+function withRebirthState(rebirth, nextSwordId) {
+  const S = fresh();
+  S.swords[0].id = nextSwordId - 1;
+  Object.assign(S, { nextSwordId, active: nextSwordId - 1, rebirth: deepCopy(rebirth) });
+  return S;
+}
+
+describe('8-B rebirth helpers: visibility, shop blocks and costs, normalized-input guards (m2-rebirth §3.1·§4.1·§7)', () => {
+  test('rebirthUnlocked: best ≥ MAX or count ≥ 1 (the shop stays after a rebirth resets best to 0)', () => {
+    const at = (best, count) => { const S = fresh(); S.best = best; S.rebirth.count = count; return RB.rebirthUnlocked(S); };
+    assert.deepStrictEqual([at(0, 0), at(19, 0), at(20, 0), at(0, 1), at(5, 3)], [false, false, true, true, true]);
+    const S = rebirthReady();
+    rebirthOk(S);
+    assert.deepStrictEqual([S.best, RB.rebirthUnlocked(S)], [0, true]);
+  });
+  test('fameBlock matches buyFame for every track and level (invalid → maxed → noFame); nextFameCost / fameMaxLevel / fameValueAt follow FAME_SHOP', () => {
+    C.FAME_TRACKS.forEach(track => {
+      const def = C.FAME_SHOP[track];
+      assert.strictEqual(RB.fameMaxLevel(track), def.costs.length);
+      for (let lv = 0; lv <= def.costs.length; lv++) {
+        [0, 1, 2, 3, 4, 99].forEach(fame => {
+          const S = fresh();
+          S.rebirth.up[track] = lv;
+          S.rebirth.fame = fame;
+          const block = RB.fameBlock(S, track);
+          const cost = RB.nextFameCost(S, track);
+          assert.strictEqual(cost, lv < def.costs.length ? def.costs[lv] : null);
+          const r = RB.buyFame(S, track);
+          assert.deepStrictEqual(r.ok ? null : r.reason, block, `${track} lv${lv} fame${fame}`);
+        });
+        assert.strictEqual(R.fameValueAt(track, lv), lv > 0 ? def.values[lv - 1] : 0);
+      }
+    });
+    assert.strictEqual(RB.fameBlock(fresh(), 'constructor'), 'invalid');
+    assert.strictEqual(R.fameValueAt('startGold', 9), 0);
+  });
+  test('fameBlock / buyFame on a negative integer level → invalid, no NaN written (S3)', () => {
+    C.FAME_TRACKS.forEach(track => [-1, -4].forEach(lv => {
+      const S = fresh();
+      S.rebirth.fame = 99;
+      S.rebirth.up[track] = lv;
+      const before = JSON.stringify(S);
+      assert.strictEqual(RB.fameBlock(S, track), 'invalid', `${track} lv${lv}`);
+      assert.deepStrictEqual(RB.buyFame(S, track), { ok: false, reason: 'invalid' }, `${track} lv${lv}`);
+      assert.strictEqual(JSON.stringify(S), before, `${track} lv${lv}`);
+    }));
+  });
+  test('buyFame on unnormalized input (NaN / string fame, missing / fractional level) → invalid, no NaN written', () => {
+    const cases = [
+      S => { S.rebirth.fame = NaN; }, S => { S.rebirth.fame = '9'; }, S => { S.rebirth.fame = Infinity; },
+      S => { delete S.rebirth.up.income; }, S => { S.rebirth.up.income = 1.5; }, S => { S.rebirth.up.income = '1'; },
+    ];
+    cases.forEach((mutate, i) => {
+      const S = fresh();
+      S.rebirth.fame = 10;
+      mutate(S);
+      const before = JSON.stringify(S);
+      assert.deepStrictEqual(RB.buyFame(S, 'income'), { ok: false, reason: 'invalid' }, String(i));
+      assert.strictEqual(JSON.stringify(S), before, String(i));
+    });
+  });
+  test('canRebirth / rebirth / rebirthPreview on unnormalized numbers (gold, count, fame not finite) → invalid, state unchanged', () => {
+    [S => { S.gold = NaN; }, S => { S.gold = '30000000'; }, S => { delete S.gold; }, S => { S.rebirth.count = NaN; },
+      S => { delete S.rebirth.fame; }].forEach((mutate, i) => {
+      const S = rebirthReady({ gold: 3e7 });
+      mutate(S);
+      const before = JSON.stringify(S);
+      assert.deepStrictEqual(RB.canRebirth(S), { ok: false, reason: 'invalid' }, String(i));
+      assert.deepStrictEqual(RB.rebirth(S, T_RB), { ok: false, reason: 'invalid' }, String(i));
+      assert.deepStrictEqual(RB.rebirthPreview(S), { ok: false, reason: 'invalid' }, String(i));
+      assert.strictEqual(JSON.stringify(S), before, String(i));
+    });
   });
 });
 

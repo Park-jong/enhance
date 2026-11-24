@@ -9,6 +9,8 @@
  *  (h) 채워진 기록 탭(일일 과제·업적·긴 칭호·탭 점)이 360·375px·1280px에서 가로로 넘치지 않고, 1280x800·1280x600에서 5탭 높이 검사(V4)를 통과한다
  *  (i) 시간 이벤트 칩·팝오버(7-2)가 360·375·520·521·720·721·760·1280px에서 헤더를 넘치게 하지 않고 헤더 항목끼리 겹치지 않으며, 팝오버가 화면 안에서 열리고 닫히며, 이벤트 종료 후 칩이 사라진다.
  *      저장 실패 배지·큰 골드·기념비 배지가 함께 있는 스트레스(360·721·760px, 721~1000px 1px 간격 훑기) 포함. index.html은 시드 저장, test.html은 조작판 버튼으로 이벤트를 지정한다
+ *  (j) 환생 섹션·확인 창(8-B): 기록 탭 맨 위 환생 섹션(잠김·열림·환생 1회 이상·큰 숫자)이 360·375·721·1280px에서 넘치거나 겹치지 않고,
+ *      확인 창이 화면 안에 있으며 바깥 클릭·Esc로 닫힌다
  *  (g) index.html·test.html 모두 콘솔 오류·예외 없이 열린다
  * 실행: node tests/browser-strip.js  (브라우저 경로 직접 지정: BROWSER_PATH=...)
  * Chrome/Edge가 없으면 "SKIP: no Chrome/Edge"를 출력하고 0으로 끝난다. 외부 패키지 없음(Node 22 전역 WebSocket·fetch).
@@ -616,6 +618,225 @@ async function eventChipLayout(cdp, page) {
   await cdp.send('Emulation.clearDeviceMetricsOverride');
 }
 
+/**
+ * (j) 환생 섹션(기록 탭 맨 위)과 확인 창(8-B). 상태 5가지: 잠김 / 열림(+MAX 검·골드·미수령 업적) / 환생 1회 이상 /
+ * 환생 1회 이상이지만 +MAX 검 없음(버튼 비활성) / 큰 숫자 스트레스. 360·375·721·1280 폭에서 가로 넘침, 섹션 항목 겹침(V4), 창 위치, 닫기를 본다
+ */
+const REBIRTH_VIEWPORTS = [{ width: 360, height: 640 }, { width: 375, height: 667 }, { width: 721, height: 800 }, { width: 1280, height: 800 }];
+const REBIRTH_EDGE_PX = 1;
+const REBIRTH_BIG_COUNT = 999999;
+const REBIRTH_BIG_FAME = 999999999;
+const REBIRTH_GOLD = 5e7;
+const REBIRTH_STRESS_GOLD = 9e15;
+const REBIRTH_MIRROR_KEY = JSON.stringify(C.SAVE_KEY + '-rebirth');
+/** 상태 이름 → 시드 저장 */
+function rebirthSeed(kind) {
+  const st = SV.defaultState(Date.now());
+  const hasMax = kind !== 'locked' && kind !== 'noSword';
+  st.swords = [{ id: 1, lv: hasMax ? C.MAX : 5, prot: C.PROTECT_USES, pity: 0, trait: null }];
+  st.nextSwordId = 2;
+  st.active = 1;
+  st.best = hasMax ? C.MAX : (kind === 'locked' ? 5 : 0);
+  st.gold = kind === 'stress' ? REBIRTH_STRESS_GOLD : REBIRTH_GOLD;
+  st.found = st.found.map((f, l) => f || l <= st.best);
+  if (hasMax) RECORDS_READY.forEach(id => { st.achievements[id] = C.ACH_REACHED; });   // 확인 창의 미수령 경고(가장 긴 창)
+  if (kind === 'counted' || kind === 'noSword') {
+    st.rebirth.count = 3;
+    st.rebirth.fame = 12;
+    st.rebirth.up = Object.assign({}, st.rebirth.up, { income: 1, startGold: 1 });
+  }
+  if (kind === 'stress') {
+    st.rebirth.count = REBIRTH_BIG_COUNT;
+    st.rebirth.fame = REBIRTH_BIG_FAME;
+    st.rebirth.up = C.FAME_TRACKS.reduce((o, k) => { o[k] = C.FAME_SHOP[k].costs.length; return o; }, {});
+  }
+  return JSON.stringify(st);
+}
+// canModal: 환생 버튼이 열려 있어 확인 창을 열 수 있다
+const REBIRTH_STATES = [
+  { kind: 'locked', unlocked: false, canModal: false },
+  { kind: 'open', unlocked: true, canModal: true },
+  { kind: 'counted', unlocked: true, canModal: true },
+  { kind: 'noSword', unlocked: true, canModal: false },
+  { kind: 'stress', unlocked: true, canModal: true },
+];
+
+/** 환생 섹션 배치 측정(페이지 안에서 평가) */
+const REBIRTH_MEASURE = `(() => {
+  const rect = el => el.getBoundingClientRect();
+  const visible = el => !!el && !el.hidden && el.offsetWidth > 0 && el.offsetHeight > 0;
+  const panel = document.querySelector('[data-panel="records"]');
+  const sec = document.getElementById('rebirthSection');
+  const pr = rect(panel);
+  const secKids = [...sec.querySelectorAll('*')].filter(visible);
+  const outside = secKids.filter(el => { const r = rect(el); return r.left < pr.left - ${REBIRTH_EDGE_PX} || r.right > pr.right + ${REBIRTH_EDGE_PX}; })
+    .map(el => (el.className || el.tagName) + ':' + Math.round(rect(el).left) + '..' + Math.round(rect(el).right));
+  const hit = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > ${REBIRTH_EDGE_PX} && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > ${REBIRTH_EDGE_PX};
+  // 형제 항목끼리 겹침: 머리의 자식, 명성 상점 행의 글씨·버튼, 환생 줄의 버튼·안내, 상점 행끼리
+  const groups = [...sec.querySelectorAll('.sec-head, .fame-row, .rebirth-act')].map(g => [...g.children].filter(visible));
+  groups.push([...sec.querySelectorAll('.fame-row')].filter(visible));
+  const overlaps = [];
+  groups.forEach(g => g.forEach((a, i) => g.slice(i + 1).forEach(b => {
+    if (hit(rect(a), rect(b))) overlaps.push((a.className || a.tagName) + '/' + (b.className || b.tagName));
+  })));
+  const act = sec.querySelector('[data-act="askRebirth"]');
+  const rows = [...sec.querySelectorAll('.fame-row')];
+  const daily = document.getElementById('dailySection');
+  return {
+    unlocked: !sec.querySelector('.rebirth-locked'), lockedNote: !!sec.querySelector('.rebirth-locked'),
+    has: { head: !!sec.querySelector('.sec-head'), count: !!sec.querySelector('.rebirth-count'), balance: !!sec.querySelector('.fame-balance'),
+      shop: !!sec.querySelector('.fame-shop'), rows: rows.length, tracks: rows.map(r => r.dataset.track).join(), act: !!sec.querySelector('.rebirth-act'),
+      btn: !!act, note: !!sec.querySelector('.rebirth-note') },
+    btnDisabled: act ? act.disabled : null, reason: !!sec.querySelector('.rebirth-reason'),
+    countText: (sec.querySelector('.rebirth-count') || {}).textContent, balanceText: (sec.querySelector('.fame-balance') || {}).textContent,
+    secInPanel: rect(sec).left >= pr.left - ${REBIRTH_EDGE_PX} && rect(sec).right <= pr.right + ${REBIRTH_EDGE_PX},
+    secBeforeDaily: !daily || !!(sec.compareDocumentPosition(daily) & Node.DOCUMENT_POSITION_FOLLOWING),
+    outside, overlaps, panelScroll: panel.scrollWidth, panelClient: panel.clientWidth,
+    docScroll: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), docClient: document.documentElement.clientWidth,
+    panelBottom: pr.bottom, lastBottom: panel.lastElementChild ? rect(panel.lastElementChild).bottom : 0,
+  };
+})()`;
+
+/** 열린 확인 창: 창이 화면 안(안에서 스크롤 허용)·가로 넘침 없음·내용 겹침 없음, 마지막 줄의 버튼이 스크롤로 닿는지 */
+const REBIRTH_MODAL_MEASURE = `(() => {
+  const rect = el => el.getBoundingClientRect();
+  const vw = document.documentElement.clientWidth, vh = window.innerHeight;
+  const modal = document.getElementById('modal');
+  const sheet = modal.querySelector('.rebirth-sheet');
+  if (!sheet) return { sheet: false };
+  const sr = rect(sheet);
+  const hit = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > ${REBIRTH_EDGE_PX} && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > ${REBIRTH_EDGE_PX};
+  const kids = [...sheet.querySelectorAll('h3, h4, p, dl > div, .rb-btns > *')].filter(el => el.offsetWidth > 0);
+  const overlaps = [];
+  kids.forEach((a, i) => kids.slice(i + 1).forEach(b => { if (hit(rect(a), rect(b))) overlaps.push((a.className || a.tagName) + '/' + (b.className || b.tagName)); }));
+  [...sheet.querySelectorAll('dl > div')].map(d => [...d.children].filter(c => c.offsetWidth > 0))
+    .forEach(pair => { if (pair.length === 2 && hit(rect(pair[0]), rect(pair[1]))) overlaps.push('dt/dd:' + pair[0].textContent); });
+  const scrolls = sheet.scrollHeight > sheet.clientHeight + ${REBIRTH_EDGE_PX};
+  const oy = getComputedStyle(sheet).overflowY;
+  sheet.scrollTop = sheet.scrollHeight;
+  const btns = [...sheet.querySelectorAll('.rb-btns button')].map(b => rect(b));
+  const btnsReachable = btns.length === 2 && btns.every(r => r.top >= -${REBIRTH_EDGE_PX} && r.bottom <= vh + ${REBIRTH_EDGE_PX} && r.left >= -${REBIRTH_EDGE_PX} && r.right <= vw + ${REBIRTH_EDGE_PX});
+  sheet.scrollTop = 0;
+  const overflowX = [...sheet.querySelectorAll('*')].filter(el => el.offsetWidth > 0 && (rect(el).left < sr.left - ${REBIRTH_EDGE_PX} || rect(el).right > sr.right + ${REBIRTH_EDGE_PX}))
+    .map(el => (el.className || el.tagName) + ':' + Math.round(rect(el).left) + '..' + Math.round(rect(el).right));
+  return {
+    sheet: true, kind: modal.dataset.kind, vw, vh, sr: { l: sr.left, r: sr.right, t: sr.top, b: sr.bottom },
+    inside: sr.left >= -${REBIRTH_EDGE_PX} && sr.right <= vw + ${REBIRTH_EDGE_PX} && sr.top >= -${REBIRTH_EDGE_PX} && sr.bottom <= vh + ${REBIRTH_EDGE_PX},
+    scrolls, oy, btnsReachable, overlaps, overflowX, sheetScrollX: sheet.scrollWidth - sheet.clientWidth,
+    docScroll: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), docClient: vw,
+    hasParts: ['.rb-list', '.rb-gold', '.rb-lost', '.rb-btns'].every(s => !!sheet.querySelector(s)), warn: !!sheet.querySelector('.rb-warn'),
+  };
+})()`;
+
+const MODAL_HIDDEN = `document.getElementById('modal').hidden`;
+const pressEscape = async cdp => {
+  for (const type of ['keyDown', 'keyUp']) await cdp.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+};
+
+async function openRebirthModal(page) {
+  await page.evaluate(`document.querySelector('[data-act="askRebirth"]').scrollIntoView({ block: 'center' }); true`);
+  await page.click(await page.evaluate(centerOf('[data-act="askRebirth"]')));
+  return page.waitFor(`!${MODAL_HIDDEN} && document.getElementById('modal').dataset.kind === 'rebirth' && document.querySelector('#modal .rebirth-sheet')`);
+}
+
+async function rebirthModalAt(cdp, page, label) {
+  check(`${label} clicking [환생] opens the confirm modal`, await openRebirthModal(page));
+  const m = await page.evaluate(REBIRTH_MODAL_MEASURE);
+  const detail = JSON.stringify(m);
+  check(`${label} modal has kind rebirth with list, gold, lost and buttons`, m.sheet && m.kind === 'rebirth' && m.hasParts, detail);
+  check(`${label} modal sheet is fully inside the viewport (scrolls inside if tall)`, m.inside && (!m.scrolls || m.oy === 'auto' || m.oy === 'scroll'), detail);
+  check(`${label} modal buttons are reachable inside the viewport`, m.btnsReachable, detail);
+  check(`${label} modal has no horizontal overflow (document, sheet, children)`,
+    m.docScroll <= m.docClient + REBIRTH_EDGE_PX && m.sheetScrollX <= REBIRTH_EDGE_PX && m.overflowX.length === 0, detail);
+  check(`${label} modal items do not overlap each other`, m.overlaps.length === 0, detail);
+
+  await page.click({ x: 2, y: 2 });   // 창 밖(어두운 배경) 모서리
+  check(`${label} outside click on #modal closes it`, await page.waitFor(MODAL_HIDDEN), detail);
+  check(`${label} modal opens again`, await openRebirthModal(page));
+  await page.click(await page.evaluate(centerOf('#modal .rebirth-sheet h3')));   // 창 안쪽 클릭은 닫지 않는다
+  check(`${label} click inside the sheet keeps it open`, await page.evaluate(`!${MODAL_HIDDEN}`));
+  await pressEscape(cdp);
+  check(`${label} Esc closes the modal`, await page.waitFor(MODAL_HIDDEN, 2000), detail);
+}
+
+async function rebirthLayoutAt(cdp, page, st, vp) {
+  const label = `(j) ${st.kind} ${vp.width}x${vp.height}`;
+  await setViewport(cdp, vp);
+  const shown = (await measurePanel(page, 'records')).shown;
+  const m = await page.evaluate(REBIRTH_MEASURE);
+  const detail = JSON.stringify(m);
+  const e = await page.evaluate(EVENT_MEASURE);
+  check(`${label} records panel is shown`, shown, detail);
+  check(`${label} rebirth section is ${st.unlocked ? 'unlocked' : 'locked (one-line note)'}`, m.unlocked === st.unlocked && m.lockedNote === !st.unlocked, detail);
+  check(`${label} no horizontal overflow (document, panel)`, m.docScroll <= m.docClient + REBIRTH_EDGE_PX && m.panelScroll <= m.panelClient + REBIRTH_EDGE_PX, detail);
+  check(`${label} section elements stay inside the panel`, m.secInPanel && m.outside.length === 0, detail);
+  check(`${label} section items do not overlap each other`, m.overlaps.length === 0, detail);
+  check(`${label} header items stay inside the viewport and do not overlap`, e.outside.length === 0 && e.overlaps.length === 0, JSON.stringify(e));
+  check(`${label} rebirth section comes before the daily section`, m.secBeforeDaily, detail);
+  check(`${label} panel bottom is not above its last child`, m.panelBottom + PANEL_TOLERANCE_PX >= m.lastBottom, detail);
+  if (!st.unlocked) return;
+  const h = m.has;
+  check(`${label} section has head, count, fame balance, shop rows (${C.FAME_TRACKS.length}), action row`,
+    h.head && h.count && h.balance && h.shop && h.rows === C.FAME_TRACKS.length && h.tracks === C.FAME_TRACKS.join() && h.act && h.btn && h.note, detail);
+  check(`${label} rebirth button is ${st.canModal ? 'enabled' : 'disabled with a reason'}`,
+    st.canModal ? m.btnDisabled === false && !m.reason : m.btnDisabled === true && m.reason, detail);
+  if (st.kind === 'stress') check(`${label} big count and fame text are shown`, /999,?999/.test(m.countText) && m.balanceText.length > 0, detail);
+  if (st.canModal) await rebirthModalAt(cdp, page, label);
+}
+
+const TAB_SHIFT_MODIFIER = 8;   // CDP Input 수정키 비트: Shift
+const pressTab = async (cdp, shift) => {
+  const base = { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: shift ? TAB_SHIFT_MODIFIER : 0 };
+  for (const type of ['rawKeyDown', 'keyUp']) await cdp.send('Input.dispatchKeyEvent', Object.assign({ type }, base));
+};
+/** 포커스 위치와 창 밖 inert 여부(페이지 안에서 평가) */
+const MODAL_FOCUS_STATE = `(() => {
+  const a = document.activeElement;
+  const sheet = document.querySelector('#modal .rebirth-sheet');
+  return { act: a && a.dataset ? a.dataset.act || a.tagName : null, inSheet: !!sheet && sheet.contains(a),
+    headerInert: document.querySelector('header').inert, mainInert: document.querySelector('main').inert, hidden: document.getElementById('modal').hidden };
+})()`;
+
+/**
+ * (k) 환생 확인 창의 포커스 가두기(V1, 1280x800): 창 밖(header·main)은 inert, Tab은 창 안 버튼(취소↔확인)에서만 돌고,
+ * 마지막 버튼에서 Tab·처음 버튼에서 Shift+Tab해도 창 밖으로 나가지 않는다. Esc로 닫으면 inert가 풀리고 [환생]으로 포커스가 돌아온다
+ */
+async function rebirthModalFocusTrap(cdp, page) {
+  check('(k) index.html loads the open rebirth save', await openGame(cdp, page, { save: rebirthSeed('open'), order: '1' }));
+  await setViewport(cdp, { width: 1280, height: 800 });
+  await measurePanel(page, 'records');
+  check('(k) clicking [환생] opens the confirm modal', await openRebirthModal(page));
+  let f = await page.evaluate(MODAL_FOCUS_STATE);
+  check('(k) focus starts on the cancel button and the page outside the modal is inert',
+    f.act === 'cancelRebirth' && f.inSheet && f.headerInert === true && f.mainInert === true, JSON.stringify(f));
+  await pressTab(cdp, false);
+  f = await page.evaluate(MODAL_FOCUS_STATE);
+  check('(k) Tab moves to the confirm button inside the sheet', f.act === 'rebirth' && f.inSheet, JSON.stringify(f));
+  await pressTab(cdp, false);
+  f = await page.evaluate(MODAL_FOCUS_STATE);
+  check('(k) Tab from the last modal button stays inside the sheet (wraps to cancel)', f.act === 'cancelRebirth' && f.inSheet, JSON.stringify(f));
+  await pressTab(cdp, true);
+  f = await page.evaluate(MODAL_FOCUS_STATE);
+  check('(k) Shift+Tab from the first modal button stays inside the sheet (wraps to confirm)', f.act === 'rebirth' && f.inSheet, JSON.stringify(f));
+  await pressEscape(cdp);
+  await page.waitFor(MODAL_HIDDEN, 2000);
+  f = await page.evaluate(MODAL_FOCUS_STATE);
+  check('(k) Esc closes the modal, clears inert and returns focus to [환생]',
+    f.hidden && f.headerInert === false && f.mainInert === false && f.act === 'askRebirth', JSON.stringify(f));
+  await page.evaluate(`localStorage.removeItem(${REBIRTH_MIRROR_KEY}); true`);
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
+async function rebirthLayout(cdp, page) {
+  for (const st of REBIRTH_STATES) {
+    check(`(j) index.html loads the ${st.kind} rebirth save`, await openGame(cdp, page, { save: rebirthSeed(st.kind), order: '1' }));
+    for (const vp of REBIRTH_VIEWPORTS) await rebirthLayoutAt(cdp, page, st, vp);
+  }
+  // 환생 미러 키는 횟수가 큰 쪽이 이기므로 뒤 시나리오에 새어 들어가지 않게 지운다
+  await page.evaluate(`localStorage.removeItem(${REBIRTH_MIRROR_KEY}); true`);
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
 /** (g) 테스트 페이지(test.html)도 같은 후반 시드로 오류 없이 열리고 특성 지정 조작판이 채워진다 */
 async function testPageLoads(cdp, page) {
   const order = SINK_SWORDS.map(s => s.id).join();
@@ -653,6 +874,8 @@ async function main() {
     await mobileTraitChips(cdp, page);
     await recordsLayout(cdp, page);
     await eventChipLayout(cdp, page);
+    await rebirthLayout(cdp, page);
+    await rebirthModalFocusTrap(cdp, page);
     await testPageLoads(cdp, page);
     check('(g) no uncaught page errors or console errors (index.html, test.html)', pageErrors.length === 0, pageErrors.join('\n      '));
   } catch (e) {

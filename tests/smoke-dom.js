@@ -84,6 +84,12 @@ function makeEnv(initialStorage, opts = {}) {
     // opts.execCommand: 복사 대체 경로(선택 + execCommand) 스텁. 기본은 실패
     execCommand: opts.execCommand || (() => false),
   };
+  // opts.pageRegions: index.html처럼 body 자식(header·main·#modal)을 두고 #modal을 hidden으로 시작한다(창 밖 inert 검사용).
+  // 스텁 요소에는 inert 속성이 없다: main.js가 쓰는 값만 읽는다
+  if (opts.pageRegions) {
+    ['header', 'main', '#modal'].forEach(s => document.body.children.push(document.querySelector(s)));
+    byId['#modal'].hidden = true;
+  }
   // opts.failKeys: 이 키들에 대한 setItem은 QuotaExceededError (테스트 도중 바꿀 수 있음)
   const failKeys = new Set(opts.failKeys || []);
   // opts.now: 가짜 시계(탭 동결 등 시간 경과 재현용)
@@ -402,6 +408,16 @@ async function main() {
   env.tick();
   ok(offlineShown(env) && saved(env).stats.offlineGold > 0, 'tick after a freeze settles offline income');
   ok(saved(env).idle.lastSeen === clock.t, 'lastSeen advanced after freeze settlement');
+  // 오프라인 보상 창도 같은 #modal: 열린 동안 창 밖(header·main) inert, 받기(closeModal)로 풀린다(V1)
+  const offClock = { t: Date.now() };
+  const offSave = JSON.parse(JSON.stringify(idleSave));
+  offSave.idle.lastSeen = offClock.t;
+  env = makeEnv({ 'sword-enhance-v2': JSON.stringify(offSave) }, { now: () => offClock.t, pageRegions: true });
+  offClock.t += 2 * 3600 * 1000;
+  env.tick();
+  ok(offlineShown(env) && env.byId['header'].inert === true && env.byId['main'].inert === true, 'offline reward modal makes the page outside it inert');
+  click(env, 'closeModal');
+  ok(!offlineShown(env) && !env.byId['header'].inert && !env.byId['main'].inert, 'collecting the offline reward clears inert');
 
   // 6) 콘텐츠 에셋 없이도 동작(이모지·합성음 대체)
   env = makeEnv({}, { withoutAssets: true });
@@ -433,6 +449,8 @@ async function main() {
   await eventsUi(ok);
   // 7b-8) 8-A F11: 환생·명성 상점 배선(draft 교체·저장 1번·멈춘 탭·다시 불러오기·미러 키)
   await rebirthWiring(ok);
+  // 7b-9) 8-B F11 화면: 기록 탭 환생 섹션(잠김·표시·상점·사유), 확인 창(열기·확인·취소·닫힘 경로·연출 중·재검사)
+  await rebirthUi(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -2074,10 +2092,17 @@ async function rebirthWiring(ok) {
     return counts;
   };
 
-  // 성공: 저장 키 1번 + 미러 1번, 메모리 상태 = 저장, 이벤트 초기화·업적/칭호/통계 유지
+  // N3: rebirth 동작은 확인 창이 열려 있을 때만 실행된다(창 없이 눌리면 쓰기·상태 변화 없음). 아래 시나리오는 askRebirth로 창을 먼저 연다
   let env = boot({ [KEY]: JSON.stringify(ready()) });
-  const achievementsBefore = JSON.stringify(saved(env).achievements);
   let writes = countWrites(env);
+  click(env, 'rebirth');
+  ok(JSON.stringify(writes) === '{}' && game.state().rebirth.count === 0 && game.state().swords.length === 2, 'F11 rebirth (N3): without the confirm modal open it does nothing');
+
+  // 성공: 저장 키 1번 + 미러 1번, 메모리 상태 = 저장, 이벤트 초기화·업적/칭호/통계 유지
+  env = boot({ [KEY]: JSON.stringify(ready()) });
+  const achievementsBefore = JSON.stringify(saved(env).achievements);
+  click(env, 'askRebirth');
+  writes = countWrites(env);
   click(env, 'rebirth');
   let st = saved(env);
   ok(JSON.stringify(writes) === JSON.stringify({ [KEY]: 1, [MIRROR]: 1 }), 'F11 rebirth: exactly one main-save write (+ one mirror write): ' + JSON.stringify(writes));
@@ -2110,9 +2135,11 @@ async function rebirthWiring(ok) {
   ok(JSON.stringify(writes) === '{}' && saved(env2).rebirth.fame === 0, 'F11 buyFame: invalid / maxed purchases write nothing');
   scanRendered();
 
-  // 실패(골드 부족·+20 없음): 상태·저장 불변, 쓰기 0번
+  // 실패(창을 연 뒤 골드 부족·+20 없음이 됨): 상태·저장 불변, 쓰기 0번
   for (const [fields, label] of [[{ gold: FEE - 1 }, 'noGold'], [{ swords: [{ id: 1, lv: 19, prot: 2, pity: 0, trait: null }] }, 'notReached']]) {
-    env = boot({ [KEY]: JSON.stringify(ready(fields)) });
+    env = boot({ [KEY]: JSON.stringify(ready()) });
+    click(env, 'askRebirth');
+    Object.assign(game.state(), JSON.parse(JSON.stringify(fields)));
     const before = env.store[KEY];
     const mem = JSON.stringify(game.state());
     writes = countWrites(env);
@@ -2128,14 +2155,16 @@ async function rebirthWiring(ok) {
   const pending = env.byId['#btnEnhance'].listeners.click[0]();
   const busyMem = JSON.stringify(game.state());
   writes = countWrites(env);
+  click(env, 'askRebirth');
   click(env, 'rebirth');
   ok(JSON.stringify(writes) === '{}' && JSON.stringify(game.state()) === busyMem && game.state().rebirth.count === 0,
-    'F11 rebirth: ignored while the enhance animation runs (no write, state unchanged)');
+    'F11 rebirth: ignored while the enhance animation runs (the modal does not open, no write, state unchanged)');
   await pending;
   ok(game.state().rebirth.count === 0 && game.state().swords.length === 2, 'F11 rebirth: still not reborn after the enhance finishes');
 
   // 멈춘 탭(다른 탭이 저장함): 환생하지 않고 쓰지 않는다
   env = boot({ [KEY]: JSON.stringify(ready()) });
+  click(env, 'askRebirth');
   fire(env, 'storage', { key: KEY });
   writes = countWrites(env);
   click(env, 'rebirth');
@@ -2144,9 +2173,229 @@ async function rebirthWiring(ok) {
   // 테스트 페이지: 자기 키(미러 포함)만 쓴다
   const TEST = 'sword-enhance-test';
   env = boot({ [TEST]: JSON.stringify(ready()) }, 'test.html');
+  click(env, 'askRebirth');
   click(env, 'rebirth');
   ok(JSON.parse(env.store[TEST]).rebirth.count === 1 && JSON.parse(env.store[TEST + '-rebirth']).count === 1 &&
     !Object.keys(env.store).some(k => k.startsWith('sword-enhance-v')), 'F11 rebirth on the test page writes only the test keys');
+}
+
+/**
+ * 8-B F11 화면 (m2-rebirth §4·§7, AC 41): 기록 탭 맨 위 환생 섹션과 확인 창(#modal).
+ * 확인 창은 상태 교체·잠금·새 게임·Esc·바깥 클릭·취소로 닫히고, 강화 연출 중에는 열리지 않으며, 확인 때 canRebirth를 다시 검사한다.
+ * 모든 부팅은 Math.random을 고정한다(일일 생성·강화 굴림, V6)
+ */
+async function rebirthUi(ok) {
+  const { KEY, loadWith } = F12;
+  const MIRROR = 'sword-enhance-v2-rebirth';
+  const FEE = 19846200;
+  const clk = { t: Date.now() };
+  const ready = fields => {
+    const s = SG_default();
+    s.swords = [{ id: 1, lv: 20, prot: 2, pity: 0, trait: { k: 'hunt', t: 2 } }, { id: 2, lv: 7, prot: 2, pity: 0, trait: { k: 'work', t: 1 } }];
+    Object.assign(s, { best: 20, gold: FEE + 5000, nextSwordId: 3, active: 2 });
+    s.idle.lastSeen = clk.t;
+    return Object.assign(s, fields || {});
+  };
+  let game = null;
+  // pageRegions: index.html처럼 #modal이 hidden으로 시작하고 body에 header·main이 있다(창 밖 inert 검사)
+  const boot = (store, value = 0.5) => loadWith(store, { now: () => clk.t, extensions: [api => { game = api; }], pageRegions: true }, value);
+  const section = env => env.byId['#rebirthSection']._html;
+  const modal = env => env.byId['#modal'];
+  // 창 밖(header·main)이 창 때문에 inert인가 / 풀렸는가(V1: 모든 닫힘 경로에서 풀려야 한다)
+  const pageInert = env => env.byId['header'].inert === true && env.byId['main'].inert === true;
+  const pageFree = env => !env.byId['header'].inert && !env.byId['main'].inert;
+  const modalOpen = env => !modal(env).hidden && modal(env).dataset.kind === 'rebirth';
+  const toasts = env => (env.byId['#toasts'] ? texts(env.byId['#toasts']) : []);
+  const fameRow = (env, track) => (section(env).match(new RegExp(`data-track="${track}"[\\s\\S]*?</button>`)) || [''])[0];
+  const askDisabled = env => /data-act="askRebirth" disabled/.test(section(env));
+  const V = env => env.ctx.SG.view;
+
+  // 마크업: 두 페이지 모두 기록 탭 맨 위(일일 과제 앞)에 환생 섹션 (V2)
+  ['index.html', 'test.html'].forEach(page => {
+    const panel = fs.readFileSync(path.join(ROOT, page), 'utf8').match(/data-panel="records"[\s\S]*?<\/section>/)[0];
+    const at = id => panel.indexOf(`id="${id}"`);
+    ok(at('rebirthSection') > 0 && at('rebirthSection') < at('dailySection'), `${page}: rebirth section sits above the daily section`);
+  });
+
+  // 잠김: 최고 +19, 환생 0회 → 잠금 한 줄만
+  let env = boot({ [KEY]: JSON.stringify(ready({ best: 19, swords: [{ id: 1, lv: 19, prot: 2, pity: 0, trait: null }], active: 1 })) });
+  ok(plain(section(env)).endsWith('최고 강화 +20 달성 시 환생이 열립니다') && section(env).includes('rebirth-locked') && !section(env).includes('data-act') && !section(env).includes('sec-head'),
+    'locked: one line 최고 강화 +20 달성 시 환생이 열립니다, no buttons: ' + plain(section(env)));
+
+  // 표시(최고 +20, +20 검 보유, 골드 충분): 명성·횟수·상점 4행·환생 버튼 활성
+  env = boot({ [KEY]: JSON.stringify(ready()) });
+  ok(plain(section(env)).includes('환생 0회') && plain(section(env)).includes('명성 0') && plain(section(env)).includes('명성 상점'), 'visible: count 0회, fame 0, shop heading');
+  ok(['startGold', 'income', 'slots', 'autoStart'].every(t => fameRow(env, t).includes(`data-act="buyFame" data-id="${t}"`)), 'shop: 4 rows with buyFame buttons');
+  ok(plain(fameRow(env, 'startGold')).includes('여유 자금 Lv 0/4') && plain(fameRow(env, 'startGold')).includes('환생 시작 골드 +2,000G · 다음 환생부터')
+    && /disabled/.test(fameRow(env, 'startGold')), 'row: name, Lv n/max, effect, applies next rebirth, disabled without fame');
+  ok(plain(fameRow(env, 'income')).includes('즉시 적용') && plain(fameRow(env, 'autoStart')).includes('매 런 처음부터 자동 사냥 해금'), 'income/license apply now');
+  ok(!askDisabled(env) && plain(section(env)).includes(`수수료 ${env.ctx.SG.fx.fmt(FEE)} G`), 'rebirth button enabled with the fee line');
+  scanRendered();
+
+  // 사유: +20 검 없음(최고 +20) / 골드 부족 — 버튼 비활성 + 문구(§7). 클릭해도 같은 문구 토스트, 창은 열리지 않음
+  env = boot({ [KEY]: JSON.stringify(ready({ swords: [{ id: 1, lv: 19, prot: 2, pity: 0, trait: null }], active: 1 })) });
+  ok(askDisabled(env) && plain(section(env)).includes('+20 검이 보관함에 있어야 합니다'), 'notReached: disabled + reason');
+  click(env, 'askRebirth');
+  ok(!modalOpen(env) && toasts(env).includes('+20 검이 보관함에 있어야 합니다'), 'notReached click: rebirth wording toast (not the monument wording), no modal');
+  env = boot({ [KEY]: JSON.stringify(ready({ gold: FEE - 1 })) });
+  ok(askDisabled(env) && plain(section(env)).includes('필요 19,846,200 G'), 'noGold: disabled + 필요 19,846,200 G');
+  ok(V(env).REASON.notReached === '아직 그 단계에 도달하지 못했습니다.', 'monument notReached wording unchanged');
+
+  // 상점 구매(환생 1회 뒤, 최고 0): 명성 3 → 여유 자금 1단계(1) → 최대·명성 부족 문구
+  const after = ready({ best: 0, swords: [{ id: 3, lv: 0, prot: 2, pity: 0, trait: null }], active: 3, nextSwordId: 4, gold: 300,
+    rebirth: { count: 1, fame: 3, up: { startGold: 3, income: 0, slots: 0, autoStart: 0 } } });
+  env = boot({ [KEY]: JSON.stringify(after) });
+  ok(plain(section(env)).includes('환생 1회') && plain(section(env)).includes('명성 3') && askDisabled(env), 'after a rebirth (best 0): section still visible, button disabled');
+  ok(plain(fameRow(env, 'startGold')).includes('Lv 3/4') && plain(fameRow(env, 'startGold')).includes('+10,000G → +20,000G') && !/disabled/.test(fameRow(env, 'startGold')),
+    'row shows current → next and the next cost (3) is affordable');
+  click(env, 'buyFame', 'startGold');
+  ok(saved(env).rebirth.fame === 0 && saved(env).rebirth.up.startGold === 4 && plain(fameRow(env, 'startGold')).includes('최대')
+    && /disabled/.test(fameRow(env, 'startGold')) && plain(section(env)).includes('명성 0'), 'buy: fame spent, row at max shows 최대 (disabled)');
+  click(env, 'buyFame', 'startGold');
+  click(env, 'buyFame', 'income');
+  ok(toasts(env).includes('이미 최대 단계입니다') && toasts(env).includes('명성이 부족합니다'), 'maxed / noFame toasts');
+  scanRendered();
+
+  // 확인 창: 열기 → 내용 = rebirthPreview, 포커스는 취소 버튼, 창 뒤 단축키 없음, 골드가 늘면 숫자만 갱신
+  const unclaimed = ready();
+  unclaimed.stats.tries = 150;   // tries_1 달성(미수령) → 안내 한 줄
+  env = boot({ [KEY]: JSON.stringify(unclaimed) });
+  const opener = { isConnected: true, focus() { this.focused = true; } };
+  env.ctx.document.activeElement = opener;
+  click(env, 'askRebirth');
+  const html = modal(env)._html;
+  const p = env.ctx.SG.rebirth.rebirthPreview(game.state());
+  const fmt = env.ctx.SG.fx.fmt;
+  ok(modalOpen(env) && html.includes('aria-modal="true"'), 'askRebirth opens the confirm modal');
+  ok([`${fmt(p.fee)} G`, `${fmt(p.gold)} G`, `${fmt(p.goldLost)} G`, `+${p.fameGain}`, `${fmt(p.startGold)} G`, `${p.slots}칸`, `+${p.incomePct}%`].every(s => plain(html).includes(s))
+    && p.goldLost === 5000, 'modal numbers equal rebirthPreview (fee, gold, gold lost, fame, start gold, slots, income)');
+  ok(plain(html).includes('+20 무한의 검') && plain(html).includes('업적·칭호·기념비·도감·통계·설정·명성과 상점') && plain(html).includes('숙련은 단계별 1개만 유지')
+    && plain(html).includes('받지 않은 업적·일일 과제 보상이 있습니다'), 'modal: offered sword, kept / lost lists, unclaimed reward line');
+  ok(html.includes('data-act="rebirth"') && html.includes('data-act="cancelRebirth"'), 'modal: confirm (rebirth) and cancel buttons');
+  ok(El.focused === modal(env).querySelector('[data-act="cancelRebirth"]'), 'keyboard focus moves to the cancel button');
+  ok(pageInert(env) && !modal(env).inert, 'V1: the page outside the modal (header, main) is inert while it is open');
+  // Tab 순환(V1): 창 안의 버튼(취소·확인) 사이에서만 돈다. 스텁 querySelectorAll은 비어 있으므로 창의 두 버튼을 돌려주게 한다
+  const cancelBtn = modal(env).querySelector('[data-act="cancelRebirth"]');
+  const confirmBtn = modal(env).querySelector('[data-act="rebirth"]');
+  modal(env).querySelectorAll = () => [cancelBtn, confirmBtn];
+  const pressTab = (shiftKey, active) => {
+    env.ctx.document.activeElement = active;
+    El.focused = null;
+    let prevented = false;
+    env.docListeners.keydown.forEach(f => f({ code: 'Tab', key: 'Tab', shiftKey, repeat: false, preventDefault() { prevented = true; } }));
+    return { prevented, focused: El.focused };
+  };
+  let tabbed = pressTab(false, cancelBtn);
+  ok(!tabbed.prevented && tabbed.focused === null, 'Tab from the first modal button is left to the browser (next button in the sheet)');
+  tabbed = pressTab(false, confirmBtn);
+  ok(tabbed.prevented && tabbed.focused === cancelBtn, 'Tab from the last modal button wraps to the first (stays in the sheet)');
+  tabbed = pressTab(true, cancelBtn);
+  ok(tabbed.prevented && tabbed.focused === confirmBtn, 'Shift+Tab from the first modal button wraps to the last (does not reach the page)');
+  tabbed = pressTab(false, env.ctx.document.body);
+  ok(tabbed.prevented && tabbed.focused === cancelBtn, 'Tab with focus outside the sheet pulls it into the sheet');
+  env.ctx.document.activeElement = opener;
+  // 창 뒤 강화(버튼 직접 호출): 창이 열린 동안 시작되지 않는다 → busy가 생기지 않는다(S2)
+  env.byId['#btnEnhance'].listeners.click[0]();
+  ok(game.state().stats.tries === 150 && modalOpen(env) && !askDisabled(env), 'V1: enhance cannot start behind the open modal (no try, no busy)');
+  const goldBefore = saved(env).gold;
+  key(env, 'KeyH');
+  key(env, 'Space');
+  ok(game.state().gold === goldBefore && game.state().stats.hunts === 0 && game.state().stats.tries === 150, 'no hunt / enhance shortcuts behind the modal');
+  game.state().gold += 1000;
+  env.tick();
+  ok(modal(env).querySelector('.rb-gold').textContent === `${fmt(FEE + 6000)} G` && modal(env).querySelector('.rb-lost').textContent === '6,000 G',
+    'open modal follows gold changes (current gold, gold lost)');
+
+  // 취소 경로: 취소 버튼 / Esc / 바깥 클릭 — 상태·저장 불변, 포커스 복귀. 창 안 클릭은 닫지 않음
+  const store0 = env.store[KEY];
+  click(env, 'cancelRebirth');
+  ok(!modalOpen(env) && opener.focused && env.store[KEY] === store0 && game.state().rebirth.count === 0, 'cancel closes, restores focus, state unchanged');
+  ok(pageFree(env), 'V1: cancel clears inert');
+  click(env, 'askRebirth');
+  ok(pageInert(env), 'V1: reopening makes the page inert again');
+  key(env, 'Escape');
+  ok(!modalOpen(env) && game.state().rebirth.count === 0, 'Esc cancels');
+  ok(pageFree(env), 'V1: Esc clears inert');
+  click(env, 'askRebirth');
+  modal(env).listeners.click.forEach(f => f({ target: {} }));
+  ok(modalOpen(env) && pageInert(env), 'a click inside the sheet keeps it open (page stays inert)');
+  modal(env).listeners.click.forEach(f => f({ target: modal(env) }));
+  ok(!modalOpen(env) && game.state().rebirth.count === 0, 'outside click cancels');
+  ok(pageFree(env), 'V1: outside click clears inert');
+
+  // 확인: rebirth 1번 → 토스트·맨 위 스크롤·창 닫힘·미러
+  const scrolls = [];
+  env.ctx.scrollTo = (x, y) => scrolls.push([x, y]);
+  const side = env.ctx.document.querySelector('.side');
+  side.scrollTop = 480;
+  click(env, 'askRebirth');
+  click(env, 'rebirth');
+  ok(!modalOpen(env) && saved(env).rebirth.count === 1 && toasts(env).includes('환생! 명성 +3'), 'confirm: reborn once, toast, modal closed');
+  ok(pageFree(env), 'V1: confirm (rebirth) clears inert');
+  ok(JSON.stringify(scrolls) === '[[0,0]]' && side.scrollTop === 0, 'confirm: scrolled to the top (page and side panel)');
+  ok(plain(section(env)).includes('환생 1회') && plain(section(env)).includes('명성 3') && askDisabled(env), 'records section after rebirth: 1회, fame 3');
+  ok(JSON.parse(env.store[MIRROR]).count === 1 && JSON.parse(env.store[MIRROR]).mark === 4, 'mirror carries the watermark (post-rebirth nextSwordId)');
+  scanRendered();
+
+  // 재검사: 창을 연 뒤 골드가 줄면 확인해도 환생하지 않는다(문구 토스트, 창 닫힘, 쓰기 없음)
+  env = boot({ [KEY]: JSON.stringify(ready()) });
+  click(env, 'askRebirth');
+  game.state().gold = FEE - 1;
+  const beforeConfirm = env.store[KEY];
+  click(env, 'rebirth');
+  ok(!modalOpen(env) && game.state().rebirth.count === 0 && env.store[KEY] === beforeConfirm && toasts(env).includes('필요 19,846,200 G'),
+    'confirm re-checks canRebirth: gold dropped → no rebirth, reason toast, modal closed');
+  ok(pageFree(env), 'V1: a rejected confirm clears inert');
+
+  // 닫힘 경로: 다른 탭 잠금(멈춤) → 이어받기 후에도 닫힘
+  env = boot({ [KEY]: JSON.stringify(ready()) });
+  click(env, 'askRebirth');
+  fire(env, 'storage', { key: KEY });
+  ok(isLocked(env) && !modalOpen(env), 'suspend (other tab) closes the confirm modal');
+  env.byId['#btnTakeover'].listeners.click[0]();
+  ok(!isLocked(env) && !modalOpen(env) && game.state().rebirth.count === 0, 'take-over: modal stays closed, no rebirth');
+  ok(pageFree(env), 'V1: suspend + take-over leaves no inert page (lock inert handed back by the tab guard)');
+
+  // 상태 교체(복귀 때 다른 탭의 더 최근 저장 이어받기) → 닫힘
+  env = boot({ [KEY]: JSON.stringify(ready()) });
+  click(env, 'askRebirth');
+  setVisible(env, false);
+  const newer = JSON.parse(env.store[KEY]);
+  newer.idle.lastSeen = clk.t + 5;
+  newer.gold = FEE + 1;
+  env.store[KEY] = JSON.stringify(newer);
+  setVisible(env, true);
+  ok(!modalOpen(env) && game.state().gold === FEE + 1, 'state replaced by adopting a newer save closes the modal');
+  ok(pageFree(env), 'V1: state replacement (resetUiFor) clears inert');
+
+  // 새 게임 → 닫힘, 미러도 기본값으로 낮춤(REQ-037 명시적 새 게임)
+  env = boot({ [KEY]: JSON.stringify(ready({ rebirth: { count: 2, fame: 1, up: { startGold: 1, income: 0, slots: 0, autoStart: 0 } } })) });
+  ok(JSON.parse(env.store[MIRROR]).count === 2, 'mirror written on boot');
+  click(env, 'askRebirth');
+  env.byId['#btnReset'].listeners.click[0]();
+  ok(!modalOpen(env) && saved(env).rebirth.count === 0 && env.store[MIRROR] === JSON.stringify(SG_default().rebirth), 'new game closes the modal and resets the mirror');
+  ok(pageFree(env), 'V1: new game clears inert');
+
+  // 강화 연출 중: 버튼 비활성, askRebirth는 창을 열지 않는다(V1·V9). 성공 굴림 0 고정(V6)
+  env = boot({ [KEY]: JSON.stringify(ready()) }, 0);
+  const pending = env.byId['#btnEnhance'].listeners.click[0]();
+  ok(askDisabled(env), 'busy: rebirth button disabled during the enhance animation');
+  click(env, 'askRebirth');
+  ok(!modalOpen(env), 'busy: askRebirth does not open the modal');
+  // S2 방어 분기: 창이 열린 채 busy인 상태를 스텁에서 직접 만든다(UI로는 창이 열린 동안 강화가 시작되지 않는다).
+  // 확인을 누르면 창을 닫고 다시 시도 안내 토스트, 환생·저장 없음(§7.1)
+  modal(env).hidden = false;
+  modal(env).dataset.kind = 'rebirth';
+  const busyStore = env.store[KEY];
+  click(env, 'rebirth');
+  ok(!modalOpen(env) && toasts(env).includes('강화 연출이 끝난 뒤 다시 시도하세요') && game.state().rebirth.count === 0 && env.store[KEY] === busyStore,
+    'S2: confirm during the enhance animation closes the modal with a retry toast (no rebirth, no write)');
+  await pending;
+  ok(!askDisabled(env) && game.state().swords[1].lv === 8, 'after the animation the button is enabled again');
+  click(env, 'askRebirth');
+  ok(modalOpen(env), 'after the animation the modal opens');
+
+  ok(V(env).REBIRTH_REASON.noGold === '필요 19,846,200 G' && V(env).REBIRTH_REASON.maxed === '이미 최대 단계입니다', 'REBIRTH_REASON derives from REASON + fee');
 }
 
 function particleCap(ok) {

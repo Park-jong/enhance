@@ -6,7 +6,7 @@
 | 항목 | 결정 |
 | --- | --- |
 | 자동 사냥 | 토글 버튼 `idle.autoOn`. 켜 두면 `autoInterval`마다 사냥 1회분을 자동 지급 |
-| 해금 | `best ≥ AUTO_UNLOCK_BEST`(5) 달성 시 토글 노출(무료). M0 초반은 수동 사냥으로 배우게 함 |
+| 해금 | `best ≥ AUTO_UNLOCK_BEST`(5) 달성 시 토글 노출(무료). 명성 상점 "자동 사냥 면허"(`autoStart`)를 보유하면 매 런 처음부터 열린다(m2-rebirth §4, `R.isUnlocked`). M0 초반은 수동 사냥으로 배우게 함 |
 | 수동 사냥과의 관계 | 독립. 수동 버튼(2.5초 쿨다운)은 자동과 별개로 그대로 동작·병행 가능 |
 | 효율 | 자동 간격 기본 `AUTO_CD_MS`=5000 → 처리량이 수동 최대치의 50%. 1회 보상은 **수동과 별도 식** `autoReward(l) = max(10, round(AUTO_COST_RATIO × cost(l)))`, `AUTO_COST_RATIO`=0.1 (m1-balance §3: 고단계 방치 수입 폭주 방지. +5 이상에서 1회 보상은 항상 수동 `huntReward`보다 적음) |
 | 보상 기준 | **보관함 최고 단계 `topLv = max(swords[].lv)`**(현재 보유 검 기준, `best` 기록 아님, 활성 여부 무관)의 `autoReward(topLv)` (골드), 광석은 `ORE_PER_HUNT`. 수동 사냥 `huntReward(topLv)`, 오프라인도 동일. 최고 검을 판매/납품/파괴하면 수입이 내려간다. 구현은 헬퍼 `topLv()` 1개로 통일 |
@@ -69,14 +69,14 @@ boostFactor = 1 + (BOOSTER_MULT-1) × overlapMs/effGap   // overlap = 부스터 
 - 구현 요점: `enhance()`의 `await wait(650)`/`wait(650)`를 `skipFx && !important ? 0 : 650`으로 분기, 결과 계산·저장은 동일 경로(스킵이 결과 로직을 건드리지 않음). `busy` 해제는 최소 간격 타이머로.
 
 ## 결정 사항 (사용자 확정, 2026-11-17)
-1. 자동 사냥 해금: `best ≥ 5`, 무료 해금.
+1. 자동 사냥 해금: `best ≥ 5`, 무료 해금. 명성 상점 자동 사냥 면허(`autoStart`) 보유 시 `best`와 무관하게 처음부터 해금(m2-rebirth §4).
 2. 오프라인: 효율 25% / 상한 8시간(업그레이드로 최대 13시간까지).
 3. `gold` 업그레이드는 자동·오프라인에만 적용(수동 사냥 제외).
 4. 수입 기준 = `topLv`(보관함 최고 단계). **활성 검 기준에서 변경됨.** 수동 사냥·자동 사냥·오프라인 모두 `topLv()` 헬퍼 1개를 사용.
 
 ## 수용 기준 (Acceptance criteria)
 0. Given 활성 검 +3, 보관함에 +10이 있을 때 / Then 자동 사냥·오프라인 정산·수동 사냥 모두 +10 기준(`autoReward(10)`, `huntReward(10)`)으로 지급된다. 그 +10을 판매하면 다음 최고 검 단계 기준으로 내려간다.
-1. Given `best=4` / Then 자동 사냥 토글은 잠금 표시. `best=5` 달성 시 토글이 활성화된다.
+1. Given `best=4`, 면허 없음 / Then 자동 사냥 토글은 잠금 표시. `best=5` 달성 시 토글이 활성화된다. 면허가 있으면 `best=0`에서도 활성이다.
 2. Given 자동 사냥 ON, 업그레이드 없음 / When 5초(타임스탬프 기준)가 지나면 / Then 골드가 `autoReward(topLv)` 1회분(예: 최고 검 +10 → 160G) 늘고 광석이 `ORE_PER_HUNT`만큼 늘며 수동 쿨다운에는 영향이 없다.
 3. Given 자동 사냥 ON 상태에서 탭이 30초 숨겨졌다 복귀 / Then 60초 미만이므로 오프라인 정산·팝업 없이 catch-up 루프가 처리하여 `floor(30000/autoInterval)`회분(=6회, 효율 100%, 최대 `AUTO_CATCHUP_MAX`회)이 지급된다.
 4. Given 자동 ON, `lastSeen`이 10시간 전, `OFFLINE_CAP_H=8`, 업그레이드 0 / When 로드하면 / Then 지급은 8시간 분량만이고 효율 `OFFLINE_EFF`가 적용되며 팝업에 "최대 8시간까지 적립"이 표시된다.

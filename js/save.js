@@ -304,29 +304,44 @@
 
   const isEmpty = raw => raw === null || raw === undefined || raw === '';
 
-  // ------------------------------------------------------------ 환생 미러 키 (REQ-037)
-  /** 미러 키의 rebirth(정규화, 변조는 잘림). 없음·읽기 실패·손상이면 null */
-  function readRebirthMirror(storage) {
-    const got = tryRead(storage, REBIRTH_MIRROR_KEY);
-    if (got.failed || isEmpty(got.raw)) return null;
-    const d = parse(got.raw);
-    return isObj(d) ? normRebirth(d) : null;
+  // ------------------------------------------------------------ 환생 미러 키 (REQ-037, m2-rebirth §8.2)
+  // 미러 JSON = 정규화된 rebirth + mark(기준값). mark = 미러의 환생 횟수를 올린 저장의 nextSwordId(환생 직후 값).
+  // normRebirth가 모르는 키를 버리므로 mark는 S.rebirth에 넣지 않고 미러 JSON에만 둔다
+  /** 미러 원문 → { rebirth(정규화, 변조는 잘림), mark(없으면 null = 8-A 형식) }. 없음·손상이면 null */
+  function parseRebirthMirror(raw) {
+    if (isEmpty(raw)) return null;
+    const d = parse(raw);
+    return isObj(d) ? { rebirth: normRebirth(d), mark: int(d.mark, null, 1) } : null;
   }
-  /** 저장 키의 rebirth보다 환생 횟수가 많은 미러가 있으면 미러를 쓴다(옛 클라이언트가 필드를 버린 저장). S를 고쳐 돌려준다 */
+  /** 미러 키 읽기. 읽기 실패도 미러 없음(null) */
+  const readRebirthMirror = storage => parseRebirthMirror(read(storage, REBIRTH_MIRROR_KEY));
+  /** 미러 원문. 환생 전(count 0)에는 채택될 일이 없으므로 기준값을 붙이지 않는다(기본값 = 쓰지 않음 판정과 같은 원문) */
+  const mirrorRaw = (rebirth, mark) => JSON.stringify(Object.assign({}, rebirth, { mark: rebirth.count > 0 && mark !== null ? mark : undefined }));
+
+  /**
+   * 미러의 환생 횟수가 저장 키보다 많고, 저장 키 상태가 그 환생 뒤의 것(nextSwordId ≥ 기준값)이면 미러의 rebirth를 쓴다
+   * (옛 클라이언트가 필드를 버리고 다시 쓴 저장). 환생 전 상태(nextSwordId가 더 작음)에 새 명성을 합치지 않는다.
+   * 기준값이 없는 8-A 형식 미러는 횟수만 본다. S를 고쳐 돌려준다
+   */
   function adoptRebirthMirror(storage, S) {
     const mirror = readRebirthMirror(storage);
-    if (mirror && mirror.count > S.rebirth.count) S.rebirth = mirror;
+    if (!mirror || mirror.rebirth.count <= S.rebirth.count) return S;
+    if (mirror.mark === null || S.nextSwordId >= mirror.mark) S.rebirth = mirror.rebirth;
     return S;
   }
   /**
-   * 저장 키를 쓴 직후 같은 rebirth를 미러 키에 쓴다. 이미 같은 값이면(없음 = 기본값) 쓰지 않는다.
-   * 미러 읽기·쓰기 실패는 무시한다: 저장 키 쓰기 결과와 보호 모드에 영향을 주지 않는다
+   * 저장 키를 쓴 직후 같은 rebirth를 미러 키에 쓴다. 미러보다 환생 횟수가 적은 상태(오래된 탭)는 미러를 낮추지 않는다(newGame만 예외).
+   * 횟수가 같으면(명성 구매) 기존 기준값을 그대로 두고, 횟수가 오를 때만 기준값 = 지금 nextSwordId.
+   * 이미 같은 값이면(없음 = 기본값) 쓰지 않는다. 미러 읽기·쓰기 실패는 무시한다: 저장 키 쓰기 결과와 보호 모드에 영향을 주지 않는다
    */
-  function writeRebirthMirror(storage, S) {
+  function writeRebirthMirror(storage, S, newGame) {
     if (!isObj(S.rebirth)) return;
-    const raw = JSON.stringify(S.rebirth);
     const stored = read(storage, REBIRTH_MIRROR_KEY);
-    if (stored === raw || (isEmpty(stored) && raw === JSON.stringify(defaultRebirth()))) return;
+    const prev = newGame ? null : parseRebirthMirror(stored);
+    if (prev && S.rebirth.count < prev.rebirth.count) return;
+    const sameCount = prev && S.rebirth.count === prev.rebirth.count;
+    const raw = mirrorRaw(S.rebirth, sameCount ? prev.mark : S.nextSwordId);
+    if (stored === raw || (isEmpty(stored) && raw === mirrorRaw(defaultRebirth(), null))) return;
     writeRaw(storage, REBIRTH_MIRROR_KEY, raw);
   }
 
@@ -400,10 +415,11 @@
 
   /** 저장할 때마다 오프라인 기준 시각을 갱신 */
   const touch = (S, now) => { S.idle.lastSeen = now; };
-  function save(storage, S, now) {
+  /** opts.newGame === true: 새 게임 저장. 미러도 이 상태의 rebirth(기본값)로 낮춘다(아니면 미러 횟수는 내려가지 않는다) */
+  function save(storage, S, now, opts) {
     touch(S, now);
     const ok = write(storage, C.SAVE_KEY, S);
-    if (ok) writeRebirthMirror(storage, S);
+    if (ok) writeRebirthMirror(storage, S, !!opts && opts.newGame === true);
     return ok;
   }
 
@@ -455,13 +471,13 @@
       retryBackup: () => (isProtected() ? guard(corrupt.raw) : null),
       /** [보존 포기하고 저장]: 보호를 풀어 다음 저장이 원문을 덮어쓰게 한다 */
       abandon() { if (corrupt) corrupt.guarding = false; },
-      /** 결과: 'saved' | 'failed'(쓰기 실패) | 'blocked'(보호 모드라 쓰지 않음) */
-      save(S, now) {
+      /** 결과: 'saved' | 'failed'(쓰기 실패) | 'blocked'(보호 모드라 쓰지 않음). opts는 SV.save와 같다(newGame) */
+      save(S, now, opts) {
         if (isProtected()) {
           touch(S, now);   // 메모리 상태가 최신이므로, 오프라인 정산이 같은 구간을 다시 지급하지 않게 한다
           return 'blocked';
         }
-        lastFailed = !save(storage, S, now);
+        lastFailed = !save(storage, S, now, opts);
         return lastFailed ? 'failed' : 'saved';
       },
     };

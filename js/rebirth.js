@@ -26,9 +26,16 @@
   /** 제물: 보관함 앞쪽부터 첫 +MAX 검, 없으면 null */
   const offeringSword = S => S.swords.find(s => s.lv === C.MAX) || null;
 
-  /** §3.1: invalid → notReached → noGold 순서로 검사 */
+  /** 기록 탭 환생 섹션 표시 조건(§7): 최고 +MAX 도달 또는 한 번이라도 환생(환생 직후 best=0이어도 상점이 남게) */
+  const rebirthUnlocked = S => S.best >= C.MAX || S.rebirth.count >= 1;
+
+  /**
+   * §3.1: invalid → notReached → noGold 순서로 검사. 입력은 정규화된 상태여야 한다(main.js는 정규화 복사본에 부른다).
+   * 숫자 필드가 유한수가 아닌 비정규화 입력은 NaN 상태를 만들지 않도록 invalid로 거른다
+   */
   function canRebirth(S) {
     if (!isObj(S) || !Array.isArray(S.swords) || !isObj(S.rebirth)) return fail('invalid');
+    if (![S.gold, S.rebirth.count, S.rebirth.fame].every(Number.isFinite)) return fail('invalid');
     if (!offeringSword(S)) return fail('notReached');
     if (S.gold < REBIRTH_FEE) return fail('noGold');
     return { ok: true };
@@ -92,24 +99,42 @@
     };
   }
 
-  /** 명성 상점 구매(§4.1): invalid → maxed → noFame. 실패면 상태 불변, 환불 없음 */
-  function buyFame(S, track) {
-    if (typeof track !== 'string' || !R.hasOwn(C.FAME_SHOP, track) || !isObj(S) || !isObj(S.rebirth) || !isObj(S.rebirth.up)) {
-      return fail('invalid');
-    }
-    const costs = C.FAME_SHOP[track].costs;
+  /** 트랙의 최대 레벨(= 비용 표 길이) */
+  const fameMaxLevel = track => C.FAME_SHOP[track].costs.length;
+  /** 다음 레벨 구매 비용(명성). 최대 레벨이면 null. 상태와 트랙은 fameBlock이 'invalid'가 아니어야 한다 */
+  function nextFameCost(S, track) {
     const level = S.rebirth.up[track];
-    if (level >= costs.length) return fail('maxed');
-    const cost = costs[level];
-    if (S.rebirth.fame < cost) return fail('noFame');
+    return level < fameMaxLevel(track) ? C.FAME_SHOP[track].costs[level] : null;
+  }
+  /**
+   * 구매를 막는 사유(§4.1): invalid → maxed → noFame, 살 수 있으면 null. 상점 버튼과 buyFame이 같이 쓴다.
+   * 입력은 정규화된 상태여야 하며, 명성이 유한수가 아니거나 레벨이 0 이상 정수가 아닌 비정규화 입력은 NaN 상태를 만들지 않도록 invalid로 거른다
+   */
+  function fameBlock(S, track) {
+    if (typeof track !== 'string' || !R.hasOwn(C.FAME_SHOP, track) || !isObj(S) || !isObj(S.rebirth) || !isObj(S.rebirth.up)) {
+      return 'invalid';
+    }
+    const level = S.rebirth.up[track];
+    if (!Number.isFinite(S.rebirth.fame) || !Number.isInteger(level) || level < 0) return 'invalid';
+    const cost = nextFameCost(S, track);
+    if (cost === null) return 'maxed';
+    return S.rebirth.fame < cost ? 'noFame' : null;
+  }
+
+  /** 명성 상점 구매(§4.1). 실패면 상태 불변, 환불 없음 */
+  function buyFame(S, track) {
+    const block = fameBlock(S, track);
+    if (block) return fail(block);
+    const cost = nextFameCost(S, track);
+    const level = S.rebirth.up[track] + 1;
     S.rebirth.fame -= cost;
-    S.rebirth.up[track] = level + 1;
-    return { ok: true, cost, level: level + 1 };
+    S.rebirth.up[track] = level;
+    return { ok: true, cost, level };
   }
 
   return {
     REBIRTH_FEE, KEPT_FIELDS,
-    rebirthFee, canRebirth, rebirthPreview, rebirth, buyFame,
+    rebirthFee, rebirthUnlocked, canRebirth, rebirthPreview, rebirth, fameMaxLevel, nextFameCost, fameBlock, buyFame,
     fameValue: R.fameValue, famePct, startGoldBonus, startSlots,
   };
 });

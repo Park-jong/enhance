@@ -432,7 +432,7 @@
     bless: '✨', protect: '🛡️', keepdown: '⬇️', sure: '🎯', booster: '🚀', seal: '🔏',
     anvil: '🔨', anvil_1: '🔨', anvil_2: '⚒️', anvil_3: '🛠️',
     shop: '🛒', forge: '🔨', quests: '📜', idle: '⏳', records: '📊',
-    lock: '🔒', deliver: '📦', pity: '⬆', auto: '⟳', settings: '⚙️', sword: '⚔️', monument: '🏛️',
+    lock: '🔒', deliver: '📦', pity: '⬆', auto: '⟳', settings: '⚙️', sword: '⚔️', monument: '🏛️', fame: '🌟',
   };
   // 게임 아이콘 id → 콘텐츠 팀 SVG 키(assets/m1-icons.js, window.M1_ICONS). 없으면 ICONS 이모지 사용
   const ICON_ASSET_KEYS = {

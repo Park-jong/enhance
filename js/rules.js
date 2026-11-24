@@ -115,10 +115,10 @@
   /** 그 트랙의 현재 레벨 값(0레벨·알 수 없는 트랙이면 0). rebirth가 없는 상태(직접 조립한 옛 테스트·도구 상태)는 0레벨로 본다 */
   function fameValue(S, track) {
     if (!hasOwn(C.FAME_SHOP, track) || !S.rebirth || !S.rebirth.up) return 0;
-    const lv = S.rebirth.up[track];
-    // 정규화를 거치지 않은 범위 밖 레벨이 NaN 골드로 번지지 않게 0으로 본다
-    return lv > 0 ? C.FAME_SHOP[track].values[lv - 1] || 0 : 0;
+    return fameValueAt(track, S.rebirth.up[track]);
   }
+  /** 트랙의 레벨 lv 값(상점 화면의 '지금 → 다음' 표시도 쓴다). 정규화를 거치지 않은 범위 밖 레벨이 NaN 골드로 번지지 않게 0으로 본다 */
+  const fameValueAt = (track, lv) => (lv > 0 ? C.FAME_SHOP[track].values[lv - 1] || 0 : 0);
   /** 초반 수입 %(§4.2 pFame): topLv ≤ EARLY_INCOME_MAX_LV일 때만 income 트랙 값, 아니면 0(0이면 수입 식은 기존 경로) */
   const earlyIncomePct = S => (topLv(S) <= C.EARLY_INCOME_MAX_LV ? fameValue(S, 'income') : 0);
 
@@ -731,7 +731,7 @@
     roundTo, cost, sell, protectNeed, huntReward, autoReward, shardGain, boosterPrice, pityBand, pityBonus, rarity,
     isUnlocked, chances, hasOwn, itemDef,
     // 명성 상점 효과 (F11)
-    fameValue, earlyIncomePct,
+    fameValue, fameValueAt, earlyIncomePct,
     // 천장 게이지 / 성공 숙련 (M1.1)
     gaugeIndex, masteryIndex, masteryBonus, masteryCount, gaugeInfo, isGaugeFull, enhanceOpts, currentChances,
     // 보관함

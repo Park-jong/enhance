@@ -4,7 +4,8 @@
 (function (root) {
   'use strict';
   const SG = root.SG = root.SG || {};
-  const { C, rules: R, forge: F, idle: I, quests: Q, ach: A, events: E, fx: FX } = SG;
+  // RB(환생 규칙)는 함수 안에서만 쓴다: view.js만 불러오는 node 테스트(run-m1*.js)에는 rebirth.js가 없다
+  const { C, rules: R, forge: F, idle: I, quests: Q, ach: A, events: E, rebirth: RB, fx: FX } = SG;
   const fmt = FX.fmt;
   /** 아이콘 HTML: 콘텐츠 팀 SVG가 로드돼 있으면 그것을, 아니면 이모지 */
   const ic = id => {
@@ -47,9 +48,17 @@
     notDone: '아직 달성하지 못했습니다',
     noDaily: '오늘의 일일 과제가 아직 없습니다',
     inactiveTab: '다른 탭에서 진행 중입니다',
+    // 명성 상점 (m2-rebirth §4.1)
+    maxed: '이미 최대 단계입니다',
+    noFame: '명성이 부족합니다',
   };
   // 수령 실패 문구: 업적의 notReached는 기념비의 '그 단계에 도달하지 못함'과 뜻이 달라 수령에서만 바꿔 쓴다
   const CLAIM_REASON = Object.assign({}, REASON, { notReached: REASON.notDone });
+  // 환생 실패 문구(§7): notReached·noGold는 환생 맥락에서만 이 문구다(기념비 문구와 겹치는 사유 키를 호출 쪽이 맥락으로 고른다, V7).
+  // busy: 강화 연출 중에 누른 확인(§7.1). 수수료는 rebirth.js가 만들므로 읽을 때 계산한다(로드 순서와 무관하게)
+  const REBIRTH_REASON = Object.defineProperty(
+    Object.assign({}, REASON, { notReached: `+${C.MAX} 검이 보관함에 있어야 합니다`, busy: '강화 연출이 끝난 뒤 다시 시도하세요' }),
+    'noGold', { enumerable: true, get: () => `필요 ${fmt(RB.REBIRTH_FEE)} G` });
   // 검 특성 (m2-traits §11). income: 최고 단계 검들 중 종류별 최댓값만 적용되는 수입형, 나머지는 '이 검'에만 적용
   const TRAIT_TEXT = {
     hunt: { income: true, effect: v => `수동 사냥 골드 +${v}%` },
@@ -792,7 +801,7 @@
     setHTML($('#statsGrid'), STATS.map(([k, f]) => `<div><span>${k}</span><b>${f(S)}</b></div>`).join(''));
     setHTML($('#masteryList'), masteryRowsHTML(S));
     renderMonuments(S, ui, now);
-    renderRecords(S, now, env);
+    renderRecords(S, ui, now, env);
   }
 
   // ============================================================ 단계 기념비 (장식, m2-overview §C.3)
@@ -983,10 +992,100 @@
     });
     $('#titleBadge').title = name ? `칭호: ${name}` : '';
   }
-  function renderRecords(S, now, env) {
+  function renderRecords(S, ui, now, env) {
+    setHTML($('#rebirthSection'), rebirthSectionHTML(S, ui));
     setHTML($('#dailySection'), dailySectionHTML(S, now, env));
     setHTML($('#achSection'), achSectionHTML(S));
     renderTitle(S);
+  }
+
+  // ============================================================ 환생·명성 상점 (F11, m2-rebirth §4·§7)
+  const goldText = n => `${fmt(n)} G`;
+  const REBIRTH_TEXT = {
+    locked: `최고 강화 +${C.MAX} 달성 시 환생이 열립니다`,
+    shop: '명성 상점',
+    max: '최대',
+    ready: `+${C.MAX} 검 1자루를 바치고 명성 +${C.FAME_PER_REBIRTH}`,
+    confirmTitle: '환생할까요?',
+    confirmLead: '되돌릴 수 없습니다. 처음부터 다시 시작하고 명성을 얻습니다.',
+    keep: '업적·칭호·기념비·도감·통계·설정·명성과 상점',
+    lost: `골드, 파편, 모든 검(특성 포함), 소모품, 모루·광석, 의뢰, 방치 업그레이드·부스터, 이벤트 진행 · 숙련은 단계별 ${C.MASTERY_KEEP_REC}개만 유지`,
+    unclaimed: '받지 않은 업적·일일 과제 보상이 있습니다. 보상은 지금 최고 단계로 계산되니 환생 전에 받는 편이 좋습니다.',
+    cancel: '취소',
+    confirm: '환생하기',
+  };
+  // 상점 행 효과 문구(§4). when: 시작 골드·칸은 다음 환생 때, 수입·면허는 산 즉시 적용
+  const FAME_TEXT = {
+    startGold: { label: '환생 시작 골드', value: v => `+${fmt(v)}G`, when: 'next' },
+    income: { label: `보관함 최고 +${C.EARLY_INCOME_MAX_LV} 이하일 때 사냥·자동·오프라인 골드`, value: v => `+${v}%`, when: 'now' },
+    slots: { label: '환생 시작 보관함', value: v => `+${v}칸`, when: 'next' },
+    autoStart: { label: '매 런 처음부터 자동 사냥 해금', when: 'now' },
+  };
+  const FAME_WHEN_TEXT = { next: '다음 환생부터', now: '즉시 적용' };
+
+  /** 효과 문구: 0레벨이면 1레벨 값, 최대면 지금 값, 그 사이는 '지금 → 다음'. 값이 없는 트랙(면허)은 이름만 */
+  function fameEffectText(track, lv) {
+    const t = FAME_TEXT[track];
+    if (!t.value) return t.label;
+    const at = n => t.value(R.fameValueAt(track, n));
+    if (lv <= 0) return `${t.label} ${at(1)}`;
+    return lv >= RB.fameMaxLevel(track) ? `${t.label} ${at(lv)}` : `${t.label} ${at(lv)} → ${at(lv + 1)}`;
+  }
+  /** 명성 상점 한 행: 이름·레벨 n/최대·효과·적용 시점, 버튼 = 다음 비용(최대면 '최대'). 최대 여부는 사유가 아니라 비용 데이터로 본다(V7) */
+  function fameRowHTML(S, track) {
+    const lv = S.rebirth.up[track];
+    const cost = RB.nextFameCost(S, track);
+    const label = cost === null ? REBIRTH_TEXT.max : `${ic('fame')} ${fmt(cost)}`;
+    return `<div class="row fame-row" data-track="${track}">
+      <div class="shop-text">${C.FAME_SHOP[track].name} <span class="muted">Lv ${lv}/${RB.fameMaxLevel(track)}</span>
+        <small>${fameEffectText(track, lv)} · ${FAME_WHEN_TEXT[FAME_TEXT[track].when]}</small></div>
+      <button class="buy" data-act="buyFame" data-id="${track}" ${RB.fameBlock(S, track) ? 'disabled' : ''}>${label}</button></div>`;
+  }
+  /** [환생] 버튼과 한 줄 안내: 막히면 비활성 + 사유(§7), 강화 연출 중에도 비활성(확인 창을 열지 않음) */
+  function rebirthActionHTML(S, ui) {
+    const check = RB.canRebirth(S);
+    const note = check.ok
+      ? `<span class="rebirth-note">수수료 ${goldText(RB.REBIRTH_FEE)} · ${REBIRTH_TEXT.ready}</span>`
+      : `<span class="rebirth-note rebirth-reason">${REBIRTH_REASON[check.reason]}</span>`;
+    return `<div class="rebirth-act"><button class="small-btn gold rebirth-btn" data-act="askRebirth" ${!check.ok || ui.busy ? 'disabled' : ''}>${ic('fame')} 환생</button>${note}</div>`;
+  }
+  /** 기록 탭 맨 위 환생 섹션: 열리기 전에는 잠금 한 줄, 열리면 머리(환생 횟수·명성 잔액) + 명성 상점 + [환생] */
+  function rebirthSectionHTML(S, ui) {
+    if (!RB.rebirthUnlocked(S)) return `<p class="panel-note rebirth-locked">${ic('lock')} ${REBIRTH_TEXT.locked}</p>`;
+    const head = sectionHead(`환생 <span class="muted rebirth-count">${fmt(S.rebirth.count)}회</span>`,
+      `<span class="fame-balance">${ic('fame')} 명성 <b>${fmt(S.rebirth.fame)}</b></span>`);
+    return `${head}<h3 class="sub-title">${REBIRTH_TEXT.shop}</h3>` +
+      `<div class="fame-shop">${C.FAME_TRACKS.map(t => fameRowHTML(S, t)).join('')}</div>${rebirthActionHTML(S, ui)}`;
+  }
+
+  const rbItem = (term, value, cls = '') => `<div><dt>${term}</dt><dd${cls ? ` class="${cls}"` : ''}>${value}</dd></div>`;
+  /** 환생 확인 창(§7): 숫자는 모두 rebirthPreview 값(AC 41). 현재 골드·사라지는 골드는 열린 동안 renderRebirthConfirm이 맞춘다 */
+  function rebirthConfirmHTML(S) {
+    const p = RB.rebirthPreview(S);
+    const sw = R.findSword(S, p.consumedSwordId);
+    const offering = sw ? `${swordName(sw.lv)}${sw.trait ? ` (${traitName(sw.trait)})` : ''}` : '-';
+    const T = REBIRTH_TEXT;
+    return `<div class="sheet rebirth-sheet" role="dialog" aria-modal="true" aria-labelledby="rebirthTitle">
+      <h3 id="rebirthTitle">${ic('fame')} ${T.confirmTitle}</h3><p>${T.confirmLead}</p>
+      <dl class="rb-list">${rbItem('수수료', goldText(p.fee))}${rbItem('현재 골드', goldText(p.gold), 'rb-gold')}
+        ${rbItem('수수료 후 사라지는 골드', goldText(p.goldLost), 'rb-lost')}${rbItem('얻는 명성', `${ic('fame')} +${p.fameGain}`)}
+        ${rbItem('바치는 검', offering)}</dl>
+      <h4>유지</h4><p>${T.keep}</p>
+      <h4>사라짐</h4><p>${T.lost}</p>
+      <h4>환생 후</h4>
+      <dl class="rb-list">${rbItem('시작 골드', goldText(p.startGold))}${rbItem('시작 칸', `${p.slots}칸`)}
+        ${rbItem('초반 수입', `+${p.incomePct}% (보관함 최고 +${C.EARLY_INCOME_MAX_LV} 이하)`)}${rbItem('자동 사냥 면허', p.autoStart ? '있음' : '없음')}</dl>
+      ${A.claimableAny(S) ? `<p class="rb-warn">${T.unclaimed}</p>` : ''}
+      <div class="rb-btns"><button class="small-btn" data-act="cancelRebirth">${T.cancel}</button><button class="small-btn gold" data-act="rebirth">${T.confirm}</button></div></div>`;
+  }
+  /** 열린 확인 창의 현재 골드·사라지는 골드만 다시 쓴다(버튼을 다시 그리지 않아 포커스가 유지된다) */
+  function renderRebirthConfirm(S) {
+    const p = RB.rebirthPreview(S);
+    const modal = $('#modal');
+    [['.rb-gold', p.gold], ['.rb-lost', p.goldLost]].forEach(([sel, n]) => {
+      const el = modal.querySelector(sel);
+      if (el) el.textContent = goldText(n);
+    });
   }
 
   /** 알림 문구 (§10.3) */
@@ -1101,6 +1200,7 @@
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
     NO_ACTIVE_TEXT, swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, engraveToastText, SAVE_FAILED_TEXT,
     traitName, rekindText, tierUpText, monumentText,
+    REBIRTH_REASON, rebirthConfirmHTML, renderRebirthConfirm,
     CLAIM_REASON, NEW_DAILY_TEXT, achReachedText, achClaimText, dailyClaimText, bonusClaimText, claimAllText,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
     breakdownHTML, eventChipHTML, eventChipLabel, eventCapCause, eventBreakdownNote, luckIdleText, eventPopHTML,

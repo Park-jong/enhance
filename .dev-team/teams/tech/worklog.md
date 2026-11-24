@@ -192,3 +192,17 @@
 - 산출물: js/rebirth.js(신규), constants.js, rules.js(fameValue·earlyIncomePct·면허), idle.js(초반 수입), save.js(normRebirth·미러 키), main.js(rebirth·buyFame 액션), index.html, test.html, docs/design/m2-rebirth.md(§8.2 등), m1-storage.md, tests/run-tests.js(493), tests/smoke-dom.js(595), tests/run-m1.1-qa-tests.js(로더 1줄, QA 소유)
 - 결정 사항: 미러 채택은 count만 비교(fame 동률 비교 시 정당한 구매가 되돌려짐). 새 상태는 defaultState 기반 + 표 구동 테스트. fameValue는 로드 순서상 rules.js에 둠. count/fame 런타임 상한 추가(V8).
 - 남은 문제: 신규 게임 저장 성공 후 미러 쓰기만 실패하면 다음 로드가 옛 rebirth 재채택(희귀). 환생 중 강화 연출 차단 안 함. 사유 문구는 8-B. QA 소유 파일 한 줄 수정 알림 필요.
+
+## 2026-11-24 — 8-B 환생 화면·확인 창 + REQ-037 잔여 틈
+- 지시: 디렉터 / 관련 단계: 8단계 8-B / 처리한 요청: REQ-037(done), REQ-045(done)
+- 참여 팀원: client-programmer(화면·미러·문서·테스트), tools-engineer(문서 드리프트, 브라우저 시나리오 j)
+- 산출물: js/view.js, main.js, rebirth.js, rules.js, save.js, constants.js, css/style.css, index.html, test.html, docs/design(m2-rebirth §3·§4·§7.1·§8.2·§11, m1-storage, m1-idle, m1-overview, m1-constants-index, m2-achievements, m2-events), tests(run-tests 505, smoke 639, browser-strip 690, QA 29/36/189, selfcheck 13)
+- 결정 사항: 미러 mark는 환생 직후 nextSwordId(같은 횟수에서는 고정), mark 없는 8-A 미러는 횟수만으로 채택. 새 게임만 미러를 낮춤(save opts.newGame). 확인 창은 #modal 재사용, 초점은 취소 버튼, 확인 창 중 Space/S/H 무시. 환생 시 busy 무시.
+- 남은 문제: 새 게임 저장 실패 시 미러 미초기화(8-A 미러만 영향). 명성 아이콘·확인 창 문구는 임시. TODO.md 189행 미러 서술 갱신 필요.
+
+## 2026-11-24 — 8-B 환생 화면 2차 수정 (QA 지적 반영)
+- 지시: 디렉터 / 관련 단계: 8단계 8-B / 처리한 요청: 없음(QA 수정 지시)
+- 참여 팀원: client-programmer
+- 산출물: js/main.js, js/view.js, js/rebirth.js, tests/run-tests.js, tests/smoke-dom.js, tests/browser-strip.js, docs/design/m2-overview.md, docs/design/m2-rebirth.md
+- 결정 사항: S1 #modal 열린 동안 body 아래 #modal 외 요소를 inert 처리(모든 #modal 공통, closeModal에서 복구) + Tab 순환. S2 모달 열림 중 enhance 차단 + 확인 시 busy면 토스트 후 닫기. S3 fameBlock 음수 레벨 invalid. N3 rebirth 액션은 모달이 열려 있어야 동작(테스트는 askRebirth 선행). 문서 구현 상태 갱신. 테스트: 506/658/29/36/189/697/13 통과.
+- 남은 문제: 오프라인 모달 열림 중 Space/S/H 단축키는 여전히 동작, 오프라인 모달은 열 때 포커스를 안으로 옮기지 않음(범위 밖).

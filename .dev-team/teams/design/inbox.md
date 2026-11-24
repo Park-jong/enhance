@@ -2,15 +2,7 @@
 
 > dev-team이 자동 생성하는 파일입니다. 직접 고치지 말고 `update_request` 도구로 상태를 바꾸세요.
 
-## 열린 요청 (우선순위 순, 2건)
-
-### REQ-045 [P2] m2-events.md 칩 aria 문구와 m2-rebirth.md test-mode.js 언급 확인
-- 보낸 팀: QA 팀 · 유형: 피드백 · 상태: 접수 · 접수: 2026-11-24 · 단계: 8단계
-- 우선순위 근거: 문구 한두 줄 불일치라 7단계 완료를 막지 않음. 8단계 환생 작업 때 m2-rebirth.md를 함께 보므로 그때 처리
-
-m2-events.md:285의 칩 aria-haspopup="true"를 코드와 같게 "dialog"로(aria-expanded도 함께). m2-rebirth.md:289 "test-mode.js 환생 도우미"가 지금 구조(테스트 기능은 js/test-panel.js)와 맞는지 확인. 근거: 7-2 사이클 2 QA
-
-- 2026-11-24 메인 세션: 접수 — 우선순위 P2
+## 열린 요청 (우선순위 순, 1건)
 
 ### REQ-046 [P3] 배지가 모두 뜰 때 721~1000px 헤더 배치 정하기
 - 보낸 팀: 개발 팀 · 유형: 요구사항 · 상태: 접수 · 접수: 2026-11-24 · 단계: 9단계
@@ -20,8 +12,9 @@ m2-events.md:285의 칩 aria-haspopup="true"를 코드와 같게 "dialog"로(ari
 
 - 2026-11-24 메인 세션: 접수 — 우선순위 P3
 
-## 닫힌 요청 (24건)
+## 닫힌 요청 (25건)
 
+- REQ-045 [P2] m2-events.md 칩 aria 문구와 m2-rebirth.md test-mode.js 언급 확인 — 완료 (8-B에서 m2-events.md 칩 aria-haspopup="dialog"+aria-expanded, m2-rebirth.md test-mode.js 환생 도우미 문구 정정 완료(QA 확인))
 - REQ-044 [P1] m2-events.md를 7-1 구현에 맞추기 — 완료 (m2-events.md §18, §6.2, §8, §5.3.1, AC13, §11 수정(§9 미수정), m2-traits.md:149 수정. 7-1 코드 기준으로 맞춤.)
 - REQ-043 [P1] m2-achievements.md §10.3·§12를 6-B 구현에 맞추고 연출 전 결과 노출 범위 판정 — 완료 (docs/design/m2-achievements.md 갱신: 범례, §6, §10.3(확정), §12(확정)·12.1~12.3, 신설 §12.4(연출 전 노출 범위 판정), AC 56·59·60, §17(섹션 순서, 연출 전 결과 노출). 코드와 지시 목록 불일치 없음.)
 - REQ-041 [P2] 5-B 최종 화면 문구와 배치를 m2-traits §11·m2-overview §C.3에 기록 — 완료 (m2-traits.md §11(잠정 제거)·m2-overview.md §C.3에 5-B 최종 화면 기록, view.js와 대조 완료 (2026-11-23))
