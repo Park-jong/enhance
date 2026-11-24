@@ -5,6 +5,7 @@
   'use strict';
   const SG = root.SG = root.SG || {};
   const TEST_GOLD = 1000000;
+  const MS_PER_SEC = 1000;
   const FORCE_LABEL = { true: '강화 100%: 켜짐', false: '강화 100%: 꺼짐' };
   const BANNER_TEXT = { true: 'TEST MODE · 강화 100%', false: 'TEST MODE · 강화 100% 꺼짐 (실제 확률)' };
 
@@ -35,6 +36,34 @@
     game.commit();
   }
 
+  /** 이벤트 선택지: EVENT_IDS 순서, 아이콘 + 이름 */
+  function fillEventOptions(doc, C) {
+    doc.querySelector('#testEventId').innerHTML =
+      C.EVENT_IDS.map(id => `<option value="${id}">${C.EVENTS[id].icon} ${C.EVENTS[id].name}</option>`).join('');
+  }
+
+  /** 고른 이벤트를 전체 지속 시간으로 시작한다(SG.events.setEvent, 테스트 전용 규칙 함수). 최고 +5 미만이면 효과가 없다 */
+  function startEvent(game, doc) {
+    const { C, events: E, fx: FX } = SG;
+    const S = game.state();
+    const id = doc.querySelector('#testEventId').value;
+    const r = E.setEvent(S, id, C.EVENTS[id].durationSec * MS_PER_SEC);
+    if (!r.ok) return FX.toast(`[TEST] 이벤트를 지정하지 못했습니다 (${r.reason})`, 'bad');
+    if (!E.eventsUnlocked(S)) FX.toast(`[TEST] 최고 +${C.EVENT_UNLOCK_BEST} 미만이라 이벤트가 적용되지 않습니다`, 'bad');
+    FX.log(`[TEST] ${SG.view.eventStartText(id)}`, 'info');
+    game.commit();
+  }
+
+  /** 진행 중인 이벤트의 남은 시간을 1ms로 줄인다: 다음 틱이 실제 종료 경로(종료 토스트·다음 간격 추첨·즉시 저장)를 탄다 */
+  function endEvent(game) {
+    const { events: E, fx: FX } = SG;
+    const S = game.state();
+    const a = E.activeEvent(S);
+    if (!a) return FX.toast('[TEST] 진행 중인 이벤트가 없습니다.', 'bad');
+    E.setEvent(S, a.id, 1);
+    game.commit();
+  }
+
   SG.extensions = (SG.extensions || []).concat(function testPanel(game) {
     const doc = root.document;
     const config = SG.config;
@@ -54,8 +83,11 @@
         game.commit();
       },
       testSetTrait: () => setActiveTrait(game, doc),
+      testSetEvent: () => startEvent(game, doc),
+      testEndEvent: () => endEvent(game),
     });
     showForceState(doc, config.forceSuccess);
     fillTraitOptions(doc, SG.C);
+    fillEventOptions(doc, SG.C);
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

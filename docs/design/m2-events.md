@@ -140,7 +140,7 @@
 5. **의뢰소 특가** — `rerollCostBase = max(QUEST_REROLL_MIN, QUEST_REROLL_COST_MULT × cost(S.best))`(기존). 이벤트 활성이면 `rerollCost = max(QUEST_REROLL_MIN, floor(rerollCostBase × (100 − evQuest) / 100))`. `rerollBlock`의 `noGold` 판정과 `rerollQuest` 차감은 모두 이 값이다.
 
 #### 5.3.1 작업 예 (best = 13 / 15 / 17 / 20)
-`H`: 2,676 / 9,158 / 31,345 / 198,462. `autoReward`: 596 / 1,432 / 3,441 / 12,813. 수확 보너스 lv5(×1.5) 가정.
+`H`: 2,676 / 9,158 / 31,345 / 198,462. `autoReward`: 596 / 1,432 / 3,441 / 12,813. **"자동 1회" 행은 모두 수확 보너스(`S.idle.up.gold`) lv5(`goldUpFactor` ×1.5)를 가정한 값**이다. lv5가 없으면 이벤트 없음 = `autoReward` 그대로(best 13: 596, 풍년 +50 = 894). 예: 1,341 = `round(596 × 1.5(lv5) × 1.5(풍년))`. 사냥 행은 수확 보너스를 받지 않는다(수동 사냥).
 | 항목 | 13 | 15 | 17 | 20 |
 | --- | --- | --- | --- | --- |
 | 사냥, 이벤트 없음 | 2,676 | 9,158 | 31,345 | 198,462 |
@@ -148,14 +148,15 @@
 | 사냥, 대목 + 부스터(×1.5) | 5,619 | 19,231 | 65,824 | 416,770 |
 | 사냥, 대목 + 약탈자 3등급(+30) | 4,870 | 16,667 | 57,047 | 361,200 |
 | 사냥, 대목 + 부스터 + 약탈자 3등급 | 7,305 | 25,001 | 85,571 | 541,801 |
-| 자동 1회, 이벤트 없음 | 894 | 2,148 | 5,162 | 19,220 |
-| 자동 1회, 풍년(+50) | 1,341 | 3,222 | 7,742 | 28,829 |
-| 자동 1회, 풍년 + 일꾼 3등급(+45) | 1,944 | 4,672 | 11,226 | 41,802 |
-| 자동 1회, 풍년 + 일꾼 3등급 + 부스터 | 2,917 | 7,008 | 16,839 | 62,704 |
+| 자동 1회(수확 lv5 ×1.5), 이벤트 없음 | 894 | 2,148 | 5,162 | 19,220 |
+| 자동 1회(수확 lv5), 풍년(+50) | 1,341 | 3,222 | 7,742 | 28,829 |
+| 자동 1회(수확 lv5), 풍년 + 일꾼 3등급(+45) | 1,944 | 4,672 | 11,226 | 41,802 |
+| 자동 1회(수확 lv5), 풍년 + 일꾼 3등급 + 부스터 | 2,917 | 7,008 | 16,839 | 62,704 |
 | 새로고침 비용, 이벤트 없음 | 17,880 | 42,960 | 103,230 | 384,390 |
 | 새로고침 비용, 특가(−50) | 8,940 | 21,480 | 51,615 | 192,195 |
 - 검증 예: best 13 사냥 대목 = `floor(2676×100×140×1/10000)` = `floor(3746.4)` = 3,746. 약탈자 3등급+부스터 = `floor(2676×130×140×1.5/10000)` = `floor(7305.48)` = 7,305.
-- 최악 중첩 배율: 사냥 `1.3 × 1.4 × 1.5 = 2.73`, 자동 `1.45 × 1.5 × 1.5 = 3.26`(수확 보너스 미포함).
+- 최악 중첩 배율: 사냥 `1.3 × 1.4 × 1.5 = 2.73`, 자동 `1.45(일꾼) × 1.5(풍년) × 1.5(부스터) = 3.26`(수확 보너스 미포함. lv5 ×1.5를 곱하면 약 4.89). 위 표 계산값은 코드(`R.percentScaled`·`autoRunGold`)로 재계산해 일치를 확인했다.
+- 계산 순서(코드): 사냥은 `huntReward × boostFactor`를 먼저 곱한 뒤 `(100+v)`들을 곱하고 마지막에 한 번 나눠 `floor`, 자동은 `autoReward × goldUpFactor × boostFactor` 뒤 같은 방식으로 `round`.
 
 광맥 발견(철/은/미스릴 사냥 1회당 기대 개수, 기본 2 / 1 / 0.5):
 | 구성 | 철 | 은 | 미스릴 |
@@ -181,7 +182,7 @@
 - `sinceMs`: 직전 이벤트 **종료(또는 최초)**부터 쌓인 활성 플레이 ms. 이벤트가 활성인 동안은 쌓지 않는다.
 - `nextAtMs`: 다음 스폰 임계값(ms). 기본값 `EVENT_GAP_MIN_SEC × 1000`(=900,000, 첫 이벤트는 15분). 이후 값은 **이벤트 종료 때** 뽑는다(저장에 들어가 새로고침으로 다시 뽑을 수 없다).
 
-`advanceEvents(S, dtMs, rng)` — 순수 함수, 틱마다 호출. 반환 `{ started: id|null, ended: id|null }`.
+`advanceEvents(S, dtMs, rng)` — 순수 함수, 틱마다 호출. 반환은 `{}`(변화 없음·잠김) · `{ started: id }`(스폰) · `{ ended: id }`(종료) 셋 중 하나이며, 키가 없으면 `undefined`다(`null` 값을 담지 않는다).
 ```
 if S.best < EVENT_UNLOCK_BEST: return {}                         // 잠김: 아무것도 안 쌓음
 dt = clamp(floor(dtMs), 0, EVENT_DT_MAX_MS)                      // 음수·NaN → 0, 상한 2000
@@ -193,7 +194,7 @@ if S.events.active:
         nextAtMs = gapSec * 1000
         return { ended }
 else:
-    sinceMs += dt
+    sinceMs = min(sinceMs + dt, EVENT_GAP_MAX_SEC×1000)
     if sinceMs >= nextAtMs:                                      // 스폰
         list = eligibleEvents(S)                                 // EVENT_IDS 순서, best·추가 조건 통과분
         r = rng() * sum(weight of list)                          // rng 1회
@@ -206,9 +207,12 @@ return {}
 - **rng 호출 순서(결정적)**: 스폰 시 1회(종류), 종료 시 1회(다음 간격). 한 호출에서 두 전이가 겹치지 않는다(종료와 스폰은 서로 다른 호출). 그 외에는 rng를 쓰지 않는다. `rng()∈[0,1)`이므로 경계는 `<`.
 - `eligibleEvents`가 빌 일은 없다(`hunt`는 best≥13, `luck`/`ore`/`quest`는 best≥5에서 추가 조건 없음 → 항상 최소 3종).
 - 같은 이벤트가 연속으로 나올 수 있다(중복 방지 필드 없음, 결정표).
+- `sinceMs` 상한: `advanceEvents`는 `sinceMs`를 더할 때 `EVENT_GAP_MAX_SEC×1000` 이하로 자른다(7-2). 따라서 스폰 틱에서도 §10의 범위가 런타임에 그대로 유지되며 `nextAtMs ≤ 상한`이라 스폰 시점과 rng 열은 바뀌지 않는다.
 - 호출 위치(`main.js` `tick`): 오프라인 복귀 판정·`runAutoCatchup` **앞**에서 `advanceEvents(S, dt, rng)`. 종료·시작이 나오면 토스트(§9)와 **즉시 `persist()`**. 같은 틱의 자동 사냥·수동 사냥은 갱신된 상태를 읽는다(이벤트가 이 틱에 끝났다면 이 틱의 자동 사냥 몫은 보너스 없음).
 - **catch-up 실행에는 이벤트 보너스를 주지 않는다**(결정): 이 틱의 벽시계 경과 `wallDtMs`(= `now()` 차이)가 `EVENT_DT_MAX_MS`(2000)를 넘으면 그 틱의 `runAutoCatchup`은 `evAuto = 0`과 광맥 `evOre = 0`(자동 사냥분)으로 호출한다. 이유: 숨김·동결 구간(예: 30초)에는 `advanceEvents`가 2초만 흘렸으므로 나머지 28초분 자동 사냥에 `+50%`를 주면 이벤트 시계 밖의 시간에 보너스를 주게 된다. `wallDtMs ≤ 2000`인 정상 틱은 보너스를 받는다. 기기 시계 점프는 이 판정에 영향을 줘도 보너스를 **줄이기만** 한다(늘리지 않음). 오프라인 복귀 정산(`settleOffline`)은 원래 이벤트 무시.
-- `dt` 입력(주입 단조 시계): `main.js`가 `mono()`(기본 `performance.now()`, 없으면 `now()`)로 `dt = mono() − ui.eventLastMono`를 구하고 기준점을 갱신한다. `isSuspended()`·`document.hidden`으로 틱이 건너뛴 구간은 계산하지 않도록 **복귀(`resume`)·이어받기(`takeOver`)·`resetUiFor`에서 `ui.eventLastMono = mono()`로 리셋**한다. 기기 시계(`now()`)를 바꿔도 `mono`에는 영향이 없고, 시계 오류·정지로 `dt`가 커져도 틱당 2초가 한계다.
+- `dt` 입력(주입 단조 시계, `main.js` `stepEventClock(t)`): `mono()`(기본 `performance.now()`, 없으면 `now()`)로 `dtMs = mono() − ui.eventLastMono`, 기기 시계로 `wallDtMs = now − ui.eventLastWall`을 구하고 **두 기준점(`eventLastMono`·`eventLastWall`)을 매 틱 갱신**한다. `advanceEvents(S, dtMs, rng)`는 `dtMs`만 쓰고(내부에서 2초로 자름), `wallDtMs`는 같은 틱의 `runAutoCatchup(S, t, nextAutoAt, rng, { noEvent: wallDtMs > EVENT_DT_MAX_MS })` 호출에 `opts.noEvent`로 넘기는 데만 쓴다.
+- 기준점 리셋: `isSuspended()`·`document.hidden`으로 틱이 건너뛴 구간을 이벤트에 흘리지 않도록 **단조 기준점 `ui.eventLastMono = mono()`는 `resume`과 `resetUiFor`에서 리셋**한다(`main.js` `resetEventMono`). `takeOver`는 `adoptStoredSave(force)`(→ `resetUiFor`) 뒤 `resume()`을 부르므로 `resume`을 거쳐 포함되며 별도 리셋이 아니다.
+- **`resume`은 기기 시계 기준점 `eventLastWall`을 옮기지 않는다.** `resetUiFor`만 `eventLastWall = t`로 맞춘다. 결과: 60초 미만 숨김 뒤 첫 틱은 `wallDtMs`가 숨긴 시간만큼 커서 `EVENT_DT_MAX_MS`를 넘으므로, 그 틱의 catch-up은 `noEvent`가 되어 보너스가 없다(AC 22a). 60초 이상 숨김은 첫 틱에서 `resume()`(오프라인 정산)이 처리한다. 기기 시계(`now()`)를 바꿔도 `mono`에는 영향이 없고, 시계 오류·정지로 `dt`가 커져도 틱당 2초가 한계다.
 
 ### 6.3 최대 가동률 (손계산)
 - 한 주기 = 이벤트 `D` + 다음 스폰까지 활성 플레이 `G`. `G ∈ [900, 1800]`(균등), `D = 300`.
@@ -257,36 +261,41 @@ best 15에서 새로고침 42,960 → 21,480G(−21,480 ≈ 2.3H). 가장 비싼
 | `eventDef(id)` | events.js | `EVENTS[id]` 또는 null(`hasOwn` 사용) |
 | `eventsUnlocked(S)` | events.js | `S.best ≥ EVENT_UNLOCK_BEST` |
 | `activeEvent(S)` | events.js | 해금됐고 `active.id`가 유효하면 `{id, remainMs, def}`, 아니면 null |
-| `eventValue(S, id)` | events.js | 그 이벤트가 활성이면 `def.value`, 아니면 0 |
+| `eventValue(S, id, opts)` | events.js | 그 이벤트가 활성이면 `def.value`, 아니면 0. `opts.noEvent`가 참이면 **항상 0**(벽시계 따라잡기 실행, §6.2) |
 | `eligibleEvents(S)` | events.js | `EVENT_IDS` 순서, `minBest`·추가 조건(autoOn, 모루 보유) 통과한 id 배열 |
 | `pickEvent(S, rng)` | events.js | 가중치 선택, rng 1회 |
 | `drawGapMs(rng)` | events.js | 다음 간격(ms), rng 1회 |
 | `advanceEvents(S, dtMs, rng)` | events.js | §6.2 |
 | `luckBonus(S, lv)` | events.js | 행운의 시간 보너스(%p) 또는 0 |
-| `eventDescription(id)`, `fmtEventClock(ms)` | events.js | UI 문구, `m:ss`(올림) |
-| `setEvent(S, id, remainMs)` | events.js | **테스트 전용**. 잘못된 id → `{ok:false, reason:'badEvent'}`, `remainMs`가 1..duration 밖 → `'badTime'`. 상태 불변. `index.html` UI에서 호출 금지 |
+| `eventDescription(id)`, `fmtEventClock(ms)` | events.js | 효과 문장은 `constants.js`의 `EVENTS[id].desc`(값 `v`로 만든 **임시 문구**, 콘텐츠가 교체 가능, 알 수 없는 id는 빈 문자열), `fmtEventClock`은 `m:ss`(올림) |
+| `setEvent(S, id, remainMs)` | events.js | **테스트 전용**. 잘못된 id → `{ok:false, reason:'badEvent'}`, `remainMs`가 정수가 아니거나 1..duration 밖 → `'badTime'`. 상태 불변. `index.html` UI에서 호출 금지 |
 | `chances` | rules.js | §5.2: `opts.event`, 최상위 `event`·`succNoEvent`·`eventGain`·`eventLost` 추가(`parts`·`certain()`·최대 단계 `parts: null` 불변) |
 | `enhanceOpts` | rules.js | `event: luckBonus(S, lv)` 추가 |
 | `recordLateProgress(S, l, outcome, assisted)` | rules.js | `assisted`면 숙련 기록 건너뜀 |
-| `attemptEnhance` | rules.js | `r.eventAssist`, 모루 가호 롤(§5.3-4) |
-| `idle.manualHuntGold` / `autoRunGold` | idle.js | §5.3 곱 적용 |
-| `forge.rollOre` | forge.js | §5.3-3 |
+| `rollAnvilKeep(S, sw, rng)` | rules.js(내부 함수, 비공개) | 모루가 적용된 시도의 내구도 미소모 판정(`attemptEnhance`가 결과 롤 다음에 호출). 모루 가호 활성(`ev>0`)이면 합성 확률 `1−(1−a)(1−b)`로 rng 1회(1/10000 단위: `floor(rng()×10000) < 10000 − (100−v)(100−ev)`, `v`=대장장이 값, 없으면 0). 아니면 대장장이 값 `v>0`일 때만 rng 1회(`floor(rng()×100) < v`), `v=0`이면 rng 없음 |
+| `attemptEnhance` | rules.js | `r.eventAssist`, 모루 가호 롤(`rollAnvilKeep`, §5.3-4). 이벤트 인자(`opts`) 없음: 시도는 벽시계 따라잡기와 무관 |
+| `idle.manualHuntGold(S, now)` | idle.js | §5.3-1 곱 적용(`opts` 없음, 수동 사냥은 항상 이벤트를 받는다) |
+| `idle.autoRunGold(S, t, opts)` | idle.js | §5.3-2 곱 적용. 선택 인자 `opts = { noEvent }`: 참이면 자동 풍년 항 0 |
+| `idle.runAutoCatchup(S, now, nextAutoAt, rng, opts)` | idle.js | 선택 인자 `opts = { noEvent }`를 `autoRunGold`·`forge.rollOre`에 그대로 넘긴다. rng 호출 수는 `opts`와 무관하게 같다 |
+| `forge.rollOre(S, rng, opts)` | forge.js | §5.3-3. 선택 인자 `opts = { noEvent }`: 참이면 광맥 항 0(기존 경로). 광석 종류당 rng 1회는 불변. `manualHunt`는 `opts`를 주지 않는다 |
 | `quests.rerollCost` | quests.js | §5.3-5 |
 | `normEvents` | save.js | §10 |
 
 ## 9. UI 사양 (잠정)
-- **칩**: `index.html` 헤더, 저장 실패 배지(`#saveBadge`) 뒤·`.spacer` 앞에 `<button class="event-chip" id="eventChip" aria-haspopup="true" hidden>`. 이벤트가 없으면 `hidden`. 있으면 `🍀 행운의 시간 4:12`(아이콘 + 이름 + `m:ss`). 남은 시간은 올림이라 마지막 순간에도 `0:01`이다. 매 틱 `render()`가 `V.renderEventChip(S)`로 갱신(`setHTML` 캐시 사용).
-- **상세**: 칩을 누르거나(모바일) 호버·포커스하면(데스크톱 `title` 병행) 설정 팝오버와 같은 패턴의 `#eventPop`: 이름, 효과 문장(예: "수동 사냥 골드 +40%"), 남은 시간, 한 줄 안내 "접속 중에만 흐르고 오프라인에서는 적용되지 않습니다". 행운의 시간이 켜져 있지만 지금 효과가 없으면(현재 검 +4 이하, 천장 확정, 상한 도달) 사유를 한 줄 덧붙인다.
-- **모바일**: 헤더가 720px 이하에서 이미 `flex-wrap`이다. 칩은 한 줄로 줄바꿈되어 내려갈 수 있고, 520px 이하에서는 이름 대신 아이콘 + `m:ss`만 표시한다(전체 문구는 `aria-label`·팝오버). 가로 스크롤이 생기면 안 된다.
+- **칩**: `index.html`·`test.html` 헤더, 저장 실패 배지(`#saveBadge`) 바로 뒤(`.spacer` 앞)에 팝오버 기준 상자 `<span class="event-wrap" id="eventWrap" hidden>`을 두고 그 안에 `<button class="event-chip" id="eventChip" aria-haspopup="true" aria-controls="eventPop" hidden>`과 `#eventPop`을 넣는다. 이벤트가 없으면 칩과 감싼 상자 모두 `hidden`(헤더 간격도 생기지 않음). 있으면 `🍀 행운의 시간 4:12`(아이콘 + 이름 + `m:ss`). 남은 시간은 올림이라 마지막 순간에도 `0:01`이다. 칩 `title`은 전체 문장(`행운의 시간 4:12 남음 · 강화 성공 확률 +5%p`). 매 틱 `V.render()` 안의 `renderEventChip(S)`가 갱신(`setHTML` 캐시 사용). 아이콘은 `js/constants.js` `EVENTS[id].icon`(이모지 자리) 한 곳에서 읽는다.
+- **상세**: 칩을 누르면(모든 폭, 설정 팝오버와 같은 토글) `#eventPop`이 열린다: 아이콘·이름, 효과 문장(예: "수동 사냥 골드 +40%"), 남은 시간, 한 줄 안내 "접속 중에만 흐르고 오프라인에서는 적용되지 않습니다". 데스크톱 호버는 칩 `title` 툴팁으로 같은 내용을 보여 주고 팝오버를 열지 않는다(호버로 열린 상태가 남지 않게). 닫힘: 칩 다시 누름, 바깥 클릭, `Esc`, 탭 전환, 상태 교체(이어받기·새 게임, `resetUiFor`), 다른 탭 때문에 멈춤, 이벤트 종료(활성 이벤트가 없으면 렌더가 팝오버를 숨긴다). 행운의 시간이 켜져 있지만 지금 효과가 없으면 사유를 한 줄 덧붙인다(판정은 `luckBonus`·`currentChances()`): 활성 검 없음 / 현재 검이 적용 범위(+5~+19) 밖(+4 이하·+20) / 확정 시도(천장 게이지·확정 강화권·테스트 강제, `event = 0`) / 상한 도달 / 천장(`SUCC_CEIL`) 도달. 상한·천장 구분은 아래 확률 내역 줄과 같은 원인 판정이다.
+- **모바일**: 헤더가 720px 이하에서 이미 `flex-wrap`이다. 칩은 한 줄로 줄바꿈되어 내려갈 수 있고, 520px 이하에서는 아이콘 + `m:ss`만 보인다. 이름은 화면에서만 감추고(시각적 숨김) 스크린 리더는 버튼 이름으로 그대로 읽으며, 전체 문구는 팝오버에 있다. 720px 이하에서 팝오버는 칩 아래 떠 있는 상자 대신 헤더의 마지막 줄(전체 폭, 흐름 배치)로 열려 칩 위치와 상관없이 화면 밖으로 나가지 않는다. 가로 스크롤이 생기면 안 된다(360·375·520·521·720·1280px 확인).
 - **확률 내역 줄(`breakdownHTML`)**: 행운의 시간이 켜져 있고 `chances().event > 0`이면 항을 `보정` 뒤에 추가한다.
   - 예(상한 도달, +13, 축복+철): `기본 30% + 축복 10 + 모루 2 + 이벤트 5 = +17 → <s>+17</s> +14 [상한 14] · 이벤트 실효 +2%p`.
   - 예(효과 없음, +13, 축복+미스릴): `기본 30% + 축복 10 + 모루 4 + 이벤트 5 = +19 → <s>+19</s> +14 [상한 14] · 이벤트 효과 없음(상한)`.
   - `eventGain = 0`이고 원인이 상한이 아니라 천장이면 `(천장)`. 원인 판정: `raw − event ≥ cap`이면 상한, 아니면 천장. 확정 시도(`gaugeFull`·`sure`·`forced`)는 기존 한 줄 문구만(이벤트 항 없음).
   - 기존 규칙(상한 뱃지, 취소선, 숙련 항, 천장 뱃지)은 그대로. 숙련은 이벤트 항 뒤 별도 항이다.
-- **수입 표시**: `#incomeNote`에 사냥 대목·자동 풍년이 켜져 있으면 ` · 이벤트 사냥 +40%`처럼 덧붙인다. 의뢰 새로고침 버튼은 할인 가격과 "특가" 표시, 모루 가호는 트레이 모루 행에 "가호 40%" 표시, 광맥 발견은 광석 칩에 `+50%`.
-- **토스트**: 시작 `🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p` (종류별 문구, `good`), 종료 `이벤트 종료: 행운의 시간`. 한 틱당 한 번, `skipFx`와 무관하게 표시, **잠긴 탭·숨김 탭에서는 표시하지 않는다**(복귀 때 이미 지나간 종료는 알리지 않음).
-- **이벤트 덕 성공**: `r.eventAssist`가 참이면 결과 로그에 "이벤트 덕에 성공"을 한 줄 추가(숙련 미기록도 함께 알림).
-- 문구 목록과 아이콘은 콘텐츠 팀이 채운다(선택 요청).
+  - 이벤트 메모(`이벤트 실효 +N%p`·`이벤트 효과 없음(…)`)는 줄의 **맨 끝**(숙련 항·천장 뱃지 뒤)에 붙는다. 이벤트 +5가 전부 들어가면(`eventGain = event`) 메모는 없다. 예(숙련, +15, 축복+강철, 숙련 기록 4): `기본 20% + 축복 10 + 모루 3 + 이벤트 5 = +18 → <s>+18</s> +14 [상한 14] + 숙련 +12 = 46% · 이벤트 실효 +1%p`. 줄은 `chances()` 반환 필드(`parts`·`event`·`raw`·`cap`·`eventGain`)로만 만든다.
+- **수입 표시**: `#incomeNote`에 사냥 대목·자동 풍년이 켜져 있으면 ` · 이벤트 사냥 +40%`·` · 이벤트 자동 +50%`를 덧붙인다(값은 효과 계산과 같은 `eventValue`). 의뢰 새로고침 버튼은 할인된 가격(`rerollCost`, 차감과 같은 함수)과 "특가" 뱃지(원래 가격은 따로 보이지 않음), 모루 가호는 트레이 모루 행(모루 장착 시)에 "가호 40%" 태그, 광맥 발견은 대장간 광석 칸의 `사냥당 +2` 뒤에 `+50%`, 방치 탭 광석 줄에 `+50%(광맥 발견)`.
+- **토스트**: 시작 `🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p` (`아이콘 이벤트 시작: 이름 — (지속 분)분간 효과 문장`, 초록 테두리 `good` 종류를 새로 추가), 종료 `이벤트 종료: 행운의 시간`. 같은 문장을 기록 탭 로그에도 남긴다. 한 틱당 한 번, `skipFx`와 무관하게 표시, **잠긴 탭·숨김 탭에서는 표시하지 않는다**(복귀 때 이미 지나간 종료는 알리지 않음). 틱 안에서 `advanceEvents` 직후 바로 띄우고(지연 콜백 없음) 띄우는 순간에 멈춤·숨김을 다시 확인한다.
+- **이벤트 덕 성공**: `r.eventAssist`가 참이면 결과 로그에 `🍀 이벤트 덕에 성공`을 한 줄 추가하고, 숙련 구간(+15~+19)이면 ` — 숙련 기록에는 세지 않습니다`를 붙인다(+5~+14는 원래 숙련 기록이 없음).
+- **테스트 페이지(`test.html`, AC 50)**: 조작판에 이벤트 선택(`#testEventId`, `EVENT_IDS` 순서) + "이벤트 시작"(`SG.events.setEvent`로 전체 지속 시간) + "이벤트 끝내기"(남은 시간을 1ms로 지정 → 다음 틱이 실제 종료 경로: 종료 토스트·다음 간격 추첨·즉시 저장). `index.html`에는 진입점이 없다.
+- 문구 목록과 아이콘은 콘텐츠 팀이 채운다(선택 요청). 지금 아이콘은 이모지 자리: 🍀 행운의 시간 · 🏹 사냥 대목 · 🌾 자동 풍년 · ⛏️ 광맥 발견 · 💫 모루 가호 · 🏷️ 의뢰소 특가.
 
 ## 10. 저장 데이터 (v2 유지)
 | 필드 | 타입 | 기본값 | 범위 | 정규화 |
@@ -309,11 +318,16 @@ best 15에서 새로고침 42,960 → 21,480G(−21,480 ≈ 2.3H). 가장 비싼
 | `EVENT_GAP_MIN_SEC` | 900 | 직전 종료 후 다음 스폰까지 활성 플레이 최소(초). 첫 이벤트도 이 값 |
 | `EVENT_GAP_MAX_SEC` | 1800 | 같은 최대(초) |
 | `EVENT_IDS` | `['luck','hunt','auto','ore','anvil','quest']` | 선택·UI 순서 |
-| `EVENTS` | `{ luck:{name:'행운의 시간', weight:12, minBest:5, durationSec:300, value:5}, hunt:{name:'사냥 대목', weight:24, minBest:13, durationSec:300, value:40}, auto:{name:'자동 풍년', weight:18, minBest:13, durationSec:300, value:50}, ore:{name:'광맥 발견', weight:16, minBest:5, durationSec:300, value:50}, anvil:{name:'모루 가호', weight:16, minBest:5, durationSec:300, value:40}, quest:{name:'의뢰소 특가', weight:14, minBest:5, durationSec:300, value:50} }` | 이벤트 정의(데이터 주도) |
+| `EVENTS` | 각 항목 `{ icon, name, weight, minBest, durationSec, value, desc, need }`. `luck`(🍀, 행운의 시간, 12, 5, 300, 5, need null), `hunt`(🏹, 사냥 대목, 24, 13, 300, 40, null), `auto`(🌾, 자동 풍년, 18, 13, 300, 50, `'autoOn'`), `ore`(⛏️, 광맥 발견, 16, 5, 300, 50, null), `anvil`(💫, 모루 가호, 16, 5, 300, 40, `'hasAnvil'`), `quest`(🏷️, 의뢰소 특가, 14, 5, 300, 50, null). `icon`은 칩·토스트 아이콘(이모지 자리, 콘텐츠 에셋이 오면 교체), `desc`는 `value`로 만든 효과 문장(임시 문구, 예 `수동 사냥 골드 +40%`), `need`는 스폰 추가 조건 이름(`events.js`의 `EVENT_NEEDS`, 없으면 `null`) | 이벤트 정의(데이터 주도). §4 표와 일치(확인함) |
 | `EVENT_LUCK_MIN_LV` | 5 | 행운의 시간이 적용되는 검 최저 단계 |
 | `EVENT_LUCK_MAX_LV` | 19 | 같은 최고 단계(= `MAX − 1`) |
+| `EVENT_WEIGHT_TOTAL` | 100 | 가중치 합 검사값 |
+| `EVENT_DUTY_GAP_DIV` | 3 | `durationSec ≤ EVENT_GAP_MIN_SEC ÷ 값` 검사의 나눗수(내부 상수, 비공개) |
+| `EVENT_ORE_VALUE_STEP` | 10 | 광맥 `value`가 이 값의 배수여야 한다는 검사값 |
+| `EVENT_ORE_SCALE` | 2 | `ORE_PER_HUNT`(0.5 단위)를 정수로 만드는 배수(§5.3-3 `×2 … /2`) |
+| `PERCENT_SQ` | 10000 | `PERCENT × PERCENT`. 1/10000 단위 정수 확률의 분모(§5.3-3·4) |
 
-로드 시 검사(어기면 `throw`, `MASTERY_MAX` 검사와 같은 방식): ① `EVENT_IDS`와 `EVENTS` 키 일치, ② 가중치 합 100, ③ `durationSec ≤ EVENT_GAP_MIN_SEC ÷ 3`, ④ `EVENTS.ore.value`는 10의 배수, ⑤ `EVENT_GAP_MIN_SEC < EVENT_GAP_MAX_SEC`, ⑥ `EVENT_LUCK_MAX_LV ≤ MAX − 1`.
+로드 시 검사(어기면 `throw`, `MASTERY_MAX` 검사와 같은 방식): ① `EVENT_IDS`와 `EVENTS` 키 일치, ② 가중치 합 `EVENT_WEIGHT_TOTAL`(100), ③ `durationSec ≤ EVENT_GAP_MIN_SEC ÷ EVENT_DUTY_GAP_DIV`(=300), ④ `EVENTS.ore.value`는 `EVENT_ORE_VALUE_STEP`(10)의 배수이고 모든 `ORE_PER_HUNT[k] × EVENT_ORE_SCALE`이 정수, ⑤ `EVENT_GAP_MIN_SEC < EVENT_GAP_MAX_SEC`, ⑥ `EVENT_LUCK_MAX_LV ≤ MAX − 1`. `events.js`는 로드 때 추가로 모든 `EVENTS[id].need`가 `EVENT_NEEDS`에 있는지 검사한다(없으면 `throw`).
 `save.js`: `STAT_KEYS`에 `'eventsSeen'`, `normEvents(v)`, `defaultState`에 `events`.
 
 ## 12. 두 탭과 탭 잠금 (결정)
@@ -356,7 +370,7 @@ best 15에서 새로고침 42,960 → 21,480G(−21,480 ≈ 2.3H). 가장 비싼
 10. Given `+5..+19` 전 단계 × 축복 유무(2) × 모루 등급 0..3 × pity **횟수** 0..12 × 숙련 **기록 횟수**(+15~+19만 0..`MASTERY_REC_MAX[l−15]`, 즉 4/4/4/3/2건; +5~+14는 0) — 도달 가능한 **3,328조합**(도달 불가인 +5~+14 숙련 > 0까지 넣은 격자는 7,800) / When `opts.event=5`와 0으로 `chances()` / Then 모든 조합에서 `dest`가 같고 `succ + dest ≤ 100`, `fail ≥ 0`.
 11. Given 테스트에서 주입한 큰 값 `opts.event=50`, `+13`, 축복+미스릴 / Then `bonus=14`(`BONUS_CAP`이 한계), `succ=44`.
 12. Given `opts.event=50`, `+5`, 축복+미스릴+pity 6 / Then `succ ≤ 90`(`SUCC_CEIL`), 정확히 90. 같은 입력의 `eventGain`은 0.
-13. Given 행운의 시간 켜짐, `+15` 시도의 롤이 `succNoEvent` 이상 `succ` 미만(예: `succNoEvent=45, succ=46`에서 `roll=45.5`) / When `attemptEnhance` / Then `outcome='success'`, `r.eventAssist=true`, 검 +16, `pity=0`, `gauge[0]=0`, **`mastery[0]` 불변**. `roll < succNoEvent`인 성공이면 `r.eventAssist=false`이고 `mastery[0]`이 +1.
+13. Given 행운의 시간 켜짐, `+15` 시도의 롤이 `succNoEvent` 이상 `succ` 미만이고 숙련 기록이 **최대(`MASTERY_REC_MAX[0]`=4) 미만**: 숙련 기록 2, 게이지 3, 축복 + 강철 모루(등급 2) → `succNoEvent=39`, `succ=40` / When `attemptEnhance`, rng 값 `0.395`(`roll=39.5`) / Then `outcome='success'`, `r.eventAssist=true`, 검 +16, `pity=0`, `gauge[0]=0`, **`mastery[0]`는 2 그대로**(기록 안 함, `r.mastery=null`). 같은 상태에서 rng `0.385`(`roll=38.5 < succNoEvent`)이면 `r.eventAssist=false`이고 `mastery[0]`이 3(+1)이 된다(테스트 `AC13: mastery below REC_MAX`). 참고: 기록이 이미 최대(4)이면 기록이 원래 늘지 않으므로(예: `succNoEvent=45, succ=46`, `roll=45.5`) 이 규칙을 보여 주지 못한다 — 그 경우도 `eventAssist=true`, `mastery[0]=4` 불변(테스트 `AC13: +15 roll in [succNoEvent, succ)`).
 14. Given 행운의 시간 켜짐·실패 롤 / Then `pity`는 +1, 게이지 +1, 숙련 불변 — 이벤트 없을 때와 같다. 이벤트 유무로 `pity`·`gauge`·`mastery`를 `chances()`에 넘기는 입력값이 같다(`enhanceOpts`의 `gaugeFull`·`mastery` 동일).
 15. Given 천장 게이지 가득 / `use.sure` 켜짐(`+9` 이하) / `forceSuccess` / Then `chances()`는 `certain()`(`succ=100`)이며 `parts===null`(불변), 최상위 `event=0`, `eventGain=0`, `succNoEvent=100`. 행운의 시간이 켜져 있어도 같다. `+20`(최대 단계) 반환도 `parts===null`에 최상위 `event=0`, `eventGain=0`, `succNoEvent=0`.
 15a. Given 활성 검이 `+4` 이하 또는 `+20` / Then `luckBonus=0`, `opts.event=0`. 활성 검이 없으면 `enhanceOpts`는 null이고 이벤트 항은 의미 없다.
@@ -464,8 +478,8 @@ best 15에서 새로고침 42,960 → 21,480G(−21,480 ≈ 2.3H). 가장 비싼
 없음. 모든 갈림길은 §16에 권장안으로 기록했다. 플레이 테스트에서 볼 항목만 적는다: ① 행운의 시간 도입 뒤 +20 도달 시간 변화(5% 한계), ② 축복+미스릴 사용자에게 "효과 없음"이 불만으로 나오는지(그러면 안내 문구 보강), ③ 첫 이벤트 15분이 짧거나 긴지.
 
 ## 18. 다른 팀 요청
-- **Tech**: `js/events.js` 신설 + `index.html` 로드 순서(`constants.js` → `rules.js` → … → `events.js` → `main.js`), `constants.js` 상수·로드 검사(§11), `rules.js`(`chances`·`enhanceOpts`·`recordLateProgress`·`attemptEnhance`, §5.2·5.3), `idle.js`(`manualHuntGold`·`autoRunGold`), `forge.js`(`rollOre`), `quests.js`(`rerollCost`), `save.js`(`normEvents`·`defaultState`·`STAT_KEYS`), `main.js`(`tick`의 `advanceEvents`, `mono` 주입, `resume`·`takeOver`·`resetUiFor`의 기준점 리셋, 토스트, 시작·종료 즉시 `persist`), `view.js`(칩·내역 줄·수입 표시), `test-mode.js`(`setEvent`).
-- **Content(선택)**: 이벤트 아이콘 6종, 시작 토스트 문구 6종, 효과 문장 6종.
+- **Tech**: `js/events.js` 신설 + `index.html` 로드 순서(`constants.js` → `events.js` → `rules.js` → `forge.js` → `idle.js` → `quests.js` → … → `main.js`; `events.js`는 상수만 읽고 rules·forge·idle·quests가 이를 읽으므로 `rules.js`보다 먼저), `constants.js` 상수·로드 검사(§11), `rules.js`(`chances`·`enhanceOpts`·`recordLateProgress`·`attemptEnhance`, §5.2·5.3), `idle.js`(`manualHuntGold`·`autoRunGold`), `forge.js`(`rollOre`), `quests.js`(`rerollCost`), `save.js`(`normEvents`·`defaultState`·`STAT_KEYS`), `main.js`(`tick`의 `stepEventClock`→`advanceEvents`, `mono` 주입, `resume`·`resetUiFor`의 단조 기준점 리셋(`takeOver`는 `resume`을 거쳐 포함, §6.2), 토스트, 시작·종료 즉시 `persist`), `view.js`(칩·내역 줄·수입 표시), `test-panel.js`(테스트 조작판의 이벤트 지정·끝내기 버튼, `events.js`의 테스트 전용 `setEvent` 호출).
+- **Content(선택)**: 이벤트 아이콘 6종, 시작 토스트 문구 6종, 효과 문장 6종. 효과 문장은 현재 `constants.js`의 `EVENTS[id].desc`(값 `v`로 만든 임시 문구, 예 `수동 사냥 골드 +40%`)이며 콘텐츠가 바꿀 수 있다(`eventDescription(id)`가 그대로 돌려준다).
 - **Tech(소비자 영향)**: `tools/sim-late`(`mechanics.js:158`, `profiles.js:41`이 `R.chances`·`R.enhanceOpts`를 호출하고 selfcheck가 결과를 비교)는 이벤트 필드 추가·`enhanceOpts`의 `event`에 영향받는다. **이벤트가 활성이 아니면 시뮬레이션 결과가 이전과 완전히 같아야 한다**(`event=0`, 최상위 신규 필드만 추가, `parts` 불변). 이벤트를 시뮬레이션에 넣는 것은 이번 범위 밖.
 - **QA**: §15 우선 확인 목록, 기존 `chances()` 깊은 비교 테스트(`event`·`eventGain`·`succNoEvent`·`eventLost` 신규 최상위 필드로 인한 깨짐 확인; `parts`는 불변이라 `parts:null` 의존 코드는 영향 없음).
 

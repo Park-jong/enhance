@@ -146,7 +146,7 @@
 | `engravePending(S, rng)` | 검당 2회 | 검 배열 순서대로, 검마다 (종류, 등급). `attemptEnhance`와 같은 rng 열을 공유(위 §5): 첫 +5 성공 이후 시드 시퀀스가 밀린다 |
 | `rerollKind(S, id, rng)` | 1회 | 새 종류 |
 | `upgradeTier(S, id)` | 없음 | - |
-| `idle.manualHunt(S, now, rng)` / `runAutoCatchup(..., rng)` / `forge.rollOre(S, rng)` | 기존과 같다(광부는 rate만 키움, 호출 횟수 불변) | 기존 순서 |
+| `idle.manualHunt(S, now, rng)` / `runAutoCatchup(..., rng, opts)` / `forge.rollOre(S, rng, opts)` | 기존과 같다(광부는 rate만 키움, 호출 횟수 불변). `runAutoCatchup`·`rollOre`는 선택 인자 `opts`(`{noEvent}`, m2-events §6.2·§8)를 맨 뒤에 받으며, 호출 횟수는 `opts`와 무관하게 그대로다 | 기존 순서 |
 | `setTrait(S, id, k, t)` | 없음(테스트 전용) | - |
 
 테스트 모드: `setTrait(S, swordId, k, t)`는 검의 특성을 직접 지정하는 규칙 함수다. `test-mode.js`가 `rules.js`보다 먼저 로드돼 거기서 노출할 수 없으므로 `SG.rules.setTrait`로 쓰고, 호출은 **테스트 패널(`js/test-panel.js`)의 특성 지정 컨트롤** 전용이다 (2026-11-23 변경). **테스트 모드 전용**이며 `index.html` UI·메뉴에서 호출하지 않는다. 잘못된 `k`/`t`는 `{ok:false, reason:'badTrait'}`, 검이 없으면 `notFound`. 둘 다 상태 불변. `t`는 정수 1..3만 허용.

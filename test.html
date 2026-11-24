@@ -18,12 +18,21 @@
   <select id="testTraitKind" aria-label="특성 종류"></select>
   <select id="testTraitTier" aria-label="특성 등급"></select>
   <button class="small-btn" data-act="testSetTrait">활성 검 특성 지정</button>
+  <!-- 시간 이벤트 지정(테스트 전용 SG.events.setEvent, m2-events AC 50). 선택지는 js/test-panel.js가 상수로 채운다 -->
+  <select id="testEventId" aria-label="시간 이벤트"></select>
+  <button class="small-btn" data-act="testSetEvent">이벤트 시작</button>
+  <button class="small-btn" data-act="testEndEvent">이벤트 끝내기</button>
 </div>
 
 <header>
   <div class="logo">⚔️ 검 강화하기 <span class="badge bad">TEST</span></div>
   <!-- 마지막 저장 시도가 실패한 동안 지속 배지(문구는 js/view.js) -->
   <span class="badge bad save-badge" id="saveBadge" role="status" hidden></span>
+  <!-- 진행 중인 시간 이벤트 칩과 상세 팝오버(내용은 js/view.js). 이벤트가 없으면 숨김 -->
+  <span class="event-wrap" id="eventWrap" hidden>
+    <button class="event-chip" id="eventChip" aria-haspopup="dialog" aria-expanded="false" aria-controls="eventPop" hidden></button>
+    <div class="popover event-pop" id="eventPop" hidden></div>
+  </span>
   <!-- 보유한 가장 높은 단계 기념비(장식, 문구는 js/view.js) -->
   <span class="badge monument-badge" id="monumentBadge" hidden></span>
   <!-- 현재 칭호(업적 보상, 장식). 문구는 js/view.js -->

@@ -345,21 +345,24 @@
   const EVENT_ORE_VALUE_STEP = 10;         // 광맥 값이 이 배수여야 rate1e4 = (rate × SCALE)(100+광부)(100+이벤트) / SCALE가 정수
   const EVENT_ORE_SCALE = 2;               // ORE_PER_HUNT(0.5 단위)를 정수로 만드는 배수 (m2-events §5.3-3)
   const EVENT_IDS = ['luck', 'hunt', 'auto', 'ore', 'anvil', 'quest'];   // 가중치 누적·UI 순서
-  // desc: 효과 문장(값 v로 만든다). need: 스폰 추가 조건 이름(events.js EVENT_NEEDS), 없으면 null
-  const eventEntry = (name, weight, minBest, durationSec, value, desc, need) =>
-    ({ name, weight, minBest, durationSec, value, desc: desc(value), need: need || null });
+  // icon: 칩·토스트 아이콘(이모지 자리, 콘텐츠 팀 에셋이 오면 여기서 교체). desc: 효과 문장(값 v로 만든다).
+  // need: 스폰 추가 조건 이름(events.js EVENT_NEEDS), 없으면 null
+  const eventEntry = (icon, name, weight, minBest, durationSec, value, desc, need) =>
+    ({ icon, name, weight, minBest, durationSec, value, desc: desc(value), need: need || null });
   const EVENTS = {
-    luck:  eventEntry('행운의 시간', 12, 5, 300, 5, v => `강화 성공 확률 +${v}%p`),
-    hunt:  eventEntry('사냥 대목', 24, 13, 300, 40, v => `수동 사냥 골드 +${v}%`),
-    auto:  eventEntry('자동 풍년', 18, 13, 300, 50, v => `자동 사냥 골드 +${v}%`, 'autoOn'),
-    ore:   eventEntry('광맥 발견', 16, 5, 300, 50, v => `사냥 광석 +${v}%`),
-    anvil: eventEntry('모루 가호', 16, 5, 300, 40, v => `모루 사용 시 ${v}% 확률로 내구도 보존`, 'hasAnvil'),
-    quest: eventEntry('의뢰소 특가', 14, 5, 300, 50, v => `의뢰 새로고침 비용 −${v}%`),
+    luck:  eventEntry('🍀', '행운의 시간', 12, 5, 300, 5, v => `강화 성공 확률 +${v}%p`),
+    hunt:  eventEntry('🏹', '사냥 대목', 24, 13, 300, 40, v => `수동 사냥 골드 +${v}%`),
+    auto:  eventEntry('🌾', '자동 풍년', 18, 13, 300, 50, v => `자동 사냥 골드 +${v}%`, 'autoOn'),
+    ore:   eventEntry('⛏️', '광맥 발견', 16, 5, 300, 50, v => `사냥 광석 +${v}%`),
+    anvil: eventEntry('💫', '모루 가호', 16, 5, 300, 40, v => `모루 사용 시 ${v}% 확률로 내구도 보존`, 'hasAnvil'),
+    quest: eventEntry('🏷️', '의뢰소 특가', 14, 5, 300, 50, v => `의뢰 새로고침 비용 −${v}%`),
   };
   // 스폰·효과 코드는 아래 성질을 전제로 하므로(누락 id = undefined 정의, 가동률 25% 상한, 광석 정수 계산) 로드 시점에 막는다
+  // 집합으로 같아야 한다: EVENT_IDS 항목은 서로 다르고, 양쪽이 서로의 항목을 모두 포함한다
   const eventKeys = Object.keys(EVENTS);
-  if (eventKeys.length !== EVENT_IDS.length || EVENT_IDS.some(id => !eventKeys.includes(id))) {
-    throw new Error('EVENT_IDS must match the EVENTS keys');
+  if (new Set(EVENT_IDS).size !== EVENT_IDS.length || eventKeys.length !== EVENT_IDS.length ||
+      EVENT_IDS.some(id => !eventKeys.includes(id)) || eventKeys.some(k => !EVENT_IDS.includes(k))) {
+    throw new Error('EVENT_IDS must equal the EVENTS keys as a set (no duplicates)');
   }
   if (EVENT_IDS.reduce((s, id) => s + EVENTS[id].weight, 0) !== EVENT_WEIGHT_TOTAL) {
     throw new Error('EVENTS weights must sum to EVENT_WEIGHT_TOTAL');

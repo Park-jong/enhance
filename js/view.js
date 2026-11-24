@@ -4,7 +4,7 @@
 (function (root) {
   'use strict';
   const SG = root.SG = root.SG || {};
-  const { C, rules: R, forge: F, idle: I, quests: Q, ach: A, fx: FX } = SG;
+  const { C, rules: R, forge: F, idle: I, quests: Q, ach: A, events: E, fx: FX } = SG;
   const fmt = FX.fmt;
   /** 아이콘 HTML: 콘텐츠 팀 SVG가 로드돼 있으면 그것을, 아니면 이모지 */
   const ic = id => {
@@ -132,6 +132,27 @@
   };
   const corruptKeptText = key => `손상된 저장을 ${key}에 보관했습니다`;
 
+  // 시간 이벤트 표시 (F13, m2-events §9). 값·효과 문장은 모두 SG.events·C.EVENTS·chances()에서 읽는다
+  const SEC_PER_MIN = 60;
+  const LUCK_EVENT = 'luck';
+  const EVENT_TEXT = {
+    offlineNote: '접속 중에만 흐르고 오프라인에서는 적용되지 않습니다',
+    remain: '남은 시간',
+    deal: '특가',
+    guard: '가호',
+  };
+  const CAP_CAUSE_TEXT = { cap: '상한', ceil: '천장' };
+  // 행운의 시간이 켜져 있지만 지금 시도에는 효과가 없는 사유(팝오버 한 줄)
+  const LUCK_IDLE_TEXT = {
+    noActive: () => '활성 검이 없어 지금은 효과가 없습니다',
+    outOfRange: lv => `현재 검(+${lv})은 적용 범위(+${C.EVENT_LUCK_MIN_LV}~+${C.EVENT_LUCK_MAX_LV}) 밖이라 지금은 효과가 없습니다`,
+    certain: () => '이번 강화는 확정 성공이라 지금은 효과가 없습니다',
+    cap: c => `보너스 상한(+${c.cap}%p)에 이미 도달해 지금은 효과가 없습니다`,
+    ceil: c => `성공 확률 천장(${Math.max(c.base, C.SUCC_CEIL)}%)에 닿아 지금은 효과가 없습니다`,
+  };
+  // 수입 줄(#incomeNote)에 붙이는 수입 이벤트와 짧은 이름
+  const INCOME_EVENTS = [{ id: 'hunt', label: '사냥' }, { id: 'auto', label: '자동' }];
+
   const swordName = lv => `+${lv} ${C.SWORDS[lv].n}`;
   const itemName = id => (R.itemDef(id) ? R.itemDef(id).name : C.ORE_NAMES[id]);
   const qtySuffix = n => (n > 1 ? ' ×' + fmt(n) : '');
@@ -162,6 +183,56 @@
   /** 색만으로 구분하지 않게 약자 한 글자 + 등급 점(1~3개) */
   const traitChipHTML = tr =>
     `<span class="trait-chip trait-t${tr.t}"><b>${C.TRAITS[tr.k].short}</b><span class="pips">${'<i></i>'.repeat(tr.t)}</span></span>`;
+
+  // ------------------------------------------------------------ 시간 이벤트 표시 (순수 문자열, node 테스트에서 호출 가능)
+  /** 헤더 칩 안 HTML(a = E.activeEvent 결과): 아이콘 + 이름 + m:ss. ≤520px에서는 CSS가 이름을 화면에서만 감춘다(스크린 리더는 읽음) */
+  const eventChipHTML = a =>
+    `<span class="ev-icon" aria-hidden="true">${a.def.icon}</span><span class="ev-name">${a.def.name}</span> <span class="ev-clock">${E.fmtEventClock(a.remainMs)}</span>`;
+  /** 칩 title(데스크톱 호버)에 쓰는 전체 문장 */
+  const eventChipLabel = a => `${a.def.name} ${E.fmtEventClock(a.remainMs)} 남음 · ${a.def.desc}`;
+  /** 이벤트 효과가 상한·천장에 잘린 원인(m2-events §9): 이벤트를 빼도 이미 상한 이상이면 'cap', 아니면 'ceil'(SUCC_CEIL) */
+  const eventCapCause = c => (c.raw - c.event >= c.cap ? 'cap' : 'ceil');
+  /** 확률 내역 끝의 이벤트 메모: 이벤트 항이 없거나 다 들어가면 '', 일부만이면 실효 %p, 0이면 효과 없음(원인) */
+  function eventBreakdownNote(c) {
+    if (!(c.event > 0) || c.eventGain >= c.event) return '';
+    return c.eventGain > 0 ? ` · 이벤트 실효 +${c.eventGain}%p` : ` · 이벤트 효과 없음(${CAP_CAUSE_TEXT[eventCapCause(c)]})`;
+  }
+  /** 행운의 시간이 켜져 있지만 지금 강화에 효과가 없으면 그 사유, 아니면 ''. 실제 굴림과 같은 luckBonus·currentChances로 판정 */
+  function luckIdleText(S) {
+    const a = E.activeEvent(S);
+    if (!a || a.id !== LUCK_EVENT) return '';
+    const sw = R.activeSword(S);
+    if (!sw) return LUCK_IDLE_TEXT.noActive();
+    if (E.luckBonus(S, sw.lv) === 0) return LUCK_IDLE_TEXT.outOfRange(sw.lv);
+    const c = R.currentChances(S);
+    if (c.event === 0) return LUCK_IDLE_TEXT.certain();   // 확정 시도(certain)는 이벤트 항이 0이다
+    return c.eventGain > 0 ? '' : LUCK_IDLE_TEXT[eventCapCause(c)](c);
+  }
+  /** 이벤트 상세 팝오버(#eventPop) 내용. 활성 이벤트가 없으면 '' */
+  function eventPopHTML(S) {
+    const a = E.activeEvent(S);
+    if (!a) return '';
+    const idle = luckIdleText(S);
+    return `<b class="ev-pop-title">${a.def.icon} ${a.def.name}</b><span>${a.def.desc}</span>` +
+      `<span>${EVENT_TEXT.remain} <b class="ev-clock">${E.fmtEventClock(a.remainMs)}</b></span>` +
+      `<small class="muted">${EVENT_TEXT.offlineNote}</small>${idle ? `<small class="ev-idle">${idle}</small>` : ''}`;
+  }
+  /** 수입 줄의 이벤트 몫 " · 이벤트 사냥 +40%"(켜진 수입 이벤트만, 효과 계산과 같은 eventValue) */
+  const incomeEventText = S => INCOME_EVENTS.map(({ id, label }) => {
+    const v = E.eventValue(S, id);
+    return v > 0 ? ` · 이벤트 ${label} +${v}%` : '';
+  }).join('');
+  /** 이벤트 값 v(%)가 켜져 있으면 "+50%", 아니면 '' (광석 칸·방치 탭 광석 줄) */
+  const eventPctText = (S, id) => { const v = E.eventValue(S, id); return v > 0 ? `+${v}%` : ''; };
+  /** 토스트 문구: 시작 "🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p", 종료 "이벤트 종료: 행운의 시간" */
+  const eventStartText = id => {
+    const d = C.EVENTS[id];
+    return `${d.icon} 이벤트 시작: ${d.name} — ${d.durationSec / SEC_PER_MIN}분간 ${d.desc}`;
+  };
+  const eventEndText = id => `이벤트 종료: ${C.EVENTS[id].name}`;
+  /** 행운의 시간 덕에 난 성공(r.eventAssist)의 결과 로그. 숙련 구간(+15~+19)이면 숙련 기록에 세지 않았음을 함께 알린다 */
+  const eventAssistText = r =>
+    `${C.EVENTS[LUCK_EVENT].icon} 이벤트 덕에 성공${R.masteryIndex(r.from) >= 0 ? ' — 숙련 기록에는 세지 않습니다' : ''}`;
 
   function fmtDuration(ms) {
     const total = Math.max(0, Math.ceil(ms / 1000));
@@ -205,6 +276,26 @@
     setHTML($('#resOther'), res.join(''));
     $('#setSound').checked = !S.settings.muted;
     $('#setSkip').checked = S.settings.skipFx;
+  }
+
+  /**
+   * 헤더 이벤트 칩과 상세 팝오버(매 틱). 활성 이벤트가 없으면 칩·팝오버를 모두 숨긴다:
+   * 이벤트가 끝나거나 상태가 교체돼도 열린 팝오버가 남지 않는다(V1). 팝오버 내용은 열려 있을 때만 갱신
+   */
+  function renderEventChip(S) {
+    const a = E.activeEvent(S);
+    const chip = $('#eventChip');
+    const pop = $('#eventPop');
+    $('#eventWrap').hidden = !a;
+    chip.hidden = !a;
+    if (!a) {
+      pop.hidden = true;
+      return;
+    }
+    setHTML(chip, eventChipHTML(a));
+    chip.title = eventChipLabel(a);
+    chip.setAttribute('aria-expanded', String(!pop.hidden));
+    if (!pop.hidden) setHTML(pop, eventPopHTML(S));
   }
 
   // ============================================================ 보관함 스트립 (F5)
@@ -279,6 +370,8 @@
     if (c.parts.bless) terms.push(`축복 ${c.parts.bless}`);
     if (c.parts.anvil) terms.push(`모루 ${c.parts.anvil}`);
     if (c.parts.pity) terms.push(`보정 ${c.parts.pity}`);
+    // 행운의 시간은 같은 보너스 합(raw)에 들어가므로 항들의 합이 raw와 같다(m2-events §9)
+    if (c.event > 0) terms.push(`이벤트 ${c.event}`);
     let s = terms.join(' + ');
     if (c.raw > 0) {
       s += ` = +${c.raw}`;
@@ -287,7 +380,7 @@
     // 숙련은 상한 밖 항목이라 상한 표시(취소선·뱃지) 뒤에 따로 더한다
     if (c.mastery) s += ` + <span class="mastery-term">숙련 +${c.mastery}</span> = ${c.succ}%`;
     if (c.succ < c.base + c.bonus + c.mastery) s += ` <span class="badge warn">천장 ${Math.max(c.base, C.SUCC_CEIL)}%</span>`;
-    return s;
+    return s + eventBreakdownNote(c);
   }
 
   /** 성공 확률 아래 천장 게이지 줄(+15~+19에서만) */
@@ -310,7 +403,7 @@
 
   function renderIncomeNote(S) {
     const shares = INCOME_TRAIT_KINDS.map(k => traitShare(S, k)).filter(Boolean);
-    $('#incomeNote').textContent = `사냥·자동 수입 기준: 보관함 최고 검 +${R.topLv(S)}${shares.length ? ` · 특성 ${shares.join(' · ')}` : ''}`;
+    $('#incomeNote').textContent = `사냥·자동 수입 기준: 보관함 최고 검 +${R.topLv(S)}${shares.length ? ` · 특성 ${shares.join(' · ')}` : ''}${incomeEventText(S)}`;
   }
 
   /** 활성 검 이름 줄 "완벽한 약탈자 · +12 …"과 그 아래 효과 문장. 특성이 없으면 기존 표기 */
@@ -396,8 +489,10 @@
     anvil: S => {
       const a = R.equippedAnvil(S);
       if (!a) return { title: `${ic('anvil')} 모루 <span class="muted">장착 없음</span>`, sub: '성공 확률 증가 · 시도마다 내구도 -1' };
+      const guard = E.eventValue(S, 'anvil');
       return {
-        title: `${ic('anvil_' + a.g)} ${C.ITEMS['anvil_' + a.g].name} <span class="muted">내구 ${a.dura}/${C.ANVIL_DURA[a.g]}</span><span class="tag">+${C.ANVIL_BONUS[a.g]}%p</span>`,
+        title: `${ic('anvil_' + a.g)} ${C.ITEMS['anvil_' + a.g].name} <span class="muted">내구 ${a.dura}/${C.ANVIL_DURA[a.g]}</span><span class="tag">+${C.ANVIL_BONUS[a.g]}%p</span>` +
+          (guard > 0 ? `<span class="tag">${EVENT_TEXT.guard} ${guard}%</span>` : ''),
         sub: '성공 확률 증가 · 시도마다 내구도 -1',
       };
     },
@@ -583,8 +678,10 @@
         <div class="shop-text">${C.ITEMS['anvil_' + g].name}<small>성공 +${C.ANVIL_BONUS[g]}%p · 내구 ${C.ANVIL_DURA[g]}</small><small>${costHTML(S, F.craftCost(g))}</small></div>
         <button class="small-btn" data-act="craft" data-id="${g}" ${block ? 'disabled' : ''}>${block === 'full' ? '보유 한도' : '제작'}</button></div>`;
     }).join('');
+    const oreEvent = eventPctText(S, 'ore');
+    const oreEventTag = oreEvent ? ` <span class="ev-up" title="${C.EVENTS.ore.name}">${oreEvent}</span>` : '';
     const ores = C.ORES.map(k => F.oreUnlocked(S, k)
-      ? `<div>${ic(k)} ${C.ORE_NAMES[k]}<b>${fmt(S.ore[k])}</b><small>사냥당 +${rateText(F.orePerHunt(S, k))}</small></div>`
+      ? `<div>${ic(k)} ${C.ORE_NAMES[k]}<b>${fmt(S.ore[k])}</b><small>사냥당 +${rateText(F.orePerHunt(S, k))}${oreEventTag}</small></div>`
       : `<div class="muted">${ic('lock')} ${C.ORE_NAMES[k]}<b>-</b><small>최고 +${C.ORE_UNLOCK_LV[k]} 달성 시</small></div>`).join('');
     const oreShare = traitShare(S, 'ore');
     const minerNote = oreShare ? `<p class="panel-note">사냥당 광석 ${oreShare} 적용 중</p>` : '';
@@ -620,11 +717,13 @@
     else sub = `보관함의 +${q.lv} 검을 납품합니다 (판매가 ${fmt(R.payoutPreview(S, R.sell(q.lv), cand))}G)`;
     const armed = isArmed(ui, 'deliver:' + i, now);
     const rerollCost = Q.rerollCost(S);
+    // 의뢰소 특가 중에는 rerollCost가 이미 할인 가격이다(차감도 같은 함수)
+    const deal = E.eventValue(S, 'quest') > 0 ? ` <span class="badge good">${EVENT_TEXT.deal}</span>` : '';
     return `<div class="quest"><div class="q-head">${badge} 요구: ${swordName(q.lv)}</div>
       <div class="q-reward">${reward}</div><div class="q-sub">${sub}</div>
       <div class="q-btns">
         <button class="small-btn ${armed ? 'armed' : ''}" data-act="deliver" data-id="${i}" ${!cand || ui.busy ? 'disabled' : ''}>${armed ? '정말 납품?' : `${ic('deliver')} 납품`}</button>
-        <button class="small-btn gold" data-act="reroll" data-id="${i}" ${Q.rerollBlock(S, i) ? 'disabled' : ''}>새로고침 ${fmt(rerollCost)}G</button>
+        <button class="small-btn gold" data-act="reroll" data-id="${i}" ${Q.rerollBlock(S, i) ? 'disabled' : ''}>새로고침 ${fmt(rerollCost)}G${deal}</button>
       </div></div>`;
   }
 
@@ -635,7 +734,9 @@
 
   function renderIdle(S, ui, now) {
     const lv = R.topLv(S);
-    const ores = withShare(F.unlockedOres(S).map(k => `${ic(k)}+${rateText(F.orePerHunt(S, k))}`).join(' '), traitShare(S, 'ore'));
+    const oreEvent = eventPctText(S, 'ore');
+    const ores = withShare(withShare(F.unlockedOres(S).map(k => `${ic(k)}+${rateText(F.orePerHunt(S, k))}`).join(' '), traitShare(S, 'ore')),
+      oreEvent ? `${oreEvent}(${C.EVENTS.ore.name})` : '');
     const gold = withShare(`+${fmt(I.autoRunGold(S, now))}G`, traitShare(S, 'work'));
     const status = `<div class="row"><div class="shop-icon">${ic('auto')}</div>
       <div class="shop-text">자동 사냥 ${S.idle.autoOn ? '<span class="badge good">ON</span>' : '<span class="badge">OFF</span>'}
@@ -977,6 +1078,7 @@
   /** env.tzOffsetMin: 일일 과제 날짜 경계와 같은 시간대 함수(main.js의 dailyEnv) */
   function render(S, ui, now, env) {
     renderHeader(S);
+    renderEventChip(S);
     renderStrip(S, ui, now);
     renderSwordCard(S, ui);
     renderTray(S, ui);
@@ -1001,5 +1103,7 @@
     traitName, rekindText, tierUpText, monumentText,
     CLAIM_REASON, NEW_DAILY_TEXT, achReachedText, achClaimText, dailyClaimText, bonusClaimText, claimAllText,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
+    breakdownHTML, eventChipHTML, eventChipLabel, eventCapCause, eventBreakdownNote, luckIdleText, eventPopHTML,
+    incomeEventText, eventPctText, eventStartText, eventEndText, eventAssistText,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -183,6 +183,7 @@
       FX.showResult('성공!', 'var(--good)', fx.resultMs);
       sfx(resultCue('success', fx, 'success'));
       FX.log(`+${r.from} → +${r.to} 강화 성공! ${nsw.n}`, 'good');
+      if (r.eventAssist) FX.log(V.eventAssistText(r), 'good');
       if (r.firstFound) announceFound(r.to);
     } },
     protected: { play(r, fx) {
@@ -439,7 +440,7 @@
   const dailyKeyOf = id => (typeof id === 'string' && DAILY_SLOT_ID.test(id) ? Number(id) : id);
 
   const ACTIONS = {
-    tab: id => { ui.tab = id; disarmSinks(); sfx('tabSwitch'); render(); },
+    tab: id => { ui.tab = id; disarmSinks(); closeEventPop(); sfx('tabSwitch'); render(); },
     // 보관함 칸 한 번 클릭 = 활성 검. 강화 연출 중이거나 이미 활성인 검이면 무시
     activate: id => {
       if (ui.busy || +id === S.active) return;
@@ -524,6 +525,7 @@
     // 이 탭의 옛 자동 사냥 시각을 두면, 다른 탭이 이미 지급한 몫을 catch-up으로 다시 지급한다
     Object.assign(ui, { view: null, busy: false, armed: {}, nextEnhanceAt: 0, nextAutoAt: t + I.autoInterval(state), eventLastWall: t });
     resetEventMono();
+    closeEventPop();
   }
   /** 틱이 건너뛴 구간(숨김·탭 잠금·상태 교체)의 시간을 이벤트에 흘리지 않도록 단조 시계 기준점을 지금으로 옮긴다 */
   function resetEventMono() { ui.eventLastMono = mono(); }
@@ -575,12 +577,39 @@
     ui.eventLastWall = t;
     return { res: E.advanceEvents(S, dtMs, rng), wallDtMs };
   }
+  /**
+   * 이벤트 시작·종료 토스트(m2-events §9): advanceEvents가 한 번에 하나만 돌려주므로 틱당 최대 1개, skipFx와 무관.
+   * 활성 틱에서 같은 동기 흐름으로 바로 띄우고(지연 없음, V9) 띄우는 순간에도 멈춤·숨김을 다시 확인한다.
+   * 숨김·잠금 동안에는 이벤트 시간이 흐르지 않으므로 복귀한 탭이 이미 지난 종료를 알릴 일이 없다
+   */
+  function announceEvent(res) {
+    if (isSuspended() || document.hidden) return;
+    if (res.started) {
+      const msg = V.eventStartText(res.started);
+      FX.toast(msg, 'good');
+      FX.log(msg, 'info');
+    } else if (res.ended) {
+      const msg = V.eventEndText(res.ended);
+      FX.toast(msg);
+      FX.log(msg, 'info');
+    }
+  }
+  // 이벤트 상세 팝오버: 설정 팝오버와 같은 열고 닫기(칩 클릭 토글, 바깥 클릭·Esc·탭 전환·상태 교체·잠금으로 닫힘)
+  function closeEventPop() {
+    $('#eventPop').hidden = true;
+    // 바깥 클릭·Esc·잠금은 render 없이 닫으므로 다음 틱을 기다리지 않고 바로 맞춘다
+    $('#eventChip').setAttribute('aria-expanded', 'false');
+  }
+  function toggleEventPop() {
+    $('#eventPop').hidden = !$('#eventPop').hidden;
+    render();
+  }
   function tick() {
     if (isSuspended() || document.hidden) return;   // 숨김 동안은 복귀 정산(resume)이 처리
     const t = now();
     // 오프라인 판정보다 먼저: 이번 틱의 자동·수동 사냥은 갱신된 이벤트 상태를 읽는다
     const ev = stepEventClock(t);
-    // 7-2: 이벤트 시작·종료 토스트 (ev.res.started / ev.res.ended)
+    announceEvent(ev.res);
     const eventChanged = !!(ev.res.started || ev.res.ended);
     // 탭 동결 등으로 visibilitychange 없이 오래 멈췄다 깨어난 경우도 복귀 정산으로 처리(복귀 정산이 저장한다)
     if (t - S.idle.lastSeen >= C.OFFLINE_MIN_SEC * 1000) return resume();
@@ -651,6 +680,7 @@
     ui.armed = {};
     $('#modal').hidden = true;
     $('#settingsPop').hidden = true;
+    closeEventPop();
   }
   /** 사용자가 이 탭을 고르면 저장소의 유효한 저장을 lastSeen 비교 없이 이어받는다(없거나 손상이면 메모리 상태로 계속) */
   function takeOver() {
@@ -662,6 +692,7 @@
   document.addEventListener('click', whenActive(e => {
     const pop = $('#settingsPop');
     if (!pop.hidden && !e.target.closest('.settings-wrap')) pop.hidden = true;
+    if (!$('#eventPop').hidden && !e.target.closest('.event-wrap')) closeEventPop();
     const el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
     const fn = ACTIONS[el.dataset.act];
@@ -675,6 +706,7 @@
   $('#btnSell').addEventListener('click', whenActive(() => sellSword(S.active)));
   $('#btnHunt').addEventListener('click', whenActive(hunt));
   $('#btnSettings').addEventListener('click', whenActive(() => { $('#settingsPop').hidden = !$('#settingsPop').hidden; }));
+  $('#eventChip').addEventListener('click', whenActive(toggleEventPop));
   $('#setSound').addEventListener('change', whenActive(e => { S.settings.muted = !e.target.checked; persist(); render(); }));
   $('#setSkip').addEventListener('change', whenActive(e => {
     S.settings.skipFx = e.target.checked;
@@ -734,6 +766,7 @@
       $('#banner').classList.remove('show');
       $('#modal').hidden = true;
       $('#settingsPop').hidden = true;
+      closeEventPop();
     }
   }));
   // 포커스된 버튼·체크박스가 Space로 한 번 더 눌리는 것을 막음

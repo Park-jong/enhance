@@ -12,6 +12,11 @@
   <div class="logo">⚔️ 검 강화하기</div>
   <!-- 마지막 저장 시도가 실패한 동안 지속 배지(문구는 js/view.js) -->
   <span class="badge bad save-badge" id="saveBadge" role="status" hidden></span>
+  <!-- 진행 중인 시간 이벤트 칩과 상세 팝오버(내용은 js/view.js). 이벤트가 없으면 숨김 -->
+  <span class="event-wrap" id="eventWrap" hidden>
+    <button class="event-chip" id="eventChip" aria-haspopup="dialog" aria-expanded="false" aria-controls="eventPop" hidden></button>
+    <div class="popover event-pop" id="eventPop" hidden></div>
+  </span>
   <!-- 보유한 가장 높은 단계 기념비(장식, 문구는 js/view.js) -->
   <span class="badge monument-badge" id="monumentBadge" hidden></span>
   <!-- 현재 칭호(업적 보상, 장식). 문구는 js/view.js -->

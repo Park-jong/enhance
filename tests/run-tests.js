@@ -3675,22 +3675,23 @@ describe('F12 6-B screen helpers: countdown, reward previews, display state', ()
   });
 });
 
-describe('F12 daily table load guards', () => {
-  /** constants.js 원문을 patch로 바꿔 새 VM 문맥에 올리고, mutate(C) 뒤 나머지 규칙 모듈을 올린다. 던진 오류 메시지(없으면 null) */
-  function loadError(patch, mutate) {
-    const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
-    ctx.globalThis = ctx;
-    vm.createContext(ctx);
-    try {
-      vm.runInContext(patch(fs.readFileSync(js('constants.js'), 'utf8')), ctx, { filename: 'constants.js' });
-      mutate(ctx.SG.C);
-      ['events.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js', 'achievements.js']
-        .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
-      return null;
-    } catch (e) {
-      return e.message;
-    }
+/** constants.js 원문을 patch로 바꿔 새 VM 문맥에 올리고, mutate(C) 뒤 나머지 규칙 모듈을 올린다. 던진 오류 메시지(없으면 null) */
+function loadError(patch, mutate) {
+  const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  try {
+    vm.runInContext(patch(fs.readFileSync(js('constants.js'), 'utf8')), ctx, { filename: 'constants.js' });
+    mutate(ctx.SG.C);
+    ['events.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js', 'achievements.js']
+      .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
+    return null;
+  } catch (e) {
+    return e.message;
   }
+}
+
+describe('F12 daily table load guards', () => {
   const asIs = src => src;
   const keep = () => {};
   test('the shipped tables load', () => {
@@ -4308,6 +4309,263 @@ describe('F13 hard rule §2.5: no active event = pre-F13 values and rng call seq
   test('no event ever started or assisted: events stay default, eventsSeen 0, eventAssist always false', () => {
     const run = scenario();
     assert.deepStrictEqual([run.assists, run.events, run.eventsSeen], [0, { active: null, sinceMs: 0, nextAtMs: 900000 }, 0]);
+  });
+});
+
+// ============================================================ 7-2 F13 이벤트 화면 문자열 (m2-events §9, AC 32·33·34·50)
+// view.js는 불러올 때 DOM을 읽지 않으므로(fx.js도 마찬가지) 이 프로세스의 SG 위에 올려 순수 문자열 함수만 부른다
+require(js('fx.js'));
+require(js('view.js'));
+const V = globalThis.SG.view;
+const plainText = html => html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+const BREAKDOWN_TERM = /^(축복|모루|보정|이벤트) (\d+)$/;
+/** 확률 내역 줄을 글자로 풀어 { base, terms: [[이름, 값]], shownRaw(없으면 null), text } */
+function parseBreakdown(c) {
+  const text = plainText(V.breakdownHTML(c));
+  const head = text.split(' = ')[0];
+  const [baseTerm, ...rest] = head.split(' + ').filter(t => !t.startsWith('숙련'));
+  const terms = rest.map(t => {
+    const m = t.match(BREAKDOWN_TERM);
+    assert.ok(m, `unexpected term "${t}" in "${text}"`);
+    return [m[1], Number(m[2])];
+  });
+  const after = text.slice(head.length).match(/^ = \+(\d+)/);
+  return { base: Number(baseTerm.match(/^기본 (\d+)%$/)[1]), terms, shownRaw: after ? Number(after[1]) : null, text };
+}
+
+describe('7-2 event chip text and label (AC 32)', () => {
+  const chipOf = (id, remainMs) => {
+    const a = E.activeEvent(withEvent(evState(13), id, remainMs));
+    return { html: V.eventChipHTML(a), label: V.eventChipLabel(a) };
+  };
+  test('chip = icon + name + m:ss (ceil); the last moment shows 0:01', () => {
+    assert.strictEqual(chipOf('luck', 252000).html,
+      '<span class="ev-icon" aria-hidden="true">🍀</span><span class="ev-name">행운의 시간</span> <span class="ev-clock">4:12</span>');
+    assert.deepStrictEqual([300000, 251001, 251000, 60000, 59001, 1001, 1000, 1].map(ms => plainText(chipOf('hunt', ms).html)),
+      ['🏹사냥 대목 5:00', '🏹사냥 대목 4:12', '🏹사냥 대목 4:11', '🏹사냥 대목 1:00', '🏹사냥 대목 1:00', '🏹사냥 대목 0:02', '🏹사냥 대목 0:01', '🏹사냥 대목 0:01']);
+  });
+  test('label (title) = name m:ss 남음 · effect sentence, for every event', () => {
+    assert.strictEqual(chipOf('luck', 251500).label, '행운의 시간 4:12 남음 · 강화 성공 확률 +5%p');
+    C.EVENT_IDS.forEach(id => {
+      const S = withEvent(evState(13), id, 1);
+      S.idle.autoOn = true;
+      const a = E.activeEvent(S);
+      assert.strictEqual(V.eventChipLabel(a), `${C.EVENTS[id].name} 0:01 남음 · ${C.EVENTS[id].desc}`, id);
+      assert.ok(V.eventChipHTML(a).includes(`>${C.EVENTS[id].icon}<`) && V.eventChipHTML(a).includes(`>${C.EVENTS[id].name}<`), id);
+    });
+  });
+});
+
+describe('7-2 breakdown line with the lucky hour term (AC 33, §9)', () => {
+  const LEVELS = Array.from({ length: C.EVENT_LUCK_MAX_LV - C.EVENT_LUCK_MIN_LV + 1 }, (_, i) => C.EVENT_LUCK_MIN_LV + i);
+  const GRADES = [0, 1, 2, 3];
+  const PITIES = [0, 2, 10];
+  const MASTERIES = [0, 1, 4];
+  /** 원인 판정 기대값(§9): 이벤트를 빼도 상한 이상이면 상한, 아니면 천장 */
+  const expectedNote = c => {
+    if (c.eventGain >= c.event) return '';
+    if (c.eventGain > 0) return ` · 이벤트 실효 +${c.eventGain}%p`;
+    return ` · 이벤트 효과 없음(${c.raw - c.event >= c.cap ? '상한' : '천장'})`;
+  };
+  const grid = [];
+  LEVELS.forEach(lv => [false, true].forEach(bless => GRADES.forEach(anvilGrade => PITIES.forEach(pity => MASTERIES.forEach(mastery =>
+    [5, 0].forEach(event => grid.push({ lv, opts: { bless, anvilGrade, mastery, event }, c: R.chances(sword(1, lv, null, { pity }), { bless, anvilGrade, mastery, event }) })))))));
+  test(`grid lv ${LEVELS[0]}..${LEVELS[LEVELS.length - 1]} × bless × anvil × pity × mastery × event 5/0 (${grid.length} cases): shown terms sum to raw`, () => {
+    grid.forEach(({ lv, opts, c }) => {
+      const p = parseBreakdown(c);
+      const where = `+${lv} ${json(opts)}: ${p.text}`;
+      assert.strictEqual(p.base, c.base, where);
+      assert.strictEqual(p.terms.reduce((s, [, v]) => s + v, 0), c.raw, where);
+      assert.strictEqual(p.shownRaw, c.raw > 0 ? c.raw : null, where);
+      const eventTerms = p.terms.filter(([n]) => n === '이벤트');
+      if (opts.event) {
+        assert.deepStrictEqual(eventTerms, [['이벤트', 5]], where);
+        assert.strictEqual(p.terms[p.terms.length - 1][0], '이벤트', 'the event term comes after 보정: ' + where);
+      } else {
+        assert.ok(!p.text.includes('이벤트'), where);
+      }
+    });
+  });
+  test('grid: the event note is at the very end and says 실효 / 효과 없음(상한|천장) / nothing exactly by eventGain', () => {
+    const seen = { full: 0, partial: 0, cap: 0, ceil: 0, none: 0 };
+    grid.forEach(({ lv, opts, c }) => {
+      const html = V.breakdownHTML(c);
+      const want = expectedNote(c);
+      const where = `+${lv} ${json(opts)}: ${html}`;
+      assert.strictEqual(V.eventBreakdownNote(c), want, where);
+      assert.ok(want === '' ? !/이벤트 (실효|효과 없음)/.test(html) : html.endsWith(want), where);
+      if (!opts.event) { seen.none++; return; }
+      if (want === '') seen.full++;
+      else if (c.eventGain > 0) seen.partial++;
+      else if (V.eventCapCause(c) === 'cap') seen.cap++;
+      else seen.ceil++;
+      // 원인 판정이 실제 확률과 맞는지: 상한이면 이벤트 없이도 보너스가 상한, 천장이면 이벤트 없는 성공률이 이미 천장
+      if (c.eventGain === 0 && V.eventCapCause(c) === 'cap') assert.strictEqual(Math.min(c.raw - c.event, c.cap), c.cap, where);
+      if (c.eventGain === 0 && V.eventCapCause(c) === 'ceil') assert.strictEqual(c.succNoEvent, Math.max(c.base, C.SUCC_CEIL), where);
+    });
+    assert.ok(seen.full > 0 && seen.partial > 0 && seen.cap > 0 && seen.none > 0, 'the grid reaches every reachable note kind: ' + json(seen));
+  });
+  test('§9 examples render exactly: +13 bless+iron (실효 +2%p), bless+mithril (효과 없음(상한)), +15 bless+steel mastery 4 (실효 +1%p)', () => {
+    const cap = '<span class="badge warn">상한 14</span>';
+    assert.strictEqual(V.breakdownHTML(R.chances(sword(1, 13), { bless: true, anvilGrade: 1, event: 5 })),
+      `기본 30% + 축복 10 + 모루 2 + 이벤트 5 = +17 → <s>+17</s> +14 ${cap} · 이벤트 실효 +2%p`);
+    assert.strictEqual(V.breakdownHTML(R.chances(sword(1, 13), { bless: true, anvilGrade: 3, event: 5 })),
+      `기본 30% + 축복 10 + 모루 4 + 이벤트 5 = +19 → <s>+19</s> +14 ${cap} · 이벤트 효과 없음(상한)`);
+    assert.strictEqual(V.breakdownHTML(R.chances(sword(1, 15), { bless: true, anvilGrade: 2, mastery: 4, event: 5 })),
+      `기본 20% + 축복 10 + 모루 3 + 이벤트 5 = +18 → <s>+18</s> +14 ${cap} + <span class="mastery-term">숙련 +12</span> = 46% · 이벤트 실효 +1%p`);
+    assert.strictEqual(V.breakdownHTML(R.chances(sword(1, 13), { event: 5 })), '기본 30% + 이벤트 5 = +5');
+  });
+  test('the 천장 cause (raw − event < cap, eventGain 0) is chosen from the chances fields alone', () => {
+    // 출시 상수(+5~+19)로는 도달하지 않는 조합이라 chances() 반환 형태의 객체로 원인 판정만 확인한다
+    const c = { base: 80, parts: { bless: 10, anvil: 0, pity: 0 }, raw: 15, bonus: 15, cap: 20, mastery: 0, succ: 90, event: 5, succNoEvent: 90, eventGain: 0 };
+    assert.strictEqual(V.eventCapCause(c), 'ceil');
+    assert.strictEqual(V.eventBreakdownNote(c), ' · 이벤트 효과 없음(천장)');
+    assert.strictEqual(V.breakdownHTML(c), `기본 80% + 축복 10 + 이벤트 5 = +15 <span class="badge warn">천장 90%</span> · 이벤트 효과 없음(천장)`);
+    assert.strictEqual(V.eventCapCause(Object.assign({}, c, { raw: 25 })), 'cap', 'raw − event = cap → 상한');
+  });
+  test('certain attempts (gaugeFull / sure / forced) have no event term and no note even with opts.event 5', () => {
+    const TM = loadTestModeSG();
+    const cases = {
+      gaugeFull: R.chances(sword(1, 15), { gaugeFull: true, event: 5 }),
+      sure: R.chances(sword(1, 7), { sure: true, event: 5 }),
+      forced: TM.rules.chances({ id: 1, lv: 13, prot: 3, pity: 0, trait: null }, { bless: true, event: 5 }),
+    };
+    Object.entries(cases).forEach(([flag, c]) => {
+      assert.ok(c[flag] && c.event === 0 && c.parts === null, flag);
+      const html = V.breakdownHTML(c);
+      assert.ok(html.includes('100%') && !html.includes('이벤트') && V.eventBreakdownNote(c) === '', `${flag}: ${html}`);
+    });
+  });
+});
+
+describe('7-2 lucky hour popover reason and income helpers (§9)', () => {
+  const luck = S => withEvent(S, 'luck');
+  test('luckIdleText: no event / other event / effective / partial → empty', () => {
+    assert.strictEqual(V.luckIdleText(evState(13)), '');
+    assert.strictEqual(V.luckIdleText(withEvent(evState(13), 'hunt')), '');
+    assert.strictEqual(V.luckIdleText(luck(evState(13))), '');
+    assert.strictEqual(V.luckIdleText(luck(enhanceState(13, { g: 1, bless: true }))), '', 'eventGain 2 > 0');
+  });
+  test('luckIdleText reasons: no active sword / out of range (+4, +20) / certain (sure, gauge) / cap', () => {
+    const none = luck(evState(13));
+    none.active = 999;
+    assert.strictEqual(V.luckIdleText(none), '활성 검이 없어 지금은 효과가 없습니다');
+    [4, 20].forEach(lv => {
+      const S = luck(stateWith({ swords: [sword(1, lv)], top: { best: 13 } }));
+      assert.strictEqual(V.luckIdleText(S), `현재 검(+${lv})은 적용 범위(+5~+19) 밖이라 지금은 효과가 없습니다`, lv);
+    });
+    const sure = enhanceState(7);
+    sure.inv.sure = 1;
+    assert.ok(R.setUse(sure, 'sure', true).ok);
+    const gauge = evState(15);
+    gauge.gauge[0] = C.GAUGE_N[0];
+    [sure, gauge].forEach(S => assert.strictEqual(V.luckIdleText(luck(S)), '이번 강화는 확정 성공이라 지금은 효과가 없습니다'));
+    assert.strictEqual(V.luckIdleText(luck(enhanceState(13, { g: 3, bless: true }))), '보너스 상한(+14%p)에 이미 도달해 지금은 효과가 없습니다');
+  });
+  test('eventPopHTML: empty without an event; title, effect, clock, offline note; the idle reason only when it applies', () => {
+    assert.strictEqual(V.eventPopHTML(evState(13)), '');
+    const tampered = stateWith({ swords: [sword(1, 4)] });
+    tampered.events.active = { id: 'luck', remainMs: 1000 };
+    assert.strictEqual(V.eventPopHTML(tampered), '', 'best 4 tampered event shows nothing');
+    const on = V.eventPopHTML(withEvent(evState(13), 'hunt', 251500));
+    assert.strictEqual(on, '<b class="ev-pop-title">🏹 사냥 대목</b><span>수동 사냥 골드 +40%</span><span>남은 시간 <b class="ev-clock">4:12</b></span>' +
+      '<small class="muted">접속 중에만 흐르고 오프라인에서는 적용되지 않습니다</small>');
+    const capped = V.eventPopHTML(luck(enhanceState(13, { g: 3, bless: true })));
+    assert.ok(capped.endsWith('<small class="ev-idle">보너스 상한(+14%p)에 이미 도달해 지금은 효과가 없습니다</small>'), capped);
+    assert.ok(!V.eventPopHTML(luck(evState(13))).includes('ev-idle'));
+  });
+  test('incomeEventText / eventPctText follow eventValue (hunt +40%, auto +50%, ore +50%), empty otherwise', () => {
+    const on = id => { const S = withEvent(evState(13), id); S.idle.autoOn = true; return S; };
+    assert.strictEqual(V.incomeEventText(on('hunt')), ' · 이벤트 사냥 +40%');
+    assert.strictEqual(V.incomeEventText(on('auto')), ' · 이벤트 자동 +50%');
+    ['luck', 'ore', 'anvil', 'quest'].forEach(id => assert.strictEqual(V.incomeEventText(on(id)), '', id));
+    assert.strictEqual(V.incomeEventText(evState(13)), '');
+    assert.strictEqual(V.eventPctText(on('ore'), 'ore'), '+50%');
+    assert.strictEqual(V.eventPctText(on('anvil'), 'anvil'), '+40%');
+    assert.deepStrictEqual(['hunt', 'luck'].map(id => V.eventPctText(on(id), 'ore')), ['', '']);
+    const tampered = stateWith({ swords: [sword(1, 4)] });
+    tampered.events.active = { id: 'hunt', remainMs: 1000 };
+    assert.deepStrictEqual([V.incomeEventText(tampered), V.eventPctText(tampered, 'hunt')], ['', ''], 'best 4: no event text');
+  });
+});
+
+describe('7-2 toast and log texts (§9, AC 34)', () => {
+  test('start / end toast texts for every event', () => {
+    assert.strictEqual(V.eventStartText('luck'), '🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p');
+    assert.strictEqual(V.eventEndText('luck'), '이벤트 종료: 행운의 시간');
+    C.EVENT_IDS.forEach(id => {
+      const d = C.EVENTS[id];
+      assert.strictEqual(V.eventStartText(id), `${d.icon} 이벤트 시작: ${d.name} — ${d.durationSec / 60}분간 ${d.desc}`, id);
+      assert.strictEqual(V.eventEndText(id), `이벤트 종료: ${d.name}`, id);
+      assert.ok(!/undefined|NaN/.test(V.eventStartText(id) + V.eventEndText(id)), id);
+    });
+  });
+  test('eventAssistText: +5~+14 plain, mastery levels (+15~+19) add the no-record note', () => {
+    [5, 13, 14].forEach(from => assert.strictEqual(V.eventAssistText({ from }), '🍀 이벤트 덕에 성공', from));
+    [15, 17, 19].forEach(from => assert.strictEqual(V.eventAssistText({ from }), '🍀 이벤트 덕에 성공 — 숙련 기록에는 세지 않습니다', from));
+  });
+  test('a real assisted success carries eventAssist and the matching log text', () => {
+    const S = withEvent(evState(15), 'luck');
+    const r = R.attemptEnhance(S, countedSeq(0.22));   // +15: 무이벤트 20%, 이벤트 25% → 22는 이벤트 덕
+    assert.deepStrictEqual([r.outcome, r.eventAssist, V.eventAssistText(r)], ['success', true, '🍀 이벤트 덕에 성공 — 숙련 기록에는 세지 않습니다']);
+  });
+});
+
+describe('7-2 spawn tick keeps sinceMs within the save clamp (V8)', () => {
+  const GAP_MAX = C.EVENT_GAP_MAX_SEC * 1000;
+  test('sinceMs near the cap + dt 2000 → spawns with sinceMs ≤ 1800000, and the saved value survives load unchanged', () => {
+    [GAP_MAX - 1, GAP_MAX - 500, GAP_MAX - 1999, GAP_MAX].forEach(since => {
+      const S = evState(5);
+      S.events.sinceMs = since; S.events.nextAtMs = GAP_MAX;
+      assert.deepStrictEqual(E.advanceEvents(S, 2000, countedSeq(0)), { started: 'luck' }, String(since));
+      assert.ok(S.events.sinceMs <= GAP_MAX, `${since} → ${S.events.sinceMs}`);
+      assert.strictEqual(S.events.sinceMs, GAP_MAX);
+      assert.strictEqual(SV.normalize(clone(S), NOW).events.sinceMs, S.events.sinceMs, 'normalize does not clip it');
+    });
+  });
+  test('every tick from 0 to the spawn stays ≤ 1800000 and the spawn tick is unchanged (900th with nextAtMs = max)', () => {
+    const S = evState(5);
+    S.events.nextAtMs = GAP_MAX;
+    let spawnedAt = null;
+    for (let i = 1; i <= 1000 && spawnedAt === null; i++) {
+      if (E.advanceEvents(S, 2000, countedSeq(0)).started) spawnedAt = i;
+      assert.ok(S.events.sinceMs <= GAP_MAX, `tick ${i}: ${S.events.sinceMs}`);
+    }
+    assert.strictEqual(spawnedAt, GAP_MAX / 2000);
+  });
+  test('a tick that does not reach nextAtMs is not clipped', () => {
+    const S = evState(5);
+    S.events.sinceMs = 900000; S.events.nextAtMs = 1500000;
+    assert.deepStrictEqual(E.advanceEvents(S, 2000, countedSeq(0)), {});
+    assert.strictEqual(S.events.sinceMs, 902000);
+  });
+});
+
+describe('7-2 EVENT_IDS / EVENTS load check is set equality (constants.js)', () => {
+  const IDS_SRC = "const EVENT_IDS = ['luck', 'hunt', 'auto', 'ore', 'anvil', 'quest'];";
+  const MSG = 'EVENT_IDS must equal the EVENTS keys as a set (no duplicates)';
+  const withIds = list => src => {
+    assert.ok(src.includes(IDS_SRC), 'the EVENT_IDS line is where the test expects it');
+    return src.replace(IDS_SRC, `const EVENT_IDS = ${JSON.stringify(list)};`);
+  };
+  const keep = () => {};
+  test('the shipped table loads; a reordered EVENT_IDS still loads', () => {
+    assert.strictEqual(loadError(src => src, keep), null);
+    assert.strictEqual(loadError(withIds(['quest', 'anvil', 'ore', 'auto', 'hunt', 'luck']), keep), null);
+  });
+  test('a duplicate id of the same length (the old length+includes check passed it) throws', () => {
+    assert.strictEqual(loadError(withIds(['luck', 'hunt', 'auto', 'ore', 'anvil', 'luck']), keep), MSG);
+    assert.strictEqual(loadError(withIds(['luck', 'hunt', 'auto', 'ore', 'anvil', 'anvil']), keep), MSG);
+  });
+  test('a missing id, an unknown id, or an extra EVENTS key throws', () => {
+    assert.strictEqual(loadError(withIds(['luck', 'hunt', 'auto', 'ore', 'anvil']), keep), MSG);
+    assert.strictEqual(loadError(withIds(['luck', 'hunt', 'auto', 'ore', 'anvil', 'bogus']), keep), MSG);
+    const EXTRA_FROM = "    quest: eventEntry(";
+    const extraKey = src => {
+      assert.ok(src.includes(EXTRA_FROM));
+      return src.replace(EXTRA_FROM, "    bonus: eventEntry('x', 'x', 0, 5, 300, 1, v => `${v}`),\n" + EXTRA_FROM);
+    };
+    assert.strictEqual(loadError(extraKey, keep), MSG);
   });
 });
 

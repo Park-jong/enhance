@@ -319,6 +319,34 @@ main {
 .popover label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; min-height: 32px; }
 .popover input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
 
+/* ---------- 시간 이벤트 칩·팝오버 (M2 F13, m2-events §9) ---------- */
+/* 줄바꿈 안 하는 헤더(721px 이상)에서 칩(nowrap)보다 좁게 줄면 칩이 옆 배지 위로 넘치므로 줄지 않게 둔다 */
+.event-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+.event-chip {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 3px 10px;
+  border: 1px solid var(--good); border-radius: 999px; cursor: pointer; white-space: nowrap;
+  background: color-mix(in srgb, var(--good) 14%, var(--panel2)); color: var(--good);
+  font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.event-chip:hover { filter: brightness(1.12); }
+.event-pop { left: 0; right: auto; min-width: 240px; max-width: 320px; font-size: 13px; line-height: 1.45; }
+.ev-pop-title { font-size: 14px; }
+.event-pop .ev-clock { font-variant-numeric: tabular-nums; }
+.ev-idle { color: var(--warn); }
+.ev-up { color: var(--good); font-weight: 700; }
+.toast.good { border-left-color: var(--good); }
+@media (max-width: 720px) {
+  /* 줄바꿈되는 헤더에서는 칩 위치와 상관없이 화면 밖으로 나가지 않게 팝오버를 헤더 마지막 줄(전체 폭, 흐름 배치)로 연다 */
+  .event-wrap { display: contents; }
+  .event-pop { position: static; order: 1; flex: 1 1 100%; min-width: 0; max-width: none; box-shadow: none; }
+}
+@media (max-width: 520px) {
+  /* 좁은 폰: 칩은 아이콘 + 남은 시간만. 이름은 화면에서만 감추고 스크린 리더는 그대로 읽는다(전체 문장은 팝오버·title) */
+  .event-chip .ev-name {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+}
+
 /* ---------- 보관함 스트립 ---------- */
 /* 좌우 여백(음수 margin으로 상쇄)은 첫/끝 칸 바깥의 놓을 자리 표시가 스크롤 영역에 잘리지 않게 하려는 것 */
 .strip { display: flex; gap: 8px; overflow-x: auto; padding: 0 6px 4px; margin: 0 -6px; }

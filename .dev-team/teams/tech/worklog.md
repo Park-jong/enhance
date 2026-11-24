@@ -171,3 +171,17 @@
 - 산출물: js/events.js(신규), js/constants.js, rules.js, idle.js, forge.js, quests.js, save.js, main.js, index.html, test.html, docs/design/m1-storage.md, tests/run-tests.js(423), tests/smoke-dom.js(495)
 - 결정 사항: events.js는 constants만 의존하므로 constants 바로 뒤·rules 앞에 로드(기획서 §18과 다름). catch-up은 opts {noEvent} 인자로 제외. resume은 eventLastMono만 리셋하고 eventLastWall은 유지(AC 22a 유지 위해). 이벤트 없음 경로는 구 모듈과 비교한 고정 시드 동일성 검사(23만 건)와 테스트로 확인.
 - 남은 문제: run-m1.1-qa-tests.js:677 VM 로더에 events.js 추가 필요(QA 소유, 21건 실패). 기획서 §18 로드 순서·§6.2 반환형·AC13 예시(숙련 4=최대라 검증 불가) 정정 필요. sinceMs가 활성 중 최대 +2초 상한 초과(무해).
+
+## 2026-11-23 — 7-2 시간 이벤트 화면 (칩·팝오버·확률 내역·토스트)
+- 지시: 디렉터 / 관련 단계: 7단계 7-2 / 처리한 요청: REQ-034 (7단계 완료, 8단계 남음)
+- 참여 팀원: client-programmer(구현, 테스트), tools-engineer(브라우저 시나리오 i)
+- 산출물: js/view.js, main.js, constants.js(EVENTS.icon·집합 동일성 검사), events.js(sinceMs 상한), test-panel.js, css/style.css, index.html, test.html, docs/design/m2-events.md(§9, §6.2 sinceMs 두 줄), tests/run-tests.js(443), tests/smoke-dom.js(579), tests/browser-strip.js(287)
+- 결정 사항: sinceMs는 스폰 시 리셋이 아니라 누적 중 상한 클램프(스폰 시점·rng 열 불변). 클릭으로만 팝오버 토글(호버은 title만). 720px 이하에서 팝오버는 헤더 마지막 줄. 이름은 520px 이하에서 시각적으로만 숨김. 이벤트 토스트는 로그에도 기록. "이벤트 끝내기"는 남은 1ms로 두어 실제 종료 경로를 탐.
+- 남은 문제: 효과 없음(천장) 문구는 현재 상수로 도달 불가(0건/전수 검사). test-panel startEvent가 잘못된 id에서 TypeError(선택지가 유효 id만이라 실사용 영향 없음). 아이콘은 이모지 임시.
+
+## 2026-11-24 — 7-2 2차 수정 (QA 지적 4건)
+- 지시: 디렉터 / 관련 단계: 7단계 7-2 / 처리한 요청: REQ-034 (유지)
+- 참여 팀원: client-programmer
+- 산출물: css/style.css(.event-wrap flex-shrink:0), tests/browser-strip.js(369: 721/760 스트레스, 헤더 항목 겹침 검사, 721~1000 1px 스윕), docs/design/m2-events.md(§11 icon, §18 test-panel.js), docs/design/m2-rebirth.md(같은 오기 정정), index.html·test.html·js/view.js·js/main.js(aria-haspopup=dialog, aria-expanded), tests/smoke-dom.js(582)
+- 결정 사항: 칩 래퍼가 줄지 않게 함. aria-expanded는 렌더 외에 closeEventPop에서도 즉시 갱신. 겹침 721/760/800/1000 = 0 (수정 전 13.8/5.5/0/0).
+- 남은 문제: 칭호 배지까지 전부 표시 시 721~723px에서 1~4px 가로 넘침(겹침 없음, 로고 세로 줄바꿈 등 이미 깨진 상태). 헤더 레이아웃 결정 필요(기획).

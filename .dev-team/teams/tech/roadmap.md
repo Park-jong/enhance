@@ -17,3 +17,4 @@ M1 콘텐츠 확장: F1~F10, F15 구현 (보관함, 보호권/파편, 모루/광
 - REQ-017 F16 천장 게이지 + 성공 숙련 구현 (M1.1, 테스트 164+116+29+36 통과) — client-programmer
 - M1 F1~F10, F15 구현 (index.html + css/ + js/, 노드 테스트 101건 + DOM 스모크 31건 통과) — 디렉터 / client-programmer
 - REQ-009 v1 → v2 저장 이전 (js/save.js migrate) — client-programmer
+- TODO 7-2 시간 이벤트 화면: 칩·팝오버·확률 내역 이벤트 항·토스트·테스트 패널 (run-tests 443, smoke 579, browser-strip 287, QA 29/36/189, selfcheck 13) — client-programmer / tools-engineer [2차 수정 반영: browser-strip 369, smoke 582]

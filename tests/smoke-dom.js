@@ -28,8 +28,11 @@ class El {
     this.listeners = {};
     this._q = {};
     this._html = '';
+    this.attrs = {};
     allEls.push(this);
   }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   set innerHTML(v) { this._html = String(v); }
   get innerHTML() { return this._html; }
   querySelector(s) { return this._q[s] || (this._q[s] = new El(s)); }
@@ -426,6 +429,8 @@ async function main() {
   await recordsUi(ok);
   // 7b-6) 7-1 F13: 시간 이벤트 틱 배선(단조 시계·숨김·멈춘 탭·즉시 저장·catch-up 무보너스)
   await eventsWiring(ok);
+  // 7b-7) 7-2 F13 화면: 칩·팝오버(열고 닫기)·시작/종료 토스트·효과 표시·이벤트 덕 성공 로그·테스트 페이지 조작
+  await eventsUi(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -1138,6 +1143,322 @@ async function eventsWiring(ok) {
     clk.t += TICK;
     env.tick();
     ok(env.state().events.active.remainMs === DURATION - TICK, 'without performance the event clock falls back to Date.now');
+  }
+}
+
+/**
+ * 7-2 F13 화면 (m2-events §9, AC 32·33·34·50): 헤더 칩·상세 팝오버의 열고 닫기(V1: 어느 경로로도 열린 채 남지 않음),
+ * 시작·종료 토스트(틱당 최대 1개, skipFx 무관, 숨김·잠금 탭 없음), 효과 표시(특가·가호·광석·수입), 이벤트 덕 성공 로그, test.html 조작판
+ */
+async function eventsUi(ok) {
+  const KEY = 'sword-enhance-v2';
+  const C = require(path.join(ROOT, 'js', 'constants.js'));
+  const TICK = 500;
+  const DURATION = C.EVENTS.luck.durationSec * 1000;
+  const GAP_MIN = C.EVENT_GAP_MIN_SEC * 1000;
+  const realRandom = Math.random;
+  /** best 13, 이미 각인된 검 하나(부팅 각인 rng 없음), 주어진 events */
+  const uiSave = (t, events, { lv = 13, fields = {} } = {}) => {
+    const s = Object.assign(SG_default(), { best: Math.max(13, lv), gold: 1e6 }, fields);
+    s.swords = [{ id: 1, lv, prot: 2, pity: 0, trait: { k: 'hunt', t: 1 } }];
+    s.idle.lastSeen = t;
+    s.events = events;
+    return s;
+  };
+  const running = (id, remainMs) => ({ active: { id, remainMs }, sinceMs: 0, nextAtMs: GAP_MIN });
+  const almostDue = () => ({ active: null, sinceMs: GAP_MIN - TICK, nextAtMs: GAP_MIN });
+  const clock = () => ({ t: Date.now(), m: 1000 });
+  // DOM 스텁은 마크업의 hidden·aria-expanded 속성을 읽지 않는다: 팝오버가 마크업에서 닫힌 채 시작하는지 확인하고 부팅 뒤 같은 값으로 맞춘다
+  const popHiddenInMarkup = page => /<div class="popover event-pop" id="eventPop" hidden><\/div>/.test(fs.readFileSync(path.join(ROOT, page), 'utf8'));
+  ok(popHiddenInMarkup('index.html') && popHiddenInMarkup('test.html'), '#eventPop starts hidden in both pages');
+  /** main.js는 로드 시점의 Math.random을 잡으므로 로드하는 동안만 상수 value로 바꿔 둔다(잡힌 함수는 이후에도 value, V6) */
+  const boot = (save, clk, value = 0) => {
+    let api = null;
+    Math.random = () => value;
+    try {
+      const env = makeEnv({ [KEY]: JSON.stringify(save) }, { now: () => clk.t, performance: { now: () => clk.m }, extensions: [a => { api = a; }] });
+      env.byId['#eventPop'].hidden = true;
+      env.byId['#eventChip'].setAttribute('aria-expanded', 'false');   // 마크업 초기값(아래 a11y 마크업 검사)과 같게
+      return Object.assign(env, { state: () => api.state() });
+    } finally { Math.random = realRandom; }
+  };
+  const step = (env, clk, ms = TICK) => { clk.t += ms; clk.m += ms; env.tick(); };
+  const chip = env => env.byId['#eventChip'];
+  const pop = env => env.byId['#eventPop'];
+  const chipShown = env => !env.byId['#eventWrap'].hidden && !chip(env).hidden;
+  const chipText = env => plain(chip(env)._html);
+  const popOpen = env => !pop(env).hidden;
+  /** 문서 클릭: inside가 '.event-wrap'이면 칩·팝오버 안쪽 클릭, null이면 바깥 빈 곳 클릭 */
+  const docClick = (env, inside) => env.docListeners.click.forEach(f => f({ target: { closest: sel => (sel === inside ? {} : null) } }));
+  /** 칩 클릭: 칩 자신의 리스너 다음 문서 위임 리스너로 버블링(브라우저 순서) */
+  const clickChip = env => { chip(env).listeners.click.forEach(f => f({ target: chip(env) })); docClick(env, '.event-wrap'); };
+  const toastEls = env => (env.byId['#toasts'] ? env.byId['#toasts'].children : []);
+  const isEventToast = t => /이벤트 시작: |^이벤트 종료: /.test(t);
+  const eventToasts = env => toastEls(env).filter(el => isEventToast(el.textContent));
+  const logTexts = env => texts(env.byId['#log']);
+  // 문구는 view.js 함수가 아닌 기획서(§9) 문장으로 직접 비교한다
+  const START_LUCK = '🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p';
+  const END_LUCK = '이벤트 종료: 행운의 시간';
+
+  // AC 32·34: 칩 숨김 → 스폰 틱에 시작 토스트(good) 1개 + 칩 표시, 틱마다 m:ss 갱신, 0:01, 종료 틱에 종료 토스트 1개 + 칩 숨김.
+  // 연출 건너뛰기를 켜도 꺼도 같다. 모든 틱에서 이벤트 토스트는 최대 1개
+  for (const skipFx of [false, true]) {
+    const tag = `(skipFx ${skipFx})`;
+    const clk = clock();
+    const env = boot(uiSave(clk.t, almostDue(), { fields: { settings: { muted: true, skipFx } } }), clk);
+    ok(env.state().settings.skipFx === skipFx, `chip setup ${tag}`);
+    ok(!chipShown(env) && chip(env).hidden && env.byId['#eventWrap'].hidden && !popOpen(env), `AC 32: no event → chip and wrap hidden ${tag}`);
+    let maxPerTick = 0;
+    const counted = () => { const before = eventToasts(env).length; step(env, clk); maxPerTick = Math.max(maxPerTick, eventToasts(env).length - before); };
+    counted();
+    const toasts = () => eventToasts(env).map(el => [el.textContent, el.className]);
+    ok(env.state().events.active.id === 'luck' && JSON.stringify(toasts()) === JSON.stringify([[START_LUCK, 'toast good']]),
+      `AC 34: the spawn tick shows one start toast of kind good ${tag}: ${JSON.stringify(toasts())}`);
+    ok(logTexts(env).includes(START_LUCK), `the start text is also in the log ${tag}`);
+    ok(chipShown(env) && chipText(env) === '🍀행운의 시간 5:00' && chip(env).title === '행운의 시간 5:00 남음 · 강화 성공 확률 +5%p',
+      `AC 32: chip shows icon + name + m:ss with the full title ${tag}: ${chipText(env)}`);
+    counted();
+    counted();
+    ok(chipText(env) === '🍀행운의 시간 4:59', `the chip clock follows each tick ${tag}: ${chipText(env)}`);
+    env.state().events.active.remainMs = 2 * TICK + 1;
+    counted();
+    ok(chipShown(env) && chipText(env) === '🍀행운의 시간 0:01' && eventToasts(env).length === 1, `AC 32: 501 ms left shows 0:01, no toast yet ${tag}`);
+    counted();
+    counted();
+    ok(!chipShown(env) && env.state().events.active === null, `the end tick hides the chip ${tag}`);
+    ok(JSON.stringify(toasts()) === JSON.stringify([[START_LUCK, 'toast good'], [END_LUCK, 'toast ']]) && logTexts(env).includes(END_LUCK),
+      `AC 34: exactly one end toast (plain kind) and a log line ${tag}: ${JSON.stringify(toasts())}`);
+    for (let i = 0; i < 6; i++) counted();
+    ok(eventToasts(env).length === 2 && maxPerTick === 1, `AC 34: at most one event toast per tick, no repeats ${tag}`);
+    scanRendered();
+  }
+
+  // §9 상세 팝오버: 칩 클릭 토글, 안쪽 클릭 유지, 바깥 클릭·Esc·탭 전환·상태 교체(resetUiFor)·잠금·이벤트 종료·새 게임으로 닫힘
+  {
+    const clk = clock();
+    let env = boot(uiSave(clk.t, running('hunt', 251500)), clk);
+    ok(chipShown(env) && !popOpen(env), 'popover closed at boot');
+    const expanded = () => chip(env).getAttribute('aria-expanded');
+    ok(expanded() === 'false', 'a11y: chip aria-expanded is false while the popover is closed');
+    clickChip(env);
+    ok(expanded() === 'true', 'a11y: chip aria-expanded becomes true when the popover opens');
+    const html = pop(env)._html;
+    ok(popOpen(env) && html.includes('🏹 사냥 대목') && html.includes('수동 사냥 골드 +40%') && html.includes('<b class="ev-clock">4:12</b>')
+      && html.includes('접속 중에만 흐르고 오프라인에서는 적용되지 않습니다'), 'chip click opens the popover with icon, name, effect, clock, offline note');
+    step(env, clk);
+    ok(popOpen(env) && pop(env)._html.includes('<b class="ev-clock">4:11</b>'), 'the open popover clock updates per tick');
+    clickChip(env);
+    ok(!popOpen(env), 'a second chip click closes it');
+    clickChip(env);
+    docClick(env, '.event-wrap');
+    ok(popOpen(env), 'a click inside the chip/popover box keeps it open');
+    docClick(env, null);
+    ok(!popOpen(env) && expanded() === 'false', 'an outside click closes it (aria-expanded false at once)');
+    clickChip(env);
+    key(env, 'Escape');
+    ok(!popOpen(env) && expanded() === 'false', 'Esc closes it (aria-expanded false at once)');
+    clickChip(env);
+    // 탭 전환 동작 자체가 닫는지(바깥 클릭 경로와 분리): 위임 대상만 탭 버튼으로 둔다
+    env.docListeners.click.forEach(f => f({ target: { closest: sel => (sel === '[data-act]' ? { dataset: { act: 'tab', id: 'shop' }, disabled: false } : sel === '.event-wrap' ? {} : null) } }));
+    ok(!popOpen(env), 'a tab switch closes it');
+    clickChip(env);
+    ok(popOpen(env), 'reopens after the tab switch (no stuck state)');
+
+    // 복귀 때 더 최근 저장(이벤트 진행 중)을 이어받으면 resetUiFor가 닫는다(이벤트가 남아 있어도)
+    setVisible(env, false);
+    const newer = uiSave(clk.t + 5, running('hunt', 200000));
+    clk.t += 10; clk.m += 10;
+    env.store[KEY] = JSON.stringify(newer);
+    setVisible(env, true);
+    ok(env.state().events.active.remainMs === 200000 && chipShown(env) && !popOpen(env), 'adopting a newer save (resetUiFor) closes the popover');
+    clickChip(env);
+    ok(popOpen(env), 'reopens after the adopt');
+
+    // 다른 탭 때문에 잠김 → 닫힘, 잠긴 동안 칩 클릭은 무시, 이어받은 뒤 다시 열린다
+    fire(env, 'storage', { key: KEY });
+    ok(isLocked(env) && !popOpen(env), 'locking for another tab closes it');
+    clickChip(env);
+    ok(!popOpen(env), 'chip clicks do nothing while locked');
+    env.byId['#btnTakeover'].listeners.click[0]();
+    ok(!isLocked(env) && !popOpen(env) && chipShown(env), 'take over leaves it closed');
+    clickChip(env);
+    ok(popOpen(env), 'reopens after the take over');
+
+    // 이벤트 종료 → 칩·팝오버 모두 숨김. 다음 이벤트가 시작돼도 저절로 열리지 않는다
+    env.state().events.active.remainMs = TICK + 100;
+    step(env, clk);
+    ok(popOpen(env), 'still open while the event runs');
+    step(env, clk);
+    ok(!chipShown(env) && !popOpen(env), 'the event end hides the chip and closes the popover');
+    env.state().events.sinceMs = env.state().events.nextAtMs - TICK;
+    step(env, clk);
+    ok(env.state().events.active !== null && chipShown(env) && !popOpen(env), 'the next event starts with the popover closed');
+    clickChip(env);
+    ok(popOpen(env), 'and the chip opens it normally');
+
+    // 새 게임(resetUiFor + 이벤트 없음) → 닫힘
+    env.byId['#btnReset'].listeners.click[0]();
+    ok(!popOpen(env) && !chipShown(env), 'a new game closes the popover and hides the chip');
+    scanRendered();
+
+    // 행운의 시간이 지금 효과가 없으면(축복+미스릴 +13 = 상한) 사유 한 줄
+    const capSave = uiSave(clk.t, running('luck', DURATION), { fields: { inv: Object.assign(SG_default().inv, { bless: 3 }) } });
+    Object.assign(capSave, { anvils: [{ id: 1, g: 3, dura: 20 }], anvilEq: 1, nextAnvilId: 2 });
+    Object.assign(capSave.use, { bless: true, anvil: true });
+    env = boot(capSave, clk);
+    clickChip(env);
+    ok(pop(env)._html.includes('<small class="ev-idle">보너스 상한(+14%p)에 이미 도달해 지금은 효과가 없습니다</small>'), 'capped lucky hour shows the idle reason: ' + pop(env)._html);
+    ok(plain(env.byId['#breakdown']._html).endsWith('이벤트 5 = +19 → +19 +14 상한 14 · 이벤트 효과 없음(상한)'), 'AC 33: breakdown shows the event term and 효과 없음(상한): ' + plain(env.byId['#breakdown']._html));
+  }
+
+  // AC 34: 숨김 탭은 토스트·진행 없음, 복귀해도 이미 지난 종료처럼 알리지 않고 실제로 끝나는 틱에 1회
+  {
+    const clk = clock();
+    const env = boot(uiSave(clk.t, running('luck', 2 * TICK + 100)), clk);
+    setVisible(env, false);
+    for (let i = 0; i < 4; i++) step(env, clk);
+    step(env, clk, 10 * 60 * 1000);
+    ok(eventToasts(env).length === 0 && env.state().events.active.remainMs === 2 * TICK + 100, 'AC 34: hidden ticks show no toast and do not advance');
+    setVisible(env, true);
+    ok(eventToasts(env).length === 0 && env.state().events.active.remainMs === 2 * TICK + 100 && chipShown(env), 'AC 34: returning after 10 min announces no end');
+    step(env, clk);
+    step(env, clk);
+    ok(eventToasts(env).length === 0 && chipText(env) === '🍀행운의 시간 0:01', 'the first ticks after return count only their own dt');
+    step(env, clk);
+    ok(JSON.stringify(eventToasts(env).map(el => el.textContent)) === JSON.stringify([END_LUCK]), 'the end is announced once on the tick it really ends');
+  }
+  {
+    const clk = clock();
+    const env = boot(uiSave(clk.t, almostDue()), clk);
+    setVisible(env, false);
+    for (let i = 0; i < 4; i++) step(env, clk);
+    ok(eventToasts(env).length === 0 && env.state().events.active === null, 'AC 34: a spawn-due hidden tab neither spawns nor toasts');
+    setVisible(env, true);
+    ok(eventToasts(env).length === 0, 'no toast on return itself');
+    step(env, clk);
+    ok(JSON.stringify(eventToasts(env).map(el => el.textContent)) === JSON.stringify([START_LUCK]), 'the start toast comes with the first visible tick that spawns');
+  }
+  // 잠긴 탭: 토스트·진행 없음. 이어받은 저장에서 이벤트가 이미 끝났으면 종료를 알리지 않는다
+  {
+    const clk = clock();
+    const env = boot(uiSave(clk.t, running('luck', TICK + 100)), clk);
+    fire(env, 'storage', { key: KEY });
+    for (let i = 0; i < 5; i++) step(env, clk);
+    ok(isLocked(env) && eventToasts(env).length === 0 && env.state().events.active.remainMs === TICK + 100, 'AC 34: a locked tab shows no toast and does not advance');
+    const other = uiSave(clk.t, { active: null, sinceMs: 0, nextAtMs: GAP_MIN });
+    env.store[KEY] = JSON.stringify(other);
+    env.byId['#btnTakeover'].listeners.click[0]();
+    for (let i = 0; i < 3; i++) step(env, clk);
+    ok(!isLocked(env) && env.state().events.active === null && !chipShown(env) && eventToasts(env).length === 0,
+      'taking over a save whose event already ended announces nothing');
+  }
+  {
+    const clk = clock();
+    const env = boot(uiSave(clk.t, almostDue()), clk);
+    fire(env, 'storage', { key: KEY });
+    for (let i = 0; i < 4; i++) step(env, clk);
+    ok(eventToasts(env).length === 0 && env.state().events.active === null, 'AC 34: a locked spawn-due tab neither spawns nor toasts');
+  }
+
+  // §9 효과 표시: 의뢰 새로고침 특가(할인 가격), 모루 가호 태그, 광맥 +50%(대장간·방치), 수입 줄
+  {
+    const clk = clock();
+    const save = uiSave(clk.t, { active: null, sinceMs: 0, nextAtMs: GAP_MIN });
+    Object.assign(save, { anvils: [{ id: 1, g: 2, dura: 20 }], anvilEq: 1, nextAnvilId: 2 });
+    save.idle.autoOn = true;
+    const env = boot(save, clk);
+    const questBody = () => env.byId['[data-panel="quests"]'].querySelector('.panel-body')._html;
+    const forgeBody = () => env.byId['[data-panel="forge"]'].querySelector('.panel-body')._html;
+    const idleBody = () => env.byId['[data-panel="idle"]'].querySelector('.panel-body')._html;
+    const tray = () => env.byId['#tray']._html;
+    const income = () => env.byId['#incomeNote'].textContent;
+    const fmt = env.ctx.SG.fx.fmt;
+    const fullPrice = env.ctx.SG.quests.rerollCost(env.state());
+    const setActive = id => { env.state().events.active = id ? { id, remainMs: DURATION } : null; step(env, clk); };
+    ok(questBody().includes(`새로고침 ${fmt(fullPrice)}G</button>`) && !questBody().includes('특가') && !tray().includes('가호')
+      && !forgeBody().includes('ev-up') && !idleBody().includes('광맥 발견') && !income().includes('이벤트'), 'no event: no event marks anywhere');
+    setActive('quest');
+    const dealPrice = env.ctx.SG.quests.rerollCost(env.state());
+    ok(dealPrice < fullPrice && questBody().includes(`새로고침 ${fmt(dealPrice)}G <span class="badge good">특가</span>`), `quest deal: discounted price + 특가 badge (${fullPrice} → ${dealPrice})`);
+    setActive('anvil');
+    ok(tray().includes('<span class="tag">가호 40%</span>') && !questBody().includes('특가'), 'anvil guard: tray anvil row shows 가호 40%');
+    setActive('ore');
+    ok(forgeBody().includes('<span class="ev-up" title="광맥 발견">+50%</span>') && idleBody().includes('+50%(광맥 발견)') && !tray().includes('가호'),
+      'ore vein: forge ore cells and the idle ore line show +50%');
+    setActive('hunt');
+    ok(income().endsWith(' · 이벤트 사냥 +40%') && !forgeBody().includes('ev-up'), 'hunt rush: income note ends with 이벤트 사냥 +40%: ' + income());
+    setActive('auto');
+    ok(income().endsWith(' · 이벤트 자동 +50%'), 'auto harvest: income note ends with 이벤트 자동 +50%: ' + income());
+    setActive(null);
+    ok(!income().includes('이벤트') && !questBody().includes('특가'), 'marks go away with the event');
+    scanRendered();
+  }
+
+  // §9 이벤트 덕 성공 로그: 결과 롤이 [무이벤트 성공률, 이벤트 성공률) 안이면 한 줄 추가(+15~+19는 숙련 미기록 안내). Math.random 고정(V6)
+  {
+    const enhanceWith = async (lv, value, events) => {
+      const clk = clock();
+      const env = boot(uiSave(clk.t, events, { lv }), clk, value);
+      await env.byId['#btnEnhance'].listeners.click[0]();
+      return env;
+    };
+    const assistLines = env => logTexts(env).filter(t => t.includes('이벤트 덕에 성공'));
+    for (let run = 0; run < 3; run++) {
+      let env = await enhanceWith(13, 0.32, running('luck', DURATION));   // +13: 30% → 35%, 롤 32
+      ok(env.state().swords[0].lv === 14 && JSON.stringify(assistLines(env)) === JSON.stringify(['🍀 이벤트 덕에 성공']), 'assisted +13 success logs 이벤트 덕에 성공: ' + assistLines(env));
+      env = await enhanceWith(15, 0.22, running('luck', DURATION));   // +15: 20% → 25%, 롤 22
+      ok(env.state().swords[0].lv === 16 && env.state().mastery[0] === 0
+        && JSON.stringify(assistLines(env)) === JSON.stringify(['🍀 이벤트 덕에 성공 — 숙련 기록에는 세지 않습니다']), 'assisted +15 success adds the no-mastery note: ' + assistLines(env));
+      env = await enhanceWith(13, 0.10, running('luck', DURATION));
+      ok(env.state().swords[0].lv === 14 && assistLines(env).length === 0, 'a success the event did not decide logs no assist line');
+      env = await enhanceWith(13, 0.32, { active: null, sinceMs: 0, nextAtMs: GAP_MIN });
+      ok(env.state().stats.tries === 1 && env.state().stats.success === 0 && assistLines(env).length === 0, 'without the event the same roll is not a success and logs no assist line');
+    }
+  }
+
+  // AC 50: test.html 조작판(이벤트 선택·시작·끝내기)과 index.html에 진입점 없음, 새 DOM id는 두 페이지 모두
+  {
+    ok(['eventWrap', 'eventChip', 'eventPop'].every(id => elementIds('index.html').includes(id) && elementIds('test.html').includes(id)),
+      'event chip ids exist in both index.html and test.html');
+    ok(['index.html', 'test.html'].every(p => /<button class="event-chip" id="eventChip" aria-haspopup="dialog" aria-expanded="false" aria-controls="eventPop"/.test(fs.readFileSync(path.join(ROOT, p), 'utf8'))),
+      'a11y: the chip declares a dialog popup and starts aria-expanded="false" in both pages');
+    ok(elementIds('test.html').includes('testEventId') && !elementIds('index.html').includes('testEventId'), '#testEventId only on the test page');
+    const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    ok(!/setEvent|testSetEvent|testEndEvent/.test(indexHtml) && ['main.js', 'view.js'].every(f => !/\bsetEvent\b/.test(fs.readFileSync(path.join(ROOT, 'js', f), 'utf8'))),
+      'AC 50: index.html / main.js / view.js never reference setEvent');
+    const testHtml = fs.readFileSync(path.join(ROOT, 'test.html'), 'utf8');
+    ok(testHtml.includes('data-act="testSetEvent"') && testHtml.includes('data-act="testEndEvent"'), 'test.html has the start / end buttons');
+
+    const clk = clock();
+    let game = null;
+    const tEnv = makeEnv({}, { page: 'test.html', now: () => clk.t, performance: { now: () => clk.m }, extensions: [api => { game = api; }] });
+    const sel = tEnv.byId['#testEventId'];
+    const want = C.EVENT_IDS.map(id => `<option value="${id}">${C.EVENTS[id].icon} ${C.EVENTS[id].name}</option>`).join('');
+    ok(sel.innerHTML === want, 'event selector lists EVENT_IDS in order with icon + name');
+    const toastTexts = () => texts(tEnv.byId['#toasts'] || { children: [] });
+    sel.value = 'luck';
+    click(tEnv, 'testSetEvent');
+    ok(JSON.stringify(savedTest(tEnv).events.active) === JSON.stringify({ id: 'luck', remainMs: DURATION }) && toastTexts().includes('[TEST] 최고 +5 미만이라 이벤트가 적용되지 않습니다')
+      && !chipShown(tEnv), 'best 0: the event is set and saved, with a no-effect warning and no chip');
+    game.state().best = 13;
+    sel.value = 'hunt';
+    click(tEnv, 'testSetEvent');
+    ok(JSON.stringify(savedTest(tEnv).events.active) === JSON.stringify({ id: 'hunt', remainMs: DURATION }) && chipShown(tEnv) && chipText(tEnv) === '🏹사냥 대목 5:00'
+      && logTexts(tEnv).includes('[TEST] 🏹 이벤트 시작: 사냥 대목 — 5분간 수동 사냥 골드 +40%'), 'start applies the full duration, saves, shows the chip and logs');
+    click(tEnv, 'testEndEvent');
+    ok(savedTest(tEnv).events.active.remainMs === 1 && !toastTexts().includes('이벤트 종료: 사냥 대목'), 'end sets 1 ms left (the next tick ends it)');
+    step(tEnv, clk);
+    const st = savedTest(tEnv);
+    ok(st.events.active === null && st.events.sinceMs === 0 && st.events.nextAtMs >= GAP_MIN && st.events.nextAtMs <= C.EVENT_GAP_MAX_SEC * 1000
+      && toastTexts().filter(t => t === '이벤트 종료: 사냥 대목').length === 1 && !chipShown(tEnv), 'the next tick takes the real end path: toast, next gap, saved');
+    click(tEnv, 'testEndEvent');
+    ok(toastTexts().includes('[TEST] 진행 중인 이벤트가 없습니다.'), 'end without an event warns');
+    ok(REAL_KEYS.every(k => !(k in tEnv.store)), 'the event control never writes the real save keys');
+    scanRendered();
+
+    const env = makeEnv({});
+    click(env, 'testSetEvent');
+    ok(saved(env).events.active === null, 'real page: the test event action does nothing');
   }
 }
 

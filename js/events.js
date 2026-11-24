@@ -12,6 +12,7 @@
 
   const SEC_MS = 1000;
   const MIN_SEC = 60;
+  const GAP_MAX_MS = C.EVENT_GAP_MAX_SEC * SEC_MS;
   const fail = reason => ({ ok: false, reason });
   // 저장 데이터에서 온 id가 프로토타입 속성(constructor, __proto__ 등)과 맞아떨어지지 않게 한다
   const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -97,7 +98,8 @@
       ev.nextAtMs = drawGapMs(rng);
       return { ended };
     }
-    ev.sinceMs += dt;
+    // 저장 정규화와 같은 상한(GAP_MAX)으로 자른다: nextAtMs ≤ GAP_MAX라 스폰 시점은 같고, 저장값이 로드에서 잘리지 않는다(V8)
+    ev.sinceMs = Math.min(ev.sinceMs + dt, GAP_MAX_MS);
     if (ev.sinceMs < ev.nextAtMs) return {};
     const started = pickEvent(S, rng);
     ev.active = { id: started, remainMs: durationMs(C.EVENTS[started]) };
