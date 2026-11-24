@@ -674,7 +674,7 @@ describe('AC12 test page (forced success) never records progress', () => {
     const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
     ctx.globalThis = ctx;
     vm.createContext(ctx);
-    ['test-mode.js', 'constants.js', 'events.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js']
+    ['test-mode.js', 'constants.js', 'events.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js', 'rebirth.js']
       .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
     return ctx.SG;
   }

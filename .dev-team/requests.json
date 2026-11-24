@@ -1166,7 +1166,7 @@
     "priority": "P2",
     "priorityReason": "8단계 구현 때 처리할 저장 안전 항목",
     "milestone": "8단계",
-    "status": "open",
+    "status": "in_progress",
     "createdAt": "2026-11-20",
     "history": [
       {
@@ -1174,6 +1174,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P2"
+      },
+      {
+        "at": "2026-11-24",
+        "by": "개발 팀장",
+        "status": "in_progress",
+        "note": "8-A에서 별도 localStorage 미러 키(save키+'-rebirth')로 구현. count 비교로 채택, 정규화·저장 오류 무시. QA 검증 대기. 문서: m2-rebirth.md §8.2, m1-storage.md. 테스트: run-tests 493."
+      },
+      {
+        "at": "2026-11-24",
+        "by": "메인 세션",
+        "status": "in_progress",
+        "note": "8-A에서 환생 미러 키(sword-enhance-v2-rebirth, 횟수가 많으면 채택) 구현·QA 확인. 남은 틈(이전 상태 메인 키 + 미러 채택으로 같은 +20 검 두 번 환생, 오래된 탭이 미러 횟수를 낮춤)은 8-B에서 nextSwordId 기준값과 횟수 낮춤 방지로 보완 후 완료 처리"
       }
     ]
   },

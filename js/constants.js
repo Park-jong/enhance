@@ -376,6 +376,29 @@
   if (EVENT_GAP_MIN_SEC >= EVENT_GAP_MAX_SEC) throw new Error('EVENT_GAP_MIN_SEC must be < EVENT_GAP_MAX_SEC');
   if (EVENT_LUCK_MAX_LV > MAX - 1) throw new Error('EVENT_LUCK_MAX_LV must be <= MAX - 1');
 
+  // ---------------------------------------------------------------- M2-D. 환생·명성 (F11, m2-rebirth §2·§4)
+  // 의식 비용 = roundTo(REBIRTH_FEE_MULT × huntReward(MAX), REBIRTH_FEE_ROUND). huntReward가 rules.js에 있어 값은 rebirth.js가 만든다
+  const REBIRTH_FEE_MULT = 100;
+  const REBIRTH_FEE_ROUND = 100;
+  const FAME_PER_REBIRTH = 3;
+  const MASTERY_KEEP_REC = 1;              // 환생 후 단계별 숙련 기록 상한
+  const EARLY_INCOME_MAX_LV = 12;          // 초반 수입(income) 효과가 적용되는 topLv 상한
+  const REBIRTH_COUNT_MAX = 1e6;           // 저장 정규화 상한(rebirth.count·fame). 런타임 증가도 같은 상한에서 멈춘다(V8)
+  const FAME_MAX = 1e9;
+  // values[lv-1] = 그 레벨의 누적 값, costs[lv-1] = 그 레벨 구매 비용(명성). 키 순서 = UI 순서. 확률 항은 없다(§9)
+  const FAME_SHOP = {
+    startGold: { name: '여유 자금', values: [2000, 5000, 10000, 20000], costs: [1, 1, 2, 3] },
+    income:    { name: '초반 수완', values: [5, 10, 15, 20], costs: [1, 2, 3, 4] },
+    slots:     { name: '넉넉한 보관함', values: [1, 2], costs: [2, 3] },
+    autoStart: { name: '자동 사냥 면허', values: [1], costs: [3] },
+  };
+  const FAME_TRACKS = Object.keys(FAME_SHOP);
+  // 레벨·정규화 상한이 values/costs 길이에 묶이고, 시작 칸이 SLOT_MAX를 넘으면 환생 결과가 정규화에서 잘린다
+  if (FAME_TRACKS.some(k => FAME_SHOP[k].values.length < 1 || FAME_SHOP[k].values.length !== FAME_SHOP[k].costs.length) ||
+      MASTERY_KEEP_REC < 0 || FAME_PER_REBIRTH < 1 || SLOT_START + Math.max(...FAME_SHOP.slots.values) > SLOT_MAX) {
+    throw new Error('REBIRTH / FAME_SHOP constants are inconsistent');
+  }
+
   // ---------------------------------------------------------------- 아이템 정의 (데이터 주도)
   // kind: consumable(inv 스택) / anvil(장비 인스턴스) / shard(파편)
   const ITEMS = {
@@ -450,6 +473,8 @@
     DAILY_TASK_K, DAILY_ALL_K, DAILY_ALL_SHARD_MULT, DAILY_ITEM_CHANCE_PCT, DAILY_ITEM_KINDS, DAILY_ITEM_SHARD_MULT, DAILY_ORE_N, DAILY_GOAL_MAX, DAILY_MAXDAY_CAP,
     PERCENT_SQ, EVENT_UNLOCK_BEST, EVENT_DT_MAX_MS, EVENT_GAP_MIN_SEC, EVENT_GAP_MAX_SEC, EVENT_LUCK_MIN_LV, EVENT_LUCK_MAX_LV,
     EVENT_WEIGHT_TOTAL, EVENT_ORE_VALUE_STEP, EVENT_ORE_SCALE, EVENT_IDS, EVENTS,
+    REBIRTH_FEE_MULT, REBIRTH_FEE_ROUND, FAME_PER_REBIRTH, MASTERY_KEEP_REC, EARLY_INCOME_MAX_LV, REBIRTH_COUNT_MAX, FAME_MAX,
+    FAME_SHOP, FAME_TRACKS,
     ITEMS, ORE_NAMES, SHOP_ITEMS, ICONS, ICON_ASSET_KEYS,
   });
 });

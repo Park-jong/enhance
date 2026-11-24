@@ -30,12 +30,12 @@
 
   // ============================================================ 수동 사냥
   /**
-   * 수동 사냥 1회 골드: 부스터 중 ×1.5, 약탈자 특성·사냥 대목 이벤트 ×(100+v)/100씩(곱연산, 마지막에 한 번 내림, m2-events §5.3-1).
-   * 수확 보너스는 적용하지 않음
+   * 수동 사냥 1회 골드: 부스터 중 ×1.5, 약탈자 특성·사냥 대목 이벤트·초반 수완(명성) ×(100+v)/100씩
+   * (곱연산, 마지막에 한 번 내림, m2-events §5.3-1·m2-rebirth §4.2). 수확 보너스는 적용하지 않음
    */
   const manualHuntGold = (S, now) =>
     Math.floor(R.percentScaled(R.huntReward(R.topLv(S)) * boostFactorAt(S, now),
-      [R.incomeTraitValue(S, 'hunt'), E.eventValue(S, 'hunt')]));
+      [R.incomeTraitValue(S, 'hunt'), E.eventValue(S, 'hunt'), R.earlyIncomePct(S)]));
 
   function manualHunt(S, now, rng) {
     const gold = manualHuntGold(S, now);
@@ -48,12 +48,12 @@
 
   // ============================================================ 자동 사냥
   /**
-   * 자동 1회 골드 = round(autoReward(lv) × 수확 보너스 × 부스터 × 일꾼 특성 × 자동 풍년 이벤트) (m2-events §5.3-2).
-   * opts.noEvent(벽시계 따라잡기 실행)면 이벤트를 빼고 계산한다
+   * 자동 1회 골드 = round(autoReward(lv) × 수확 보너스 × 부스터 × 일꾼 특성 × 자동 풍년 이벤트 × 초반 수완)
+   * (m2-events §5.3-2·m2-rebirth §4.2). opts.noEvent(벽시계 따라잡기 실행)면 이벤트를 빼고 계산한다
    */
   const autoRunGold = (S, t, opts) =>
     Math.round(R.percentScaled(R.autoReward(R.topLv(S)) * goldUpFactor(S) * boostFactorAt(S, t),
-      [R.incomeTraitValue(S, 'work'), E.eventValue(S, 'auto', opts)]));
+      [R.incomeTraitValue(S, 'work'), E.eventValue(S, 'auto', opts), R.earlyIncomePct(S)]));
 
   function setAutoOn(S, on) {
     if (on && !autoUnlocked(S)) return fail('locked');
@@ -103,9 +103,9 @@
     const runs = Math.floor(effGap / autoInterval(S));
     const overlap = Math.max(0, Math.min(S.idle.boostUntil - start, effGap));
     const boostFactor = effGap > 0 ? 1 + (C.BOOSTER_MULT - 1) * overlap / effGap : 1;
-    // 정산 시점의 수입 검 구성으로 일꾼 특성을 적용한다(m2-traits §4)
-    const gold = Math.floor(R.traitScaled(runs * R.autoReward(R.topLv(S)) * goldUpFactor(S) * C.OFFLINE_EFF * boostFactor,
-      R.incomeTraitValue(S, 'work')));
+    // 정산 시점의 수입 검 구성으로 일꾼 특성·초반 수완을 적용한다(m2-traits §4, m2-rebirth §4.2)
+    const gold = Math.floor(R.percentScaled(runs * R.autoReward(R.topLv(S)) * goldUpFactor(S) * C.OFFLINE_EFF * boostFactor,
+      [R.incomeTraitValue(S, 'work'), R.earlyIncomePct(S)]));
     const ore = F.addOre(S, F.expectedOre(S, runs, C.OFFLINE_EFF));
     S.gold += gold;
     S.stats.offlineGold += gold;

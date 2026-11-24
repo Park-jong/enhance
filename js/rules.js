@@ -31,7 +31,9 @@
   const pityBand = l => Math.min(C.PITY_STEP.length - 1, Math.floor(l / C.PITY_BAND_WIDTH));
   const pityBonus = (lv, pity) => Math.min(C.PITY_MAX[pityBand(lv)], pity * C.PITY_STEP[pityBand(lv)]);
   const rarity = l => C.RARITY.find(r => l >= r.min);
-  const isUnlocked = (S, key) => S.best >= C.UNLOCK[key];
+  // 명성 상점 면허로 best 관문을 건너뛰는 해금(m2-rebirth §4): 해금 키 → 트랙
+  const FAME_UNLOCK = { idle: 'autoStart' };
+  const isUnlocked = (S, key) => S.best >= C.UNLOCK[key] || (hasOwn(FAME_UNLOCK, key) && fameValue(S, FAME_UNLOCK[key]) > 0);
 
   // ============================================================ 천장 게이지 / 성공 숙련 (M1.1, m1.1-late-correction)
   /** 단계 l의 계정 공통 배열 인덱스(from..to 밖이면 -1) */
@@ -108,6 +110,17 @@
   const bestSword = S => S.swords.reduce((b, s) => (s.lv > b.lv ? s : b), S.swords[0]);
   /** 사냥·자동·오프라인 수입 기준 단계: 보관함 최고 단계 검(사용자 결정) */
   const topLv = S => bestSword(S).lv;
+
+  // ============================================================ 명성 상점 효과 조회 (F11, m2-rebirth §4) — chances()·가격식은 이 함수들을 쓰지 않는다
+  /** 그 트랙의 현재 레벨 값(0레벨·알 수 없는 트랙이면 0). rebirth가 없는 상태(직접 조립한 옛 테스트·도구 상태)는 0레벨로 본다 */
+  function fameValue(S, track) {
+    if (!hasOwn(C.FAME_SHOP, track) || !S.rebirth || !S.rebirth.up) return 0;
+    const lv = S.rebirth.up[track];
+    // 정규화를 거치지 않은 범위 밖 레벨이 NaN 골드로 번지지 않게 0으로 본다
+    return lv > 0 ? C.FAME_SHOP[track].values[lv - 1] || 0 : 0;
+  }
+  /** 초반 수입 %(§4.2 pFame): topLv ≤ EARLY_INCOME_MAX_LV일 때만 income 트랙 값, 아니면 0(0이면 수입 식은 기존 경로) */
+  const earlyIncomePct = S => (topLv(S) <= C.EARLY_INCOME_MAX_LV ? fameValue(S, 'income') : 0);
 
   // ============================================================ 검 특성 조회 (F14, m2-traits §3·§4) — chances()는 이 함수들을 쓰지 않는다
   const traitDef = kind => (typeof kind === 'string' && hasOwn(C.TRAITS, kind) ? C.TRAITS[kind] : null);
@@ -717,6 +730,8 @@
     // 공식
     roundTo, cost, sell, protectNeed, huntReward, autoReward, shardGain, boosterPrice, pityBand, pityBonus, rarity,
     isUnlocked, chances, hasOwn, itemDef,
+    // 명성 상점 효과 (F11)
+    fameValue, earlyIncomePct,
     // 천장 게이지 / 성공 숙련 (M1.1)
     gaugeIndex, masteryIndex, masteryBonus, masteryCount, gaugeInfo, isGaugeFull, enhanceOpts, currentChances,
     // 보관함

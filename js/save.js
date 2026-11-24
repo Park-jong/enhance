@@ -30,6 +30,9 @@
   const obj = v => (isObj(v) ? v : {});
   const emptyDaily = maxDay => ({ maxDay, tasks: [], bonus: 0 });
   const defaultEvents = () => ({ active: null, sinceMs: 0, nextAtMs: EVENT_GAP_MIN_MS });
+  const defaultRebirth = () => ({ count: 0, fame: 0, up: zeros(C.FAME_TRACKS) });
+  // REQ-037: 옛 클라이언트는 이 키를 모르므로, 그들이 저장 키를 다시 쓰며 rebirth를 버려도 여기 사본이 남는다
+  const REBIRTH_MIRROR_KEY = C.SAVE_KEY + '-rebirth';
 
   /** 숫자로 읽을 수 있으면 정수로 내리고 [min,max]로 자름, 아니면 기본값. 범위는 항상 안전 정수 안 */
   function int(v, def, min, max) {
@@ -75,6 +78,7 @@
       title: C.TITLE_NONE,
       daily: emptyDaily(0),
       events: defaultEvents(),
+      rebirth: defaultRebirth(),
     };
   }
 
@@ -189,6 +193,20 @@
     };
   }
 
+  /**
+   * 환생 상태(m2-rebirth §8): 객체가 아니면 기본값, up도 객체가 아니면 0. {count, fame, up(트랙 키만)}만 남기고
+   * 레벨은 트랙 최대 레벨까지. 지출 ≤ 획득은 강제하지 않는다(변조 피해는 편의뿐)
+   */
+  function normRebirth(v) {
+    if (!isObj(v)) return defaultRebirth();
+    const up = obj(v.up);
+    return {
+      count: int(v.count, 0, 0, C.REBIRTH_COUNT_MAX),
+      fame: int(v.fame, 0, 0, C.FAME_MAX),
+      up: C.FAME_TRACKS.reduce((o, k) => { o[k] = int(up[k], 0, 0, C.FAME_SHOP[k].costs.length); return o; }, {}),
+    };
+  }
+
   /** 저장 데이터(부분/손상 포함)를 기본값과 병합하고 정합성을 맞춘다 (m1-storage §3 로드 규칙 4·5) */
   function normalize(d, now) {
     const S = defaultState(now);
@@ -238,6 +256,7 @@
     S.title = normTitle(d.title, S.achievements);
     S.daily = normDaily(d.daily, S.stats);
     S.events = normEvents(d.events);
+    S.rebirth = normRebirth(d.rebirth);
 
     R.cleanupUse(S);
     return S;
@@ -285,6 +304,32 @@
 
   const isEmpty = raw => raw === null || raw === undefined || raw === '';
 
+  // ------------------------------------------------------------ 환생 미러 키 (REQ-037)
+  /** 미러 키의 rebirth(정규화, 변조는 잘림). 없음·읽기 실패·손상이면 null */
+  function readRebirthMirror(storage) {
+    const got = tryRead(storage, REBIRTH_MIRROR_KEY);
+    if (got.failed || isEmpty(got.raw)) return null;
+    const d = parse(got.raw);
+    return isObj(d) ? normRebirth(d) : null;
+  }
+  /** 저장 키의 rebirth보다 환생 횟수가 많은 미러가 있으면 미러를 쓴다(옛 클라이언트가 필드를 버린 저장). S를 고쳐 돌려준다 */
+  function adoptRebirthMirror(storage, S) {
+    const mirror = readRebirthMirror(storage);
+    if (mirror && mirror.count > S.rebirth.count) S.rebirth = mirror;
+    return S;
+  }
+  /**
+   * 저장 키를 쓴 직후 같은 rebirth를 미러 키에 쓴다. 이미 같은 값이면(없음 = 기본값) 쓰지 않는다.
+   * 미러 읽기·쓰기 실패는 무시한다: 저장 키 쓰기 결과와 보호 모드에 영향을 주지 않는다
+   */
+  function writeRebirthMirror(storage, S) {
+    if (!isObj(S.rebirth)) return;
+    const raw = JSON.stringify(S.rebirth);
+    const stored = read(storage, REBIRTH_MIRROR_KEY);
+    if (stored === raw || (isEmpty(stored) && raw === JSON.stringify(defaultRebirth()))) return;
+    writeRaw(storage, REBIRTH_MIRROR_KEY, raw);
+  }
+
   /**
    * 읽을 수 없는 v2 원문을 백업 키에 남긴다. 백업 키는 한 번만 쓴다(m1-storage AC 18):
    * 처음 손상된 원문이 가장 복구 가치가 높으므로 이후 손상 원문으로 덮어쓰지 않는다.
@@ -328,7 +373,7 @@
     // 빈 문자열은 손상이 아니라 '저장 없음': 유효한 v1이 손상 처리에 가려지지 않게 한다
     if (isEmpty(raw)) return { state: null, corrupt: false };
     const d = parse(raw);
-    return isObj(d) ? { state: normalize(d, now), corrupt: false } : { state: null, corrupt: true, raw };
+    return isObj(d) ? { state: adoptRebirthMirror(storage, normalize(d, now)), corrupt: false } : { state: null, corrupt: true, raw };
   }
 
   /**
@@ -357,7 +402,9 @@
   const touch = (S, now) => { S.idle.lastSeen = now; };
   function save(storage, S, now) {
     touch(S, now);
-    return write(storage, C.SAVE_KEY, S);
+    const ok = write(storage, C.SAVE_KEY, S);
+    if (ok) writeRebirthMirror(storage, S);
+    return ok;
   }
 
   /**
@@ -420,5 +467,7 @@
     };
   }
 
-  return { SAVE_VERSION, CORRUPT_BACKUP_KEY, defaultState, normalize, migrateV1, load, peek, save, createSaveKeeper };
+  return {
+    SAVE_VERSION, CORRUPT_BACKUP_KEY, REBIRTH_MIRROR_KEY, defaultState, normalize, migrateV1, load, peek, save, createSaveKeeper,
+  };
 });

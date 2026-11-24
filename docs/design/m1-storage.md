@@ -76,7 +76,7 @@
 }
 ```
 
-> 위 JSON은 M1 기준 예시다. M2부터 각 검에 `"trait": null`이 추가된다(m2-overview §D). M2의 최상위 필드(`achievements`·`title`·`daily`·`events`)와 `stats` 신규 키(`hunts`…`eventsSeen`)는 아래 필드 표에 있다. JSON에는 주석을 쓸 수 없어 예시 안의 주석을 이 문장으로 옮겼다 (2026-11-23 변경).
+> 위 JSON은 M1 기준 예시다. M2부터 각 검에 `"trait": null`이 추가된다(m2-overview §D). M2의 최상위 필드(`achievements`·`title`·`daily`·`events`·`rebirth`)와 `stats` 신규 키(`hunts`…`eventsSeen`)는 아래 필드 표에 있다. JSON에는 주석을 쓸 수 없어 예시 안의 주석을 이 문장으로 옮겼다 (2026-11-23 변경).
 
 ### 필드 정의/기본값
 | 필드 | 타입/범위 | 기본값 | 설명 | 참조 문서 |
@@ -117,6 +117,10 @@
 | `events.active` | `{id, remainMs}` 또는 `null` | `null` | 진행 중 이벤트. `id`가 `EVENTS`의 자기 속성(`hasOwn`, `'constructor'`·`'__proto__'` 거부)이 아니면 `null`. `remainMs`는 정수화 후 `0..durationSec×1000`으로 clamp, 0이면 만료로 보고 `null`. `{id, remainMs}` 외 필드는 버림 (2026-11-23 추가) | m2-events §10 |
 | `events.sinceMs` | 정수 `0..EVENT_GAP_MAX_SEC×1000` | 0 | 직전 이벤트 종료(또는 최초)부터 쌓인 활성 플레이 ms (2026-11-23 추가) | m2-events §6.2·§10 |
 | `events.nextAtMs` | 정수 `EVENT_GAP_MIN_SEC×1000..EVENT_GAP_MAX_SEC×1000` | `EVENT_GAP_MIN_SEC×1000` | 다음 스폰 임계값 ms. 이벤트 종료 때 뽑아 저장(새로고침으로 다시 뽑지 못함). 범위 밖은 clamp, 없거나 비수치면 최소값 (2026-11-23 추가) | m2-events §6.2·§10 |
+| `rebirth` | `{ count, fame, up }` | `{count:0, fame:0, up:{startGold:0, income:0, slots:0, autoStart:0}}` | M2 F11 환생 상태. 객체가 아니면(없음·배열·숫자·문자열·null) 기본값, `up`도 객체가 아니면 전부 0. `{count, fame, up}`·`up` 4키 외는 버림. 지출 ≤ 획득은 강제하지 않음. 환생은 이 필드를 유지(+1·+3)하고 다른 필드는 m2-rebirth §8 표대로 초기화·유지 (2026-11-24 추가) | m2-rebirth §8 |
+| `rebirth.count` | 정수 `0..REBIRTH_COUNT_MAX`(1e6) | 0 | 환생 횟수. `int(v,0,0,1e6)` (2026-11-24 추가) | m2-rebirth §8 |
+| `rebirth.fame` | 정수 `0..FAME_MAX`(1e9) | 0 | 명성 잔액. `int(v,0,0,1e9)` (2026-11-24 추가) | m2-rebirth §8 |
+| `rebirth.up.startGold/income/slots/autoStart` | 정수 0..트랙 최대 레벨(4/4/2/1) | 0 | 명성 상점 레벨. `int(v,0,0,FAME_SHOP[트랙].costs.length)` (2026-11-24 추가) | m2-rebirth §4·§8 |
 
 ### 로드 규칙(`load()`)
 1. `sword-enhance-v2`가 있으면 파싱 후 기본값 병합(M0 `load()`와 같은 얕은 병합 + 중첩 객체별 병합). 
@@ -125,6 +129,7 @@
 4. 로드 후 **정합성 보정**: `swords`가 비면 무료 +0 추가; `active`는 저장된 값이 **숫자 0이면 그대로 0 유지**(활성 검 없음, 최고 검으로 바꾸지 않음), 그 외에 정수가 아니거나(없음·문자열·소수 등) `swords`에 없는 id면 최고 단계 검(`bestSword`)으로 대체(js/save.js `normalize`); 각 `lv`는 0..20, `prot`는 0..`PROTECT_USES`로 clamp; `inv`/`ore`/`gold`/`shards`는 음수면 0; `anvilEq`가 존재하지 않는 id면 null; `swords.length > slots`면 `slots`를 올려 맞춤.
 5. (M1.1) `gauge`/`mastery`: 없거나 배열이 아니면 `[0,0,0,0,0]`; 길이를 5로 맞추고(부족은 0, 초과는 자름), 칸마다 정수화 후 `gauge`는 `0..GAUGE_N[i]`, `mastery`는 `0..MASTERY_REC_MAX[i]`로 clamp. 버전(`v`)은 2 유지, 마이그레이션 없음.
 6. (M2 F13) `events`: 위 필드 표의 정규화(`js/save.js` `normEvents`). 옛 저장(필드 없음)과 v1 마이그레이션은 기본값으로 시작한다. 버전(`v`)은 2 유지. 오프라인 정산(`settleOffline`)은 `events`를 읽지도 쓰지도 않는다 (2026-11-23 추가, m2-events §10).
+7. (M2 F11) `rebirth`: 위 필드 표의 정규화(`js/save.js` `normRebirth`). 옛 저장(필드 없음)은 기본값, 버전(`v`)은 2 유지. 저장 키에서 유효한 v2를 읽을 때(`peek` → `load`·이어받기·복귀) 미러 키 `sword-enhance-v2-rebirth`의 `rebirth.count`가 더 크면 미러의 `rebirth`를 채택한다(아래 "환생 미러 키", REQ-037) (2026-11-24 추가).
 
 ### v1 → v2 마이그레이션 매핑 (`migrate`)
 | v1 필드 | v2 위치 | 변환 |
@@ -151,6 +156,11 @@
 - **(결정, 3-4) 잠금 화면 문구**: 제목 "다른 탭에서 게임이 실행 중입니다" / 본문 "저장이 서로 덮어쓰이지 않도록 이 탭을 멈췄습니다. 다른 탭을 닫았거나 이 탭에서 이어서 하려면 아래 버튼을 누르세요. 누르면 다른 탭이 멈춥니다." / 버튼 "이 탭에서 계속하기"(라벨 유지). 이유: 기존 문구는 멈춘 이유와 버튼이 다른 탭을 멈춘다는 점을 알리지 않았다. 기각: 버튼 라벨 변경.
 - (2026-11-19 변경) `storage` 이벤트의 `key === null`(저장소 전체 clear)은 `e.storageArea`가 이 탭의 `localStorage`이거나 없을 때(구형 브라우저·스텁)에만 이 탭을 잠근다. `sessionStorage` clear는 무시한다.
 - (2026-11-19 변경) 이어받기·새 게임 등 상태 전체 교체 시 진행 중인 강화 연출의 결과는 버린다. 상태를 통째로 바꿀 때마다 `ui.epoch`를 올리고, 연출 코드는 시작 시점의 epoch와 비교해 달라졌으면 이후 토스트·로그·`busy`·화면 갱신을 건너뛴다(새 상태의 `busy`/화면은 건드리지 않음).
+
+### 환생 미러 키 (REQ-037, 2026-11-24 추가)
+- 옛 클라이언트(8-A 이전 버전·캐시된 탭)는 `rebirth`를 몰라 새 저장을 다시 쓰면 명성 진행이 사라진다. 그래서 `SV.save`가 저장 키 쓰기에 성공한 직후 정규화된 `rebirth`를 `저장 키 + '-rebirth'`(`sword-enhance-v2-rebirth`, 테스트 페이지 `sword-enhance-test-rebirth`)에 쓴다. 같은 값이 이미 있거나 미러가 없고 값이 기본값이면 쓰지 않는다.
+- 저장 키 쓰기 실패·보호 모드(`blocked`)에서는 미러도 쓰지 않는다. 미러 읽기·쓰기 예외는 무시한다(저장 결과와 보호 모드에 영향 없음). 탭 잠금은 저장 키만 지켜보며, 미러 키는 저장 키와 같은 `persist`에서만 쓰이므로 따로 지켜볼 필요가 없다.
+- 읽기 규칙과 채택 기준(`count`만 비교, 정규화, 손상 미러 무시)은 `m2-rebirth.md` §8.2.
 
 ### 알림 토스트 (저장·소모품) (2026-11-19 변경)
 - 트레이 소모품이 다 떨어져 토글이 자동으로 꺼지면 **강화 시도당 토스트 1회**(여러 품목이면 한 토스트로 합침): "…을(를) 다 써서 사용을 껐습니다." epoch로 버려진 시도에서는 표시하지 않는다.

@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const SG = root.SG;
-  const { C, rules: R, forge: F, idle: I, quests: Q, save: SV, ach: A, events: E, fx: FX, view: V } = SG;
+  const { C, rules: R, forge: F, idle: I, quests: Q, save: SV, ach: A, events: E, rebirth: RB, fx: FX, view: V } = SG;
   const $ = sel => document.querySelector(sel);
   const fmt = FX.fmt;
   const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -31,7 +31,8 @@
   const UNLOCK_NOTICES = [
     { best: C.QUEST_UNLOCK_BEST, msg: `${C.ICONS.quests} 의뢰 탭이 열렸습니다!` },
     { best: C.FORGE_UNLOCK_BEST, msg: `${C.ICONS.forge} 대장간이 열렸습니다! 모루와 광석을 확인하세요.` },
-    { best: C.AUTO_UNLOCK_BEST, msg: `${C.ICONS.auto} 자동 사냥이 해금되었습니다!` },
+    // licensed: 이 명성 트랙이 있으면 처음부터 열려 있으므로 알리지 않는다(m2-rebirth §4)
+    { best: C.AUTO_UNLOCK_BEST, msg: `${C.ICONS.auto} 자동 사냥이 해금되었습니다!`, licensed: 'autoStart' },
     { best: C.ORE_UNLOCK_LV.silver, msg: `${C.ICONS.silver} 은광석을 캘 수 있습니다!` },
     { best: C.ORE_UNLOCK_LV.mithril, msg: `${C.ICONS.mithril} 미스릴 광석을 캘 수 있습니다!` },
   ];
@@ -150,7 +151,7 @@
     Object.keys(ui.armed).filter(key => SINK_ACTS.includes(key.split(':')[0])).forEach(key => { delete ui.armed[key]; });
   }
   function announceUnlocks(prevBest) {
-    const notices = UNLOCK_NOTICES.filter(n => prevBest < n.best && S.best >= n.best);
+    const notices = UNLOCK_NOTICES.filter(n => prevBest < n.best && S.best >= n.best && !(n.licensed && R.fameValue(S, n.licensed) > 0));
     notices.forEach(n => FX.toast(n.msg, 'special'));
     if (notices.length) sfx('unlock');
   }
@@ -439,6 +440,23 @@
   const DAILY_SLOT_ID = /^(0|[1-9][0-9]*)$/;
   const dailyKeyOf = id => (typeof id === 'string' && DAILY_SLOT_ID.test(id) ? Number(id) : id);
 
+  /**
+   * 환생(m2-rebirth §3.2·§7): 정규화한 복사본(draft)에서 규칙을 실행하고 성공했을 때만 상태를 교체한다(부분 상태 저장 없음).
+   * 교체는 이어받기·새 게임과 같은 resetUiFor(연출·2회 클릭 확인·이벤트 팝오버 취소), 저장은 afterChange의 persist 1번
+   */
+  function rebirthNow() {
+    // 강화 연출 중에는 무시: 결과 공개·지연 토스트를 끊지 않는다(activate와 같다)
+    if (ui.busy) return;
+    const t = now();
+    const draft = SV.normalize(JSON.parse(JSON.stringify(S)), t);
+    const r = RB.rebirth(draft, t);
+    if (!r.ok) return reject(r.reason);
+    resetUiFor(draft, t);
+    FX.toast(`환생! 명성 +${r.fameGain}`, 'special');
+    FX.log(`환생했습니다. 명성 ${r.fame} · 환생 ${r.count}회`, 'good');
+    afterChange();
+  }
+
   const ACTIONS = {
     tab: id => { ui.tab = id; disarmSinks(); closeEventPop(); sfx('tabSwitch'); render(); },
     // 보관함 칸 한 번 클릭 = 활성 검. 강화 연출 중이거나 이미 활성인 검이면 무시
@@ -489,6 +507,9 @@
       persist();
       render();
     },
+    // 환생·명성 상점 (F11): 버튼·확인 창은 8-B. 탭 잠금 중에는 클릭 위임(whenActive)이 막는다
+    rebirth: () => rebirthNow(),
+    buyFame: track => settle(RB.buyFame(S, track), r => `${C.FAME_SHOP[track].name} Lv ${r.level} (명성 -${r.cost})`),
     copyCorrupt: () => copyGuardedRaw(),
     retryBackup: () => retryCorruptBackup(),
     abandonCorrupt: () => abandonCorruptSave(),

@@ -152,7 +152,7 @@ async function main() {
 
   // 1) 새 게임: 로드·렌더·저장
   let env = makeEnv({});
-  ok(env.scripts.length === 16, 'all scripts loaded');
+  ok(env.scripts.length === 17, 'all scripts loaded');
   ok(!!env.ctx.M1_ICONS && !!env.ctx.M1_SFX_PLAY, 'content assets loaded');
   ok(env.byId['#tabbar']._html.includes('<svg'), 'content SVG icons used in tabs');
   ok(saved(env).v === 2, 'v2 saved on start');
@@ -431,6 +431,8 @@ async function main() {
   await eventsWiring(ok);
   // 7b-7) 7-2 F13 화면: 칩·팝오버(열고 닫기)·시작/종료 토스트·효과 표시·이벤트 덕 성공 로그·테스트 페이지 조작
   await eventsUi(ok);
+  // 7b-8) 8-A F11: 환생·명성 상점 배선(draft 교체·저장 1번·멈춘 탭·다시 불러오기·미러 키)
+  await rebirthWiring(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -1963,7 +1965,7 @@ async function testPage(ok) {
   const realUntouched = env => REAL_KEYS.every(k => env.store[k] === realStore[k]);
 
   let env = makeEnv(realStore, { page: 'test.html' });
-  ok(env.scripts.length === 18, 'test page loads all scripts');
+  ok(env.scripts.length === 19, 'test page loads all scripts');
   ok(env.ctx.SG.C.SAVE_KEY === TEST_KEY && env.ctx.SG.config.forceSuccess === true, 'test config applied');
   ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'test page starts its own new game (no v1 migration, no real save)');
   ok(realUntouched(env), 'real v2 / v1 / corrupt-backup keys untouched on test page start');
@@ -2043,6 +2045,110 @@ async function testPage(ok) {
 }
 
 /** REQ-012 #11: 파티클 상한과 캔버스 크기 캐시(fx.js만 별도 VM에서 실행) */
+/**
+ * 8-A F11 배선 (m2-rebirth §3.2·§7, AC 7·37, REQ-037): rebirth·buyFame 동작(버튼·확인 창은 8-B).
+ * 정규화 복사본에서 환생해 성공했을 때만 상태를 교체하고 저장 키를 정확히 1번(+ 미러 키 1번) 쓴다.
+ * 실패·멈춘 탭은 쓰기 0번, 환생 뒤 다시 불러와도 같은 상태. 환생·명성 규칙은 rng를 쓰지 않는다(V6 해당 없음)
+ */
+async function rebirthWiring(ok) {
+  const KEY = 'sword-enhance-v2';
+  const MIRROR = 'sword-enhance-v2-rebirth';
+  const FEE = 19846200;
+  const clk = { t: Date.now() };
+  const ready = fields => {
+    const s = SG_default();
+    s.swords = [{ id: 1, lv: 20, prot: 2, pity: 0, trait: null }, { id: 2, lv: 7, prot: 2, pity: 0, trait: { k: 'hunt', t: 1 } }];
+    Object.assign(s, { best: 20, gold: FEE + 5000, nextSwordId: 3, active: 1, title: 'tries_1', achievements: { tries_1: 2 } });
+    s.stats.tries = 150;
+    s.events = { active: { id: 'luck', remainMs: 60000 }, sinceMs: 0, nextAtMs: 900000 };
+    s.idle.lastSeen = clk.t;
+    return Object.assign(s, fields || {});
+  };
+  let game = null;
+  const boot = (store, page) => makeEnv(store, { page, now: () => clk.t, extensions: [api => { game = api; }] });
+  /** 이 시점 이후 setItem 횟수를 키별로 센다(main.js와 save.js는 같은 localStorage 객체의 setItem을 호출 시점에 찾는다) */
+  const countWrites = env => {
+    const counts = {};
+    const setItem = env.ctx.localStorage.setItem;
+    env.ctx.localStorage.setItem = (k, v) => { counts[k] = (counts[k] || 0) + 1; setItem(k, v); };
+    return counts;
+  };
+
+  // 성공: 저장 키 1번 + 미러 1번, 메모리 상태 = 저장, 이벤트 초기화·업적/칭호/통계 유지
+  let env = boot({ [KEY]: JSON.stringify(ready()) });
+  const achievementsBefore = JSON.stringify(saved(env).achievements);
+  let writes = countWrites(env);
+  click(env, 'rebirth');
+  let st = saved(env);
+  ok(JSON.stringify(writes) === JSON.stringify({ [KEY]: 1, [MIRROR]: 1 }), 'F11 rebirth: exactly one main-save write (+ one mirror write): ' + JSON.stringify(writes));
+  ok(st.rebirth.count === 1 && st.rebirth.fame === 3 && st.best === 0 && st.gold === 300 &&
+    JSON.stringify(st.swords) === JSON.stringify([{ id: 3, lv: 0, prot: 2, pity: 0, trait: null }]) && st.active === 3,
+  'F11 rebirth: state replaced by the reborn state (one +0 sword, start gold, fame +3)');
+  ok(JSON.stringify(st.events) === JSON.stringify({ active: null, sinceMs: 0, nextAtMs: 900000 }) &&
+    JSON.stringify(st.achievements) === achievementsBefore && st.title === 'tries_1' && st.stats.tries === 150,
+  'F11 rebirth: events reset (m2-events §13), achievements/title/stats kept (m2-achievements §18)');
+  ok(JSON.stringify(game.state()) === env.store[KEY], 'F11 rebirth: the in-memory state is exactly what was saved');
+  ok(JSON.parse(env.store[MIRROR]).count === 1, 'REQ-037: mirror holds the new rebirth');
+  scanRendered();
+
+  // 다시 불러오기: 같은 상태(같은 시계)
+  const afterRebirth = env.store[KEY];
+  const env2 = boot(Object.assign({}, env.store));
+  ok(JSON.stringify(game.state()) === afterRebirth && env2.store[KEY] === afterRebirth, 'F11 rebirth: reload after rebirth gives the same state');
+
+  // 명성 상점: 구매 1번 = 저장 1번(+ 미러), 면허는 즉시 자동 사냥 해금. 잘못된 트랙은 쓰기 없음
+  writes = countWrites(env2);
+  click(env2, 'buyFame', 'autoStart');
+  st = saved(env2);
+  ok(JSON.stringify(writes) === JSON.stringify({ [KEY]: 1, [MIRROR]: 1 }) && st.rebirth.fame === 0 && st.rebirth.up.autoStart === 1,
+    'F11 buyFame: one save with the purchase, mirror updated');
+  click(env2, 'toggleAuto');
+  ok(saved(env2).idle.autoOn === true && saved(env2).best === 0, 'F11 buyFame: the license unlocks auto hunt at best 0');
+  writes = countWrites(env2);
+  click(env2, 'buyFame', '__proto__');
+  click(env2, 'buyFame', 'autoStart');
+  ok(JSON.stringify(writes) === '{}' && saved(env2).rebirth.fame === 0, 'F11 buyFame: invalid / maxed purchases write nothing');
+  scanRendered();
+
+  // 실패(골드 부족·+20 없음): 상태·저장 불변, 쓰기 0번
+  for (const [fields, label] of [[{ gold: FEE - 1 }, 'noGold'], [{ swords: [{ id: 1, lv: 19, prot: 2, pity: 0, trait: null }] }, 'notReached']]) {
+    env = boot({ [KEY]: JSON.stringify(ready(fields)) });
+    const before = env.store[KEY];
+    const mem = JSON.stringify(game.state());
+    writes = countWrites(env);
+    click(env, 'rebirth');
+    ok(JSON.stringify(writes) === '{}' && env.store[KEY] === before && JSON.stringify(game.state()) === mem, `F11 rebirth ${label}: no write, state unchanged`);
+  }
+
+  // 강화 연출 중(busy): activate처럼 무시한다(상태 교체·저장·토스트 없음). main.js는 로드 시점의 Math.random을
+  // 잡으므로 로드 동안 0으로 바꿔 활성 검(+7) 강화가 반드시 성공하게 한다(V6)
+  const realRandom = Math.random;
+  Math.random = () => 0;
+  try { env = boot({ [KEY]: JSON.stringify(ready({ active: 2 })) }); } finally { Math.random = realRandom; }
+  const pending = env.byId['#btnEnhance'].listeners.click[0]();
+  const busyMem = JSON.stringify(game.state());
+  writes = countWrites(env);
+  click(env, 'rebirth');
+  ok(JSON.stringify(writes) === '{}' && JSON.stringify(game.state()) === busyMem && game.state().rebirth.count === 0,
+    'F11 rebirth: ignored while the enhance animation runs (no write, state unchanged)');
+  await pending;
+  ok(game.state().rebirth.count === 0 && game.state().swords.length === 2, 'F11 rebirth: still not reborn after the enhance finishes');
+
+  // 멈춘 탭(다른 탭이 저장함): 환생하지 않고 쓰지 않는다
+  env = boot({ [KEY]: JSON.stringify(ready()) });
+  fire(env, 'storage', { key: KEY });
+  writes = countWrites(env);
+  click(env, 'rebirth');
+  ok(JSON.stringify(writes) === '{}' && game.state().rebirth.count === 0 && game.state().swords.length === 2, 'F11 rebirth: a suspended tab cannot rebirth');
+
+  // 테스트 페이지: 자기 키(미러 포함)만 쓴다
+  const TEST = 'sword-enhance-test';
+  env = boot({ [TEST]: JSON.stringify(ready()) }, 'test.html');
+  click(env, 'rebirth');
+  ok(JSON.parse(env.store[TEST]).rebirth.count === 1 && JSON.parse(env.store[TEST + '-rebirth']).count === 1 &&
+    !Object.keys(env.store).some(k => k.startsWith('sword-enhance-v')), 'F11 rebirth on the test page writes only the test keys');
+}
+
 function particleCap(ok) {
   let draws = 0;
   let layoutReads = 0;
@@ -2392,7 +2498,7 @@ async function saveSafety(ok) {
   // 테스트 페이지: 조작판(commit/newGame) 경로도 보호 모드에서 테스트 저장 키에 쓰지 않는다
   {
     const env = makeEnv({ [TEST_KEY]: RAW }, { page: 'test.html', failKeys: [TEST_KEY + '-corrupt'] });
-    ok(env.scripts.length === 18 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
+    ok(env.scripts.length === 19 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
     click(env, 'testGold');
     click(env, 'testToggleForce');
     click(env, 'testReset');

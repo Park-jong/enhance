@@ -185,3 +185,10 @@
 - 산출물: css/style.css(.event-wrap flex-shrink:0), tests/browser-strip.js(369: 721/760 스트레스, 헤더 항목 겹침 검사, 721~1000 1px 스윕), docs/design/m2-events.md(§11 icon, §18 test-panel.js), docs/design/m2-rebirth.md(같은 오기 정정), index.html·test.html·js/view.js·js/main.js(aria-haspopup=dialog, aria-expanded), tests/smoke-dom.js(582)
 - 결정 사항: 칩 래퍼가 줄지 않게 함. aria-expanded는 렌더 외에 closeEventPop에서도 즉시 갱신. 겹침 721/760/800/1000 = 0 (수정 전 13.8/5.5/0/0).
 - 남은 문제: 칭호 배지까지 전부 표시 시 721~723px에서 1~4px 가로 넘침(겹침 없음, 로고 세로 줄바꿈 등 이미 깨진 상태). 헤더 레이아웃 결정 필요(기획).
+
+## 2026-11-24 — 8-A 환생 규칙·명성 상점·저장 (UI 제외)
+- 지시: 디렉터 / 관련 단계: 8단계 8-A / 처리한 요청: REQ-037 (미러 키로 처리, QA 검증 대기)
+- 참여 팀원: client-programmer
+- 산출물: js/rebirth.js(신규), constants.js, rules.js(fameValue·earlyIncomePct·면허), idle.js(초반 수입), save.js(normRebirth·미러 키), main.js(rebirth·buyFame 액션), index.html, test.html, docs/design/m2-rebirth.md(§8.2 등), m1-storage.md, tests/run-tests.js(493), tests/smoke-dom.js(595), tests/run-m1.1-qa-tests.js(로더 1줄, QA 소유)
+- 결정 사항: 미러 채택은 count만 비교(fame 동률 비교 시 정당한 구매가 되돌려짐). 새 상태는 defaultState 기반 + 표 구동 테스트. fameValue는 로드 순서상 rules.js에 둠. count/fame 런타임 상한 추가(V8).
+- 남은 문제: 신규 게임 저장 성공 후 미러 쓰기만 실패하면 다음 로드가 옛 rebirth 재채택(희귀). 환생 중 강화 연출 차단 안 함. 사유 문구는 8-B. QA 소유 파일 한 줄 수정 알림 필요.

@@ -12,20 +12,22 @@
 | 화폐 | **명성**(`fame`), 환생 1회당 **고정 3** |
 | 상점 | 시작 골드 · 초반 수입(+%, `topLv ≤ 12`만) · 시작 칸 · 자동 사냥 면허. **확률 보너스 없음** |
 | 숙련 | 환생 시 단계별 기록 **최대 1개만 상속**(`MASTERY_KEEP_REC`=1), 게이지는 전부 초기화 |
-| 저장 | v2 유지, 필드 `rebirth` 하나 추가 |
+| 저장 | v2 유지, 필드 `rebirth` 하나 추가. 옛 클라이언트의 덮어쓰기 대비 미러 키 `sword-enhance-v2-rebirth`(§8.2, REQ-037) |
 
 ## 2. 상수 (js/constants.js에 추가)
 | 이름 | 값 | 의미 |
 | --- | --- | --- |
 | `REBIRTH_FEE_MULT` | 100 | 의식 비용 배수(×`huntReward(MAX)`) |
 | `REBIRTH_FEE_ROUND` | 100 | 반올림 단위(G). `TRAIT_PRICE_ROUND`와 같은 값이나 별도 상수 |
-| `REBIRTH_FEE` | `roundTo(REBIRTH_FEE_MULT × huntReward(MAX), REBIRTH_FEE_ROUND)` = 19,846,200 | 파생 상수(함수 `rebirthFee()`로 노출해도 됨) |
+| `REBIRTH_FEE` | `roundTo(REBIRTH_FEE_MULT × huntReward(MAX), REBIRTH_FEE_ROUND)` = 19,846,200 | 파생 값. `huntReward`가 `rules.js`에 있어 `constants.js`가 아니라 `js/rebirth.js`가 만들고 `SG.rebirth.REBIRTH_FEE`·`rebirthFee()`로 노출 (2026-11-24 구현) |
 | `FAME_PER_REBIRTH` | 3 | 환생 1회 획득량 |
 | `MASTERY_KEEP_REC` | 1 | 환생 후 단계별 숙련 기록 상한 |
 | `EARLY_INCOME_MAX_LV` | 12 | 초반 수입 효과가 적용되는 `topLv` 상한 |
-| `FAME_SHOP` | §4 | 트랙별 값·비용 배열 |
+| `REBIRTH_COUNT_MAX` | 1,000,000 | `rebirth.count` 정규화 상한. 환생의 `+1`도 이 값에서 멈춘다(런타임 = 로드 상한, V8) (2026-11-24 추가) |
+| `FAME_MAX` | 1,000,000,000 | `rebirth.fame` 정규화 상한. 환생의 `+3`도 이 값에서 멈춘다 (2026-11-24 추가) |
+| `FAME_SHOP` | §4 | 트랙별 `{name, values, costs}`(`name`은 (초안) 문구) |
 | `FAME_TRACKS` | `Object.keys(FAME_SHOP)` = `['startGold','income','slots','autoStart']` | 순서 = UI 순서 |
-- 로드 시 검사(`throw`): 모든 트랙에서 `values.length === costs.length ≥ 1`, `MASTERY_KEEP_REC ≥ 0`, `FAME_PER_REBIRTH ≥ 1`.
+- 로드 시 검사(`throw`): 모든 트랙에서 `values.length === costs.length ≥ 1`, `MASTERY_KEEP_REC ≥ 0`, `FAME_PER_REBIRTH ≥ 1`, `SLOT_START + max(FAME_SHOP.slots.values) ≤ SLOT_MAX`(넘으면 환생 결과의 `slots`가 정규화에서 잘려 §8.1 불변식이 깨진다) (2026-11-24 추가).
 
 ## 3. 환생 규칙 (4-4)
 ### 3.1 조건과 실패 사유
@@ -40,18 +42,21 @@
 - 환산: 수수료 = `100 × H(20)` = 연속 사냥 100회 = **4.2분**(듀티 50%면 8.3분, 25%면 16.7분). `H(20)=198,462`.
 - 수수료는 선택 지출이 아니라 관문이므로 **`stats.sinkGold`·`stats.earned`에 넣지 않는다**(`sink_*` 업적 부풀림 방지, `m2-achievements.md`).
 
-### 3.2 함수 (rules.js 또는 새 모듈 `js/rebirth.js`, 순수 규칙, 난수 없음)
+### 3.2 함수 (새 모듈 `js/rebirth.js` = `SG.rebirth`, 순수 규칙, 난수 없음) (2026-11-24 구현)
+- 로드 순서: `constants.js` → `events.js` → `rules.js` → `forge.js` → `idle.js` → `quests.js` → `save.js` → **`rebirth.js`** → `achievements.js` → … → `main.js`. `rebirth.js`는 `defaultState`(save.js)와 `huntReward`(rules.js)를 쓰므로 `save.js` 다음이다.
+- 명성 효과 조회 `fameValue(S, track)`와 초반 수입 `earlyIncomePct(S)`(= §4.2 `pFame`)는 **`rules.js`**에 있다: `R.isUnlocked`(면허)와 `idle.js` 수입 식이 `rebirth.js`보다 먼저 로드되기 때문이다. `SG.rebirth.fameValue`·`famePct`는 같은 함수를 다시 내보낸다. `rebirth`가 없는 상태(직접 조립한 옛 테스트·도구 상태)는 0레벨로 본다.
 | 함수 | 동작 |
 | --- | --- |
 | `rebirthFee()` | `REBIRTH_FEE` |
 | `canRebirth(S)` | §3.1 |
-| `rebirthPreview(S)` | 읽기 전용. `{fee, gold, goldLost: max(0, gold − fee), fameGain: FAME_PER_REBIRTH, consumedSwordId, startGold: START_GOLD + startGoldBonus(S), slots: startSlots(S), incomePct: famePct(S,'income'), autoStart: bool, keptMastery: S.mastery.map(min 1)}` + `canRebirth` 결과 |
-| `rebirth(S, now)` | `canRebirth` 실패면 `{ok:false, reason}`, **S 불변**. 성공이면 §3.3을 한 번에 적용하고 `{ok:true, fee, goldLost, fameGain, consumedSwordId, fame, count}` 반환. 호출 쪽(`main.js`)은 **정규화된 복사본(draft)에 호출하고 성공했을 때만 `S`를 교체한 뒤 `persist()`를 정확히 1번** 부른다(부분 상태 저장 없음. 자동 백업 불필요) |
+| `rebirthPreview(S)` | 읽기 전용. `canRebirth` 결과(`ok`, 실패면 `reason`) + `{fee, gold, goldLost: max(0, gold − fee), fameGain: FAME_PER_REBIRTH, consumedSwordId(+20 검이 없으면 null), startGold: START_GOLD + startGoldBonus(S), slots: startSlots(S), incomePct: famePct(S,'income'), autoStart: bool, keptMastery: S.mastery.map(min MASTERY_KEEP_REC)}`. `invalid`면 `{ok:false, reason:'invalid'}`만 |
+| `rebirth(S, now)` | `canRebirth` 실패면 `{ok:false, reason}`, **S 불변**. 성공이면 §3.3을 한 번에 적용해 **S를 제자리에서 환생 직후 상태로 통째로 바꾸고**(최상위 키 전부 교체) `{ok:true, fee, goldLost, fameGain, consumedSwordId, fame, count}` 반환. 입력은 정규화된 상태여야 한다. 호출 쪽(`main.js`)은 **정규화된 복사본(draft)에 호출하고 성공했을 때만 `S`를 교체한 뒤 `persist()`를 정확히 1번** 부른다(부분 상태 저장 없음. 자동 백업 불필요) |
 | `buyFame(S, track)` | §4 |
-| `famePct(S, track)` / `fameValue` | 현재 레벨의 값(0레벨이면 0). `track`은 `FAME_TRACKS` 중 하나 |
+| `famePct(S, track)` / `fameValue` | 현재 레벨의 값(0레벨·알 수 없는 트랙이면 0). 구현은 `R.fameValue`(위 참고), 두 이름은 같은 함수 |
 | `startGoldBonus(S)` | `fameValue(S,'startGold')` |
 | `startSlots(S)` | `SLOT_START + fameValue(S,'slots')` |
 - `rebirth`는 새 상태를 **`defaultState(now)`를 기준으로** 만든다: §8 표에서 "초기화"인 필드는 `defaultState`의 값을 복사하고(나중에 필드가 추가돼도 기본값으로 초기화), "유지"인 필드만 원본에서 가져온다. 예외(기본값이 아닌 값)는 `gold`·`swords`·`active`·`slots`·`mastery`·`events` 일부뿐이며 §8에 적었다.
+  - 구현(2026-11-24): 통째로 유지하는 필드는 `SG.rebirth.KEPT_FIELDS` = `found, settings, stats, monuments, achievements, title, daily`(깊은 복사). 그 밖에 원본에서 가져오는 값은 `nextSwordId`(새 검에 쓰고 +1)·`nextAnvilId`·`quests.nextId`·`rebirth`(+1·+3)·`mastery`(상한 `MASTERY_KEEP_REC`)이고, `gold`·`slots`는 명성 상점 값으로 계산한다. 나머지는 모두 `defaultState(now)` 값(`events`는 기본값 그대로 = 초기화). 표 구동 테스트(`tests/run-tests.js` `RB_FIELD_TABLE`)가 `defaultState`의 모든 최상위 키를 이 표로 분류한다(AC 12).
 
 ### 3.3 환생 전이 (한 번의 순수 전이)
 1. `canRebirth` 통과 확인, 제물 검 제거(`goldLost = gold − fee` 계산).
@@ -73,7 +78,7 @@
 - **합계 25 명성 = 환생 9회**(`ceil(25/3)`). 3명성(환생 1회)으로 살 수 있는 조합 예: 여유 자금 1+2단계 + 초반 수완 1단계 = 1+1+1.
 - **확률에 영향 없음**: 어떤 트랙도 `chances()`·`BONUS_CAP`·`SUCC_CEIL`·게이지·숙련의 입력이 아니다(§9).
 - 구매는 기록 탭 환생 섹션에서 **언제든** 가능(환생 직후 포함). 시작 골드·칸은 **다음 환생 때** 적용(구매해도 지금 골드·칸은 안 변함). 수입·자동 사냥 면허는 **즉시** 적용된다(면허는 현재 런에서도 `idle`이 해금됨).
-- 자동 사냥 면허의 부수 효과: `R.isUnlocked(S,'idle')`이 참이라 방치 업그레이드 구매도 처음부터 가능하다(골드로 제한되므로 문제 없음, 해금 토스트는 면허가 있으면 생략).
+- 자동 사냥 면허의 부수 효과: `R.isUnlocked(S,'idle')`이 참이라 방치 업그레이드 구매도 처음부터 가능하다(골드로 제한되므로 문제 없음, 해금 토스트는 면허가 있으면 생략). 구현(2026-11-24): `rules.js`의 해금 키 → 트랙 표 `FAME_UNLOCK = {idle:'autoStart'}`로 `isUnlocked = best ≥ UNLOCK[key] || 그 트랙 값 > 0`. 토스트 생략은 `main.js` `UNLOCK_NOTICES`의 `licensed: 'autoStart'`.
 
 ### 4.1 `buyFame(S, track)`
 | # | Given | Then |
@@ -85,7 +90,7 @@
 - 검사 순서: invalid → maxed → noFame. 실패 시 상태 불변. 구매는 되돌릴 수 없다(환불 없음).
 
 ### 4.2 초반 수입 정수 공식 (결정)
-`pFame = (R.topLv(S) ≤ EARLY_INCOME_MAX_LV) ? famePct(S,'income') : 0`. **`pFame = 0`이면 기존 코드 경로를 그대로 쓴다**(비트 동일). 다른 정수 항과 **하나의 floor/round 안에서 곱하고 마지막에 한 번만 나눈다**(`m2-traits.md` §3.1·`m2-events.md` §5.3 방식). 없는 항은 빼고 나눗수는 `100^(항 수)`.
+`pFame = (R.topLv(S) ≤ EARLY_INCOME_MAX_LV) ? famePct(S,'income') : 0`(구현: `R.earlyIncomePct(S)`). **`pFame = 0`이면 기존 코드 경로를 그대로 쓴다**(비트 동일: `idle.js`는 `pFame`을 `R.percentScaled`의 %p 목록에 넣고, `percentScaled`는 0인 항을 곱하지 않는다). 다른 정수 항과 **하나의 floor/round 안에서 곱하고 마지막에 한 번만 나눈다**(`m2-traits.md` §3.1·`m2-events.md` §5.3 방식). 없는 항은 빼고 나눗수는 `100^(항 수)`.
 - 수동 사냥: `manualHuntGold = floor(huntReward(topLv) × (100+vHunt) × (100+pFame) × boost / 10000)`. 부스터(`boost=1.5`)는 정수 안전형 `× 3 / 20000`(= `×1.5/10000`)으로 쓸 수 있다.
 - 자동 1회: `autoRunGold = round(autoReward(topLv) × goldUpFactor × boost × (100+vWork) × (100+pFame) / 10000)`.
 - 오프라인: `gold = floor(runs × autoReward(topLv) × goldUpFactor × OFFLINE_EFF × boostFactor × (100+vWork) × (100+pFame) / 10000)`.
@@ -175,11 +180,11 @@ D = `m2-overview.md` D, D.2 = 같은 문서 D.2, M1S = `m1-storage.md` + `js/sav
 | `title` | 문자열 | `''` | D.2 | **유지** | D.2 |
 | `daily.maxDay` / `tasks[]` / `bonus` | D.2 | `0` / `[]` / `0` | D.2 | **유지**(날짜 기반, 환생으로 새 세트 없음, 연속 출석 없음). `tasks[].base`는 `min(base, stats)`로 안전 | D.2 |
 | `events.active` / `sinceMs` / `nextAtMs` | D.2 | `null` / `0` / `900000` | D.2 | **초기화** → 기본값(진행 중 이벤트 취소) | D.2 |
-| **`rebirth.count`** | 정수 | 0 | `int(v,0,0,1e6)` | **유지**, 환생 때 +1 | 이 문서 |
-| **`rebirth.fame`** | 정수 | 0 | `int(v,0,0,1e9)` | **유지**, 환생 때 +3, 구매로 감소 | 이 문서 |
+| **`rebirth.count`** | 정수 | 0 | `int(v,0,0,1e6)` | **유지**, 환생 때 +1(`REBIRTH_COUNT_MAX`에서 멈춤) | 이 문서 |
+| **`rebirth.fame`** | 정수 | 0 | `int(v,0,0,1e9)` | **유지**, 환생 때 +3(`FAME_MAX`에서 멈춤), 구매로 감소 | 이 문서 |
 | **`rebirth.up.startGold/income/slots/autoStart`** | 정수 | 0 | 각 `int(v,0,0,트랙 최대 레벨)`(4/4/2/1) | **유지** | 이 문서 |
 - `rebirth` 정규화: 객체가 아니면(없음·배열·숫자·문자열·null) 기본값. `up`도 객체가 아니면 `{0,0,0,0}`. 알 수 없는 키는 버린다(`{count,fame,up}`·`up` 4키만 남김). **지출 ≤ 획득은 강제하지 않는다**(변조의 피해는 편의뿐, 확률 영향 없음). `stats.rebirths`는 만들지 않는다(`rebirth.count` 사용).
-- 옛 저장(`rebirth` 없음)은 기본값으로 로드되고 나머지는 불변. 옛 클라이언트가 새 저장을 읽으면 `rebirth`를 무시한다(배치 A·B와 같은 수용).
+- 옛 저장(`rebirth` 없음)은 기본값으로 로드되고 나머지는 불변. 옛 클라이언트가 새 저장을 읽으면 `rebirth`를 무시한다(배치 A·B와 같은 수용). 옛 클라이언트가 그 저장을 **다시 쓰면** `rebirth`가 빠지므로 아래 §8.2 미러 키로 지킨다(REQ-037).
 - 분류 완전성: `defaultState`의 **모든 최상위 키가 이 표에 있다**(`v, gold, shards, best, found, swords, nextSwordId, active, slots, gauge, mastery, inv, use, anvils, nextAnvilId, anvilEq, ore, quests, idle, settings, stats` + M2 `monuments, achievements, title, daily, events, rebirth`). 새 필드가 생기면 이 표를 먼저 고친다.
 
 ### 8.1 환생 전이 불변식
@@ -190,6 +195,14 @@ D = `m2-overview.md` D, D.2 = 같은 문서 D.2, M1S = `m1-storage.md` + `js/sav
 5. 유지 필드(`found, settings, stats.*, monuments, achievements, title, daily, rebirth.up`)는 깊은 비교로 같고 `rebirth.fame`·`count`는 +3·+1(구매 지출만 별도)이다.
 6. 환생으로 줄어드는 업적 지표(`best`, 특성 종류 수, 보유 검 기반 지표. `monuments`는 유지)는 **`syncAchievements` 래치**(`m2-achievements.md` §4.1)가 이미 달성한 `achievements[id]`를 내리지 않는다(`best_*`, `knd_*`, `perfect`; 래치가 지키는 것은 이 셋이다) (2026-11-23 변경). 새 달성은 환생으로 생기거나 사라지지 않는다.
 7. 이벤트 해금 기준은 그대로 `S.best ≥ EVENT_UNLOCK_BEST(5)`(새 필드 없음). 환생 후 +5에 다시 도달해야 이벤트가 나온다.
+
+### 8.2 환생 미러 키 (REQ-037, 2026-11-24 구현)
+옛 클라이언트(8-A 이전 버전·캐시된 탭)는 `rebirth`를 모르므로 새 저장을 읽고 다시 저장하면 구매한 명성 진행(`count`·`fame`·`up`)이 조용히 사라진다. 이를 막으려고 `rebirth` 사본을 옛 클라이언트가 모르는 별도 키에 둔다.
+- 키: `저장 키 + '-rebirth'` = `sword-enhance-v2-rebirth`(테스트 페이지는 `sword-enhance-test-rebirth`, `-corrupt` 백업 키와 같은 파생). 값은 정규화된 `rebirth` JSON. `SV.REBIRTH_MIRROR_KEY`.
+- 쓰기: `SV.save`가 저장 키 쓰기에 **성공한 직후** 같은 `rebirth`를 쓴다(같은 `persist` 안). 미러에 이미 같은 값이 있거나, 미러가 없고 값이 기본값이면 쓰지 않는다. 저장 키 쓰기가 실패했거나 보호 모드(`blocked`)면 미러도 쓰지 않는다. 미러 쓰기 실패는 무시한다(저장 결과 `saved`·보호 모드에 영향 없음).
+- 읽기: 저장 키에서 유효한 v2를 읽을 때마다(`SV.peek` → `load`·`checkStored`(이어받기·복귀)·수령 재확인) 미러를 읽어 **미러의 `count`가 저장 키 `rebirth.count`보다 크면** 미러의 `rebirth` 전체를 채택한다. 미러는 저장 필드와 같은 `normRebirth`로 정규화한다(변조는 잘림). 없음·빈 문자열·파싱 불가·객체 아님·읽기 예외는 미러 없음으로 본다. 새 게임·v1 마이그레이션·손상 저장으로 시작한 상태에는 적용하지 않는다(저장 키에서 읽은 상태가 아님).
+- `count`만 비교하는 이유: 옛 클라이언트가 덮어쓴 저장은 `rebirth`가 없어 `count = 0`이 되므로 이것으로 충분하다. `fame`으로 비교하면 정상 구매(같은 `count`에서 `fame` 감소) 뒤 미러 쓰기만 실패한 경우 구매가 되돌려진다.
+- 새 게임(기본 `rebirth`)을 저장하면 미러도 기본값으로 덮어쓰므로 다시 불러와도 예전 명성이 돌아오지 않는다.
 
 ## 9. 확률 상한과의 관계 표 (4단계 완료 조건)
 성공 확률의 모든 출처와 상한 위치(`js/rules.js` `chances`):
@@ -263,7 +276,7 @@ D = `m2-overview.md` D, D.2 = 같은 문서 D.2, M1S = `m1-storage.md` + `js/sav
 34. Given 지출이 획득보다 큰 저장(`fame` 0, `up` 전부 최대) / When 로드 / Then 그대로 둔다(보정·거부 없음).
 35. Given `rebirth` 필드가 없는 옛 v2 저장 / When 로드 / Then 기본 `rebirth`가 채워지고 다른 필드 불변, `v=2`. 저장 후 다시 불러도 같은 상태.
 36. Given 환생 직후 `S` / Then `normalize(S)` 깊은 비교로 `S`와 같고, `save→load` 왕복도 같다(§8.1-1·2). `v=2`.
-37. 환생 1회는 `persist()`(저장소 `setItem`)를 **정확히 1번** 부른다. 실패 사유일 때는 0번.
+37. 환생 1회는 `persist()`를 **정확히 1번** 부른다: 저장 키 `setItem` 1번 + 미러 키(§8.2) `setItem` 1번. 실패 사유일 때와 멈춘 탭(탭 잠금)에서는 0번 (2026-11-24 변경: 미러 키).
 38. 회귀: `rebirth.count=0`, `up` 전부 0, `fame=0`일 때 M1·M2의 `chances()` 출력, 모든 가격식, `huntReward`/`autoReward`, 일일·이벤트·업적 출력이 환생 기능이 없던 때와 같다.
 39. `chances()`·`enhanceOpts()`·`attemptEnhance`는 `S.rebirth`를 읽지 않는다: `S.rebirth`를 최대값으로 바꿔도 같은 `{lv, pity}`·같은 `mastery` 벡터·같은 옵션에서 출력이 깊은 비교로 같다. 환생 전후 같은 검·같은 숙련 벡터면 `chances()`가 같고 달라지는 것은 상속된 `mastery` 입력뿐이다.
 40. 두 번째 환생: Given 환생 후 +20 검을 다시 만들고(테스트 도우미) 골드 충분 / When `rebirth` / Then 성공, `count=2`, 유지·초기화 규칙이 같다(구조 멱등).
@@ -286,7 +299,7 @@ D = `m2-overview.md` D, D.2 = 같은 문서 D.2, M1S = `m1-storage.md` + `js/sav
 - **Tech**
   - 배치 A(`m2-traits.md` §17): `rules.js`에 특성 헬퍼·`payoutPreview`·`buyMonument`·가격식, `idle.js`·`forge.js` 수입 곱, `attemptEnhance` 모루 내구도 되돌림, `quests.deliver`·`sellSword` 상인, 파괴 `shardGain` 수집가, `save.js` `normSwords`·`monuments`·`STAT_KEYS`, `main.js` 각인 호출·토스트, `SG.rules.setTrait`(`test-mode.js`는 로드 순서상 불가, 호출은 `js/test-panel.js`) (2026-11-23 변경).
   - 배치 B(`m2-achievements.md` §21, `m2-events.md` §18): `js/achievements.js`·`js/events.js` 신설과 `index.html` 로드 순서, `chances`·`enhanceOpts`(이벤트 `event` 입력), `idle.js`·`forge.js`·`quests.js` 이벤트 곱·새로고침 −50%, `save.js` 정규화·`STAT_KEYS` 확장, `main.js` 틱·토스트·즉시 저장·시계 주입, `view.js` 기록 탭 섹션·`TAB_DOT.records`, `test-panel.js`(테스트 전용 `setEvent` 조작판), `tools/sim-late`는 이벤트 비활성 시 결과 동일해야 함.
-  - 배치 C(이 문서): `js/rebirth.js` 신설(또는 `rules.js`)과 로드 순서, `constants.js` §2, `save.js` `rebirth` 정규화·`defaultState`, `R.isUnlocked('idle')` 면허 분기, `idle.js`(수동·자동·오프라인) `pFame` 곱, `main.js` 환생 흐름(draft → 교체 → `persist` 1회 → `epoch` 증가·UI 리셋·토스트·스크롤), `view.js` 환생 섹션·확인 창·명성 상점, `test-mode.js` 환생 도우미(+20 검 지급).
+  - 배치 C(이 문서): `js/rebirth.js` 신설과 로드 순서(§3.2), `constants.js` §2, `save.js` `rebirth` 정규화·`defaultState`·미러 키(§8.2), `rules.js` `fameValue`·`earlyIncomePct`·`R.isUnlocked('idle')` 면허 분기, `idle.js`(수동·자동·오프라인) `pFame` 곱, `main.js` 환생 흐름(draft → 교체 → `persist` 1회 → `epoch` 증가·UI 리셋·토스트·스크롤), `view.js` 환생 섹션·확인 창·명성 상점, `test-mode.js` 환생 도우미(+20 검 지급).
 - **Content(선택)**: 특성 아이콘 6종·문구, 이벤트 아이콘·토스트 문구 6종, 업적·칭호 문구, **명성 아이콘·환생 확인 창 문구·명성 상점 이름 4종**.
 - **QA**: 각 문서 AC 전수 + 이 문서 AC 1~41. 중점: 표 구동 초기화/유지(10·11·12), 정수 순서(28~30), 숙련 상속(14·15), 단일 `persist`(37), 두 탭(`tab-guard`)에서 환생, 저장 왕복(36), 360px(41), 옛 저장 부팅(35).
 
