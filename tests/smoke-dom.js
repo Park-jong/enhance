@@ -679,8 +679,8 @@ async function recordsUi(ok) {
     const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
     const panel = html.match(/data-panel="records"[\s\S]*?<\/section>/)[0];
     const at = id => panel.indexOf(`id="${id}"`);
-    const order = ['dailySection', 'statsGrid', 'masteryList', 'monumentList', 'achSection'].map(at);
-    ok(order.every((p, i) => p > 0 && (i === 0 || p > order[i - 1])), `${page}: records order 일일 과제 → 통계 → 숙련 → 기념비 → 업적: ${order}`);
+    const order = ['rebirthSection', 'dailySection', 'statsGrid', 'masteryList', 'monumentList', 'log', 'achSection'].map(at);
+    ok(order.every((p, i) => p > 0 && (i === 0 || p > order[i - 1])), `${page}: records order 환생 → 일일 과제 → 통계 → 숙련 → 기념비 → 로그 → 업적: ${order}`);
     ok(/<header>[\s\S]*id="titleBadge"[\s\S]*<\/header>/.test(html), `${page}: title badge lives in the header`);
   });
 
@@ -2823,14 +2823,15 @@ async function req031(ok) {
     ok(env.ctx.document.querySelector('#settingsPop').hidden === true, 'REQ-031: Escape outside fields still closes the popover');
   }
 
-  // 2·3) CSS: 헤더 줄바꿈은 보호 모드에서만, 좁은 화면 보호 모드에서는 헤더가 sticky가 아니고 원문 칸 높이 제한
+  // 2·3) CSS: 헤더는 모든 폭에서 줄바꿈하고 보호 모드 배너는 전체 폭(자기 줄), 좁은 화면 보호 모드에서는 헤더가 sticky가 아니고 원문 칸 높이 제한
   {
     const css = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8').replace(/\r\n/g, '\n');
     const rule = (src, sel) => (src.match(new RegExp('(?:^|\\n)\\s*' + sel.replace(/[.#]/g, '\\$&') + '\\s*\\{([^}]*)\\}')) || [])[1];
     const topLevel = css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, '');
     const mobile = (css.match(/@media \(max-width: 720px\) \{((?:[^{}]*\{[^}]*\})*[^{}]*)\}/) || [])[1] || '';
-    ok(/position:\s*sticky/.test(rule(topLevel, 'header')) && !/flex-wrap/.test(rule(topLevel, 'header')), 'REQ-031: the normal header does not wrap (721~1000px layout unchanged)');
-    ok(/flex-wrap:\s*wrap/.test(rule(topLevel, '.save-guarded header') || ''), 'REQ-031: the header wraps only under .save-guarded');
+    ok(/position:\s*sticky/.test(rule(topLevel, 'header')) && /flex-wrap:\s*wrap/.test(rule(topLevel, 'header')), 'header sticky and wraps at every width (REQ-046)');
+    ok(/white-space:\s*nowrap/.test(rule(topLevel, '.logo')) && /flex-shrink:\s*0/.test(rule(topLevel, '.logo')), 'logo never shrinks or breaks');
+    ok(/flex:\s*1 1 100%/.test(rule(topLevel, '.save-guard') || ''), 'REQ-031: the protected-mode banner takes the full header width (its own row)');
     ok(/position:\s*static/.test(rule(mobile, '.save-guarded header') || ''), 'REQ-031: on mobile (<= 720px) the protected header is not sticky');
     const raw = rule(topLevel, '.save-guard-raw') || '';
     const maxH = Number((raw.match(/max-height:\s*(\d+)px/) || [])[1]);

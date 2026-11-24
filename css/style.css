@@ -40,16 +40,22 @@ html::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
 
 /* ---------- 헤더 ---------- */
+/* 모든 폭에서 항목이 한 줄에 다 들어가면 한 줄(평소 데스크톱 배치 그대로), 넘치면 다음 줄로 내려간다(가로 넘침·겹침 없음, REQ-046).
+ * 항목(로고·배지·칩)은 줄어들지 않는다(V4: 헤더 항목에 min-width:0 금지) */
 header {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 12px 20px;
   background: rgba(14, 16, 22, .85);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
-.logo { font-weight: 800; font-size: 19px; letter-spacing: -.02em; }
+.logo { flex-shrink: 0; white-space: nowrap; font-weight: 800; font-size: 19px; letter-spacing: -.02em; }
+header > .badge { flex-shrink: 0; }
 .spacer { flex: 1; }
+/* 자원바·설정은 한 묶음으로 줄바꿈하고, 다음 줄로 내려가도 한 줄일 때처럼 오른쪽 끝에 붙는다(m1-overview §4).
+ * 한 줄이면 spacer가 빈자리를 다 가져가 auto 여백은 0이고, gap은 헤더와 같아 기본 배치가 그대로다 */
+.header-end { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .gold {
   position: relative;
   display: flex; align-items: center; gap: 6px;
@@ -72,8 +78,7 @@ header {
 
 /* ---------- 저장 안전: 보호 모드 배너 / 저장 실패 배지 ----------
  * 배너는 sticky 헤더의 마지막 줄(z 20)이라 항상 보이고(720px 이하에서는 보호 모드 동안 헤더가 흐름 배치), 하단 탭바(z 40)·토스트(z 50)와 겹치지 않으며 잠금 화면(z 90) 아래에 있다 */
-/* 배너를 헤더 아래 줄로 내리는 줄바꿈은 보호 모드에서만: 평소 헤더(721~1000px 포함) 배치는 그대로 */
-.save-guarded header { flex-wrap: wrap; }
+/* 배너는 전체 폭(flex-basis 100%)이라 줄바꿈하는 헤더의 마지막 줄로 내려간다 */
 .save-guard {
   flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   padding: 10px 12px; border: 1px solid var(--bad); border-radius: 10px;
@@ -86,7 +91,7 @@ header {
   background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
   font: 12px/1.4 ui-monospace, monospace;
 }
-/* 배너로 헤더가 높아지면 넓은 화면의 sticky 오른쪽 패널(top 고정값)이 헤더 밑으로 들어가므로 흐름 배치로 돌린다 */
+/* 배너로 헤더가 화면 높이만큼 높아질 수 있어 넓은 화면의 sticky 오른쪽 패널(top·max-height가 헤더 높이 기준)이 너무 작아지므로 흐름 배치로 돌린다 */
 .save-guarded .side { position: static; max-height: none; overflow: visible; }
 .save-badge { font-size: 12px; }
 /* 복사 대체 경로(execCommand)용 임시 칸: 화면에 보이지 않게 */
@@ -101,7 +106,11 @@ main {
 .play { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; }
 .main-col, .side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 /* 우측 탭 패널은 따로 스크롤 → 탭 전환이 메인 영역 스크롤에 영향을 주지 않음 */
-.side { position: sticky; top: 72px; align-self: start; max-height: calc(100vh - 92px); overflow-y: auto; gap: 12px; }
+/* --header-h: 실제 헤더 높이(js/main.js가 줄바꿈 때 갱신). 기본 56px = 한 줄 헤더 → top 72px, max-height 100vh - 92px */
+.side {
+  position: sticky; top: calc(var(--header-h, 56px) + 16px); align-self: start;
+  max-height: calc(100vh - var(--header-h, 56px) - 36px); overflow-y: auto; gap: 12px;
+}
 /* .side가 max-height로 줄어도 탭 줄·패널 카드는 내용보다 작아지지 않고, 넘치면 .side가 스크롤한다 */
 .side > * { flex-shrink: 0; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
@@ -112,7 +121,7 @@ main {
   .play { grid-template-columns: 1fr; gap: 12px; }
   .main-col { gap: 12px; }
   .side { position: static; max-height: none; overflow: visible; }
-  header { padding: 8px 12px; flex-wrap: wrap; }
+  header { padding: 8px 12px; }
   /* 좁은 화면에서는 배너·원문 칸으로 높아진 sticky 헤더가 화면을 덮으므로 보호 모드 동안 헤더를 흐름 배치로 둔다 */
   .save-guarded header { position: static; }
 }
@@ -320,7 +329,7 @@ main {
 .popover input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
 
 /* ---------- 시간 이벤트 칩·팝오버 (M2 F13, m2-events §9) ---------- */
-/* 줄바꿈 안 하는 헤더(721px 이상)에서 칩(nowrap)보다 좁게 줄면 칩이 옆 배지 위로 넘치므로 줄지 않게 둔다 */
+/* 칩(nowrap)보다 좁게 줄면 칩이 옆 배지 위로 넘치므로 줄지 않게 둔다(넘칠 자리가 없으면 헤더가 줄바꿈) */
 .event-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
 .event-chip {
   display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 3px 10px;
@@ -533,9 +542,10 @@ main {
 .monument-badge { color: var(--gold); font-size: 12px; }
 
 /* ---------- 일일 과제·업적·칭호 (M2 F12) ---------- */
-/* 좁은 헤더(360px)에서도 한 줄 배지로 남게 길이를 자른다(전체 이름은 title 툴팁) */
+/* 좁은 헤더(360px)에서도 한 줄 배지로 남게 길이를 자른다(전체 이름은 title 툴팁).
+ * overflow:hidden이면 flex 자동 최소 폭이 0이 되어 배지가 사라질 때까지 줄 수 있으므로 줄지 않게 둔다(V4) */
 .title-badge {
-  min-width: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex-shrink: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--gold); font-size: 12px; font-weight: 700;
 }
 .title-tag { margin-left: 4px; color: var(--gold); }
@@ -598,3 +608,10 @@ main {
 .rb-list dt { color: var(--muted); }
 .rb-list dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .rb-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ---------- 모바일 터치 영역 (9-1) ---------- */
+/* 기록 탭 버튼은 손가락으로 누르기 쉽게 44px 이상(데스크톱 크기는 그대로). 높이만 늘리므로 줄바꿈 규칙은 그대로다.
+ * 환생 확인 창 버튼은 #modal .small-btn 규칙으로 이미 44px */
+@media (max-width: 720px) {
+  .rebirth-btn, .fame-row .buy, .claim-btn, .claim-all, .title-opt, .mon .small-btn { min-height: 44px; }
+}

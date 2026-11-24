@@ -206,3 +206,17 @@
 - 산출물: js/main.js, js/view.js, js/rebirth.js, tests/run-tests.js, tests/smoke-dom.js, tests/browser-strip.js, docs/design/m2-overview.md, docs/design/m2-rebirth.md
 - 결정 사항: S1 #modal 열린 동안 body 아래 #modal 외 요소를 inert 처리(모든 #modal 공통, closeModal에서 복구) + Tab 순환. S2 모달 열림 중 enhance 차단 + 확인 시 busy면 토스트 후 닫기. S3 fameBlock 음수 레벨 invalid. N3 rebirth 액션은 모달이 열려 있어야 동작(테스트는 askRebirth 선행). 문서 구현 상태 갱신. 테스트: 506/658/29/36/189/697/13 통과.
 - 남은 문제: 오프라인 모달 열림 중 Space/S/H 단축키는 여전히 동작, 오프라인 모달은 열 때 포커스를 안으로 옮기지 않음(범위 밖).
+
+## 2026-11-24 — 9-1 화면 배치 확정 (헤더 줄바꿈·모바일 터치 크기·5탭 확정)
+- 지시: 디렉터 / 관련 단계: 9단계 9-1 / 처리한 요청: REQ-046(기획 팀 수신 요청, 개발 쪽 처리)
+- 참여 팀원: client-programmer(CSS·문서·ResizeObserver), tools-engineer(tests 갱신)
+- 산출물: css/style.css, js/main.js(--header-h ResizeObserver 5줄), tests/browser-strip.js(697→1140), tests/smoke-dom.js(헤더 정적 단언 교체), docs/design/m1-overview·m1-storage·m2-overview·m2-events·m2-rebirth·m2-achievements, TODO.md 144행(체크 안 함)
+- 결정 사항: 헤더는 모든 폭에서 줄바꿈 허용, 로고 nowrap·shrink 0. 기본 헤더(1280/1024 높이 56)는 변경 없음. 최악 조합 721~1102px은 94px 두 줄. 모바일(≤720) 기록 탭 버튼 44px. 탭은 5개 유지(기록 탭에 업적·일일·환생).
+- 남은 문제: 이벤트 팝오버가 721~800px에서 탭 일부를 덮음(일반 오버레이, 유지). 320~398px 최악 조합에서 설정 버튼이 혼자 한 줄(이전과 동일).
+
+## 2026-11-24 — 9-1 레이아웃 확정 2차 수정(QA 수정 지시)
+- 지시: 디렉터 / 관련 단계: 9단계 9-1 / 처리한 요청: 없음
+- 참여 팀원: client-programmer
+- 산출물: index.html·test.html(.header-end 래퍼), css/style.css, js/main.js(ResizeObserver border-box), tests/browser-strip.js(스윕 300~1400, 팝오버 검사), tests/smoke-dom.js, docs/design/m1-overview.md·m2-achievements.md
+- 결정 사항: 자원바+설정을 .header-end(margin-left:auto) 한 묶음으로 우측 정렬. 최악 조합 경계 1326/1327px, 기본 헤더 경계 355/356px. 기본 헤더 1024/1280(56px)·≤720 높이 불변. 테스트 전부 통과(browser-strip 1157, smoke-dom 659).
+- 남은 문제: 이벤트 팝오버가 721~800px에서 탭을 덮음(유지).

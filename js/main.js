@@ -894,6 +894,11 @@
   document.addEventListener('visibilitychange', () => (document.hidden ? persist() : resume()));
   root.addEventListener('pagehide', persist);
   root.addEventListener('resize', FX.sizeFx);
+  // 헤더가 두 줄로 줄바꿈하면(REQ-046) 넓은 화면의 sticky 오른쪽 패널이 헤더 밑으로 들어가므로 실제 높이를 CSS 변수로 넘긴다(CSS만으로는 줄 수를 알 수 없음)
+  const headerEl = $('header');
+  if (headerEl && typeof root.ResizeObserver === 'function') {
+    new root.ResizeObserver(() => document.documentElement.style.setProperty('--header-h', headerEl.offsetHeight + 'px')).observe(headerEl, { box: 'border-box' });
+  }
 
   // ============================================================ 시작
   const START_LOG = {

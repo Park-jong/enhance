@@ -8,9 +8,14 @@
  *  (f) 모바일 폭(360·375px)에서 특성 칩이 있는 보관함 카드가 늘어나거나 넘치지 않고 가로 스크롤이 생기지 않는다(m2-traits AC 51)
  *  (h) 채워진 기록 탭(일일 과제·업적·긴 칭호·탭 점)이 360·375px·1280px에서 가로로 넘치지 않고, 1280x800·1280x600에서 5탭 높이 검사(V4)를 통과한다
  *  (i) 시간 이벤트 칩·팝오버(7-2)가 360·375·520·521·720·721·760·1280px에서 헤더를 넘치게 하지 않고 헤더 항목끼리 겹치지 않으며, 팝오버가 화면 안에서 열리고 닫히며, 이벤트 종료 후 칩이 사라진다.
- *      저장 실패 배지·큰 골드·기념비 배지가 함께 있는 스트레스(360·721·760px, 721~1000px 1px 간격 훑기) 포함. index.html은 시드 저장, test.html은 조작판 버튼으로 이벤트를 지정한다
+ *      저장 실패 배지·큰 골드·기념비·칭호 배지·광석이 함께 있는 최악 조합 스트레스(320~1000px 8개 폭) 포함. index.html은 시드 저장, test.html은 조작판 버튼으로 이벤트를 지정한다
+ *      기본 헤더와 최악 조합 헤더를 300~1400px 1px 간격으로 훑어(한 줄↔두 줄 경계 포함) 겹침·넘침·로고 줄바꿈이 없고 설정 버튼이 오른쪽 끝에 붙는지 보고,
+ *      최악 조합의 경계(두 줄인 가장 넓은 폭)와 360px에서 설정 팝오버가 화면 안에 열리는지 본다
  *  (j) 환생 섹션·확인 창(8-B): 기록 탭 맨 위 환생 섹션(잠김·열림·환생 1회 이상·큰 숫자)이 360·375·721·1280px에서 넘치거나 겹치지 않고,
  *      확인 창이 화면 안에 있으며 바깥 클릭·Esc로 닫힌다
+ *  (l) 5탭(상점·대장간·의뢰·방치·기록)이 320·390·720·1280px에서 가로 스크롤 없이 카드 안에 들어가고 헤더 항목이 겹치지 않으며 로고가 한 줄이다.
+ *      배지 없는 기본 헤더는 1280·1024px에서 한 줄이다(그 밖의 폭에서는 줄바꿈 허용). 기본 헤더도 300~1400px을 훑는다((i)와 같은 검사)
+ *  (m) 360·390px 모바일에서 기록 탭 버튼(환생·명성 구매·받기·모두 받기·칭호·기념비)과 환생 확인 창 버튼이 44px 이상이다
  *  (g) index.html·test.html 모두 콘솔 오류·예외 없이 열린다
  * 실행: node tests/browser-strip.js  (브라우저 경로 직접 지정: BROWSER_PATH=...)
  * Chrome/Edge가 없으면 "SKIP: no Chrome/Edge"를 출력하고 0으로 끝난다. 외부 패키지 없음(Node 22 전역 WebSocket·fetch).
@@ -46,22 +51,25 @@ const PANEL_VIEWPORTS = [{ width: 1280, height: 800 }, { width: 1280, height: 60
 const PANEL_TOLERANCE_PX = 1;     // (d) 소수점 반올림 오차 허용
 const MOBILE_WIDTHS = [360, 375];  // (f) AC 51 최소 폭과 일반 폰 폭
 const MOBILE_HEIGHT = 800;
-const RECORDS_VIEWPORTS = [{ width: 360, mobile: true }, { width: 375, mobile: true }, { width: 1280, mobile: false }];   // (h)
+const RECORDS_VIEWPORTS = [{ width: 320, mobile: true }, { width: 360, mobile: true }, { width: 375, mobile: true }, { width: 390, mobile: true },
+  { width: 1280, mobile: false }];   // (h)
 const RECORDS_EDGE_PX = 1;        // (h) 카드·행이 패널 좌우 끝을 넘어도 되는 오차
 
-const EVENT_VIEWPORTS = [{ width: 360, height: 640 }, { width: 375, height: 667 }, { width: 520, height: 800 },
+const EVENT_VIEWPORTS = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 375, height: 667 }, { width: 390, height: 844 }, { width: 520, height: 800 },
   { width: 521, height: 800 }, { width: 720, height: 800 }, { width: 721, height: 800 }, { width: 760, height: 800 },
-  { width: 1280, height: 800 }];   // (i) 721·760: 헤더가 줄바꿈하지 않는 경계 바로 위(V4)
-const EVENT_STRESS_VIEWPORTS = [{ width: 360, height: 640 }, { width: 721, height: 800 }, { width: 760, height: 800 }];   // (i) 모든 배지 스트레스
-const EVENT_SWEEP_MIN = 721;      // (i) 스트레스 저장으로 1px씩 훑는 폭 범위(줄바꿈하지 않는 헤더)
-const EVENT_SWEEP_MAX = 1000;
-const EVENT_REPORT_WIDTHS = [721, 760, 800, 1000];
+  { width: 1280, height: 800 }];   // (i) 721·760: 모바일 배치(720px 이하)가 끝나는 경계 바로 위(V4)
+const EVENT_STRESS_VIEWPORTS = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 720, height: 800 },
+  { width: 721, height: 800 }, { width: 760, height: 800 }, { width: 800, height: 800 }, { width: 1000, height: 800 }];   // (i) 모든 배지 스트레스
+const EVENT_SWEEP_MIN = 300;      // (i) 기본·최악 조합 헤더를 1px씩 훑는 폭 범위: 최악 조합이 두 줄에서 한 줄로 바뀌는 경계(약 1327px)까지 덮는다(V4)
+const EVENT_SWEEP_MAX = 1400;
+const EVENT_REPORT_WIDTHS = [320, 360, 720, 721, 1000, 1280, 1400];
 const EVENT_NAME_HIDE_MAX = 520;  // (i) 이 폭 이하에서는 칩의 이름 글자를 화면에서 감춘다(css 규칙과 같은 경계)
 const EVENT_MOBILE_MAX = 720;     // (i) 이 폭 이하에서는 모바일 에뮬레이션으로 연다
 const EVENT_TEST_ID = 'luck';     // (i) 이름이 가장 긴 이벤트(헤더 폭 최악)
 const EVENT_SEED_REMAIN_MS = 125000;
 const EVENT_STRESS_GOLD = 9e15;   // (i) 스트레스: 자릿수 많은 골드
 const EVENT_EDGE_PX = 1;
+const LOGO_MAX_LINE_RATIO = 1.8;  // 로고 높이가 글자 크기의 이 배수 미만이면 한 줄(두 줄이면 줄 높이 x2 = 약 2.4배 이상)
 
 // ------------------------------------------------------------ 결과
 const results = { pass: 0, fail: 0 };
@@ -499,17 +507,19 @@ const EVENT_MEASURE = `(() => {
   const outside = kids.filter(el => { const r = el.getBoundingClientRect(); return r.left < -${EVENT_EDGE_PX} || r.right > vw + ${EVENT_EDGE_PX}; })
     .map(el => (el.id || el.className) + ':' + Math.round(el.getBoundingClientRect().left) + '..' + Math.round(el.getBoundingClientRect().right));
   const chip = document.getElementById('eventChip');
+  const logo = header.querySelector('.logo');
   const name = chip.querySelector('.ev-name');
   const clock = chip.querySelector('.ev-clock');
   const pop = document.getElementById('eventPop');
-  // 겹침 검사 대상: 헤더의 보이는 항목(display:contents 묶음은 그 자식). 위에 떠서 여는 팝오버와 빈 spacer는 제외
-  const items = [...header.children].flatMap(el => getComputedStyle(el).display === 'contents' ? [...el.children] : [el])
+  // 겹침 검사 대상: 헤더의 보이는 항목(display:contents 묶음과 자원바·설정 묶음 .header-end는 그 자식). 위에 떠서 여는 팝오버와 빈 spacer는 제외
+  const items = [...header.children].flatMap(el => getComputedStyle(el).display === 'contents' || el.classList.contains('header-end') ? [...el.children] : [el])
     .filter(el => visible(el) && !el.classList.contains('popover') && !el.classList.contains('spacer'));
   // 항목 상자 = 자신 + 흐름 배치된 보이는 자손의 합집합: 줄어든 묶음 밖으로 넘친 칩(nowrap)도 겹침으로 잡는다. 위에 뜨는(absolute·fixed) 연출은 제외
   const box = el => [el, ...el.querySelectorAll('*')]
     .filter(d => d === el || (d.offsetWidth > 0 && !d.closest('.popover') && !['absolute', 'fixed'].includes(getComputedStyle(d).position)))
     .map(d => d.getBoundingClientRect())
     .reduce((u, r) => ({ left: Math.min(u.left, r.left), right: Math.max(u.right, r.right), top: Math.min(u.top, r.top), bottom: Math.max(u.bottom, r.bottom) }));
+  const centers = items.map(el => { const r = el.getBoundingClientRect(); return (r.top + r.bottom) / 2; });   // 한 줄이면 중심이 거의 같다
   const overlaps = [];
   items.forEach((a, i) => items.slice(i + 1).forEach(b => {
     const p = box(a), q = box(b);
@@ -524,11 +534,20 @@ const EVENT_MEASURE = `(() => {
     nameVisible: !!name && getComputedStyle(name).display !== 'none' && name.offsetWidth > 1,   // <=520 is visually hidden (1px clip), not display:none
     popOpen: !pop.hidden, pop: visible(pop) ? rect(pop) : null, chip: visible(chip) ? rect(chip) : null,
     badgeVisible: visible(document.getElementById('saveBadge')), headerH: header.getBoundingClientRect().height,
+    logoH: logo.getBoundingClientRect().height, logoFont: parseFloat(getComputedStyle(logo).fontSize),
+    rowSpread: Math.max(...centers) - Math.min(...centers),
+    settingsGap: header.getBoundingClientRect().right - parseFloat(getComputedStyle(header).paddingRight) - document.querySelector('.settings-wrap').getBoundingClientRect().right,
+    settingsTop: document.querySelector('.settings-wrap').getBoundingClientRect().top, logoTop: logo.getBoundingClientRect().top,
   };
 })()`;
 const popInside = m => !!m.pop && m.pop.l >= -EVENT_EDGE_PX && m.pop.r <= m.vw + EVENT_EDGE_PX && m.pop.w > 0;
 const CLOCK_PATTERN = /^\d:\d\d$/;
 const centerOf = sel => `(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
+const TAB_OUTSIDE_POPOVER_CENTER = `(() => {
+  const p = document.getElementById('eventPop').getBoundingClientRect();
+  const centers = [...document.querySelectorAll('[data-act="tab"]')].filter(b => !b.classList.contains('on')).map(b => { const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  return centers.find(c => c.x < p.left || c.x > p.right || c.y < p.top || c.y > p.bottom) || centers[0];
+})()`;
 const setViewport = (cdp, vp) => cdp.send('Emulation.setDeviceMetricsOverride',
   { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: vp.width <= EVENT_MOBILE_MAX });
 
@@ -546,6 +565,7 @@ async function eventLayoutAt(cdp, page, vp, label) {
     m.docScroll <= m.docClient + EVENT_EDGE_PX && m.bodyScroll <= m.docClient + EVENT_EDGE_PX, detail);
   check(`${label} header items stay within the viewport`, m.outside.length === 0, detail);
   check(`${label} header items do not overlap each other`, m.overlaps.length === 0, detail);
+  check(`${label} logo stays on one line`, m.logoH < m.logoFont * LOGO_MAX_LINE_RATIO, detail);
 
   await page.click(await page.evaluate(centerOf('#eventChip')));
   const opened = await page.waitFor(`!document.getElementById('eventPop').hidden && document.getElementById('eventPop').offsetWidth > 0`);
@@ -558,24 +578,73 @@ async function eventLayoutAt(cdp, page, vp, label) {
 
   await page.click(await page.evaluate(centerOf('#eventChip')));
   check(`${label} popover reopens`, await page.waitFor(`!document.getElementById('eventPop').hidden`));
-  await page.click(await page.evaluate(centerOf('[data-act="tab"][data-id="forge"]')));
+  // 팝오버가 일부 탭 위를 덮을 수 있으니, 중심이 팝오버 밖인 비활성 탭을 눌러 탭 전환 닫기를 검사한다
+  await page.click(await page.evaluate(TAB_OUTSIDE_POPOVER_CENTER));
   check(`${label} tab switch closes the popover`, await page.waitFor(`document.getElementById('eventPop').hidden`));
   await page.click(await page.evaluate(centerOf('[data-act="tab"][data-id="shop"]')));
 }
 
-/** (i) 스트레스 저장으로 줄바꿈하지 않는 헤더 폭을 1px씩 훑어 항목 겹침·가로 넘침이 없는지 본다 */
-async function stressSweep(cdp, page) {
+const SETTINGS_POP_WIDTH = 360;   // (i) 좁은 폰 폭에서도 설정 팝오버가 화면 안에 열리는지 본다
+const isOneRow = m => m.rowSpread < m.logoH / 2;   // 모든 항목의 세로 중심이 로고 높이의 절반 안에 모이면 한 줄
+
+/**
+ * (i) 헤더 폭을 300~1400px 1px씩 훑어 항목 겹침·가로 넘침·로고 줄바꿈이 없고, 설정 버튼이 헤더 오른쪽 안쪽 여백 끝에 붙는지(둘째 줄 왼쪽에 홀로 떨어지지 않음, V4) 본다.
+ * 반환: 헤더가 두 줄 이상인 가장 넓은 폭(한 줄↔두 줄 경계, 없으면 null)
+ */
+async function headerSweep(cdp, page, label) {
   const bad = [];
+  const orphan = [];
   const report = [];
+  const heights = [];
+  let widestMultiRow = null;
   for (let w = EVENT_SWEEP_MIN; w <= EVENT_SWEEP_MAX; w++) {
     await setViewport(cdp, { width: w, height: 800 });
     const m = await page.evaluate(EVENT_MEASURE);
     const overflow = Math.max(m.docScroll, m.bodyScroll) - m.docClient;
-    if (m.overlaps.length || overflow > EVENT_EDGE_PX || m.outside.length) bad.push(`${w}: overflow ${overflow} ${m.overlaps.concat(m.outside).join(' ')}`);
-    if (EVENT_REPORT_WIDTHS.includes(w)) report.push(`${w}px overlaps=[${m.overlaps.join(' ')}] overflow=${overflow} headerH=${Math.round(m.headerH)}`);
+    const logoWrapped = m.logoH >= m.logoFont * LOGO_MAX_LINE_RATIO;
+    if (m.overlaps.length || overflow > EVENT_EDGE_PX || m.outside.length || logoWrapped) bad.push(`${w}: overflow ${overflow} logoH ${m.logoH} ${m.overlaps.concat(m.outside).join(' ')}`);
+    if (Math.abs(m.settingsGap) > EVENT_EDGE_PX) orphan.push(`${w}: settings right edge ${m.settingsGap.toFixed(1)}px left of the header's inner right edge`);
+    if (!isOneRow(m)) widestMultiRow = w;
+    const h = Math.round(m.headerH);
+    if (!heights.length || heights[heights.length - 1].h !== h) heights.push({ w, h });
+    if (EVENT_REPORT_WIDTHS.includes(w)) report.push(`${w}px overlaps=[${m.overlaps.join(' ')}] overflow=${overflow} headerH=${h}`);
   }
-  console.log('      (i) stress sweep: ' + report.join(' | '));
-  check(`(i) stress ${EVENT_SWEEP_MIN}..${EVENT_SWEEP_MAX}px: no header overlap and no horizontal overflow`, bad.length === 0, bad.slice(0, 10).join('\n      '));
+  console.log(`      ${label} sweep: ${report.join(' | ')}`);
+  console.log(`      ${label} height by width (px:px): ${heights.map(x => x.w + ':' + x.h).join(' ')}; widest multi-row width ${widestMultiRow}`);
+  const range = `${EVENT_SWEEP_MIN}..${EVENT_SWEEP_MAX}px`;
+  check(`${label} ${range}: no header overlap, no horizontal overflow, logo on one line`, bad.length === 0, bad.slice(0, 10).join('\n      '));
+  check(`${label} ${range}: settings button stays at the header's right edge on every row layout`, orphan.length === 0, orphan.slice(0, 10).join('\n      '));
+  check(`${label} header is one row at ${EVENT_SWEEP_MAX}px (the sweep covers the one-row/two-row boundary)`, widestMultiRow !== EVENT_SWEEP_MAX, String(widestMultiRow));
+  return widestMultiRow;
+}
+
+const SIDE_CHECK_VIEWPORT = { width: 1280, height: 800 };   // (i) 최악 조합 헤더가 두 줄인 넓은 화면
+const SIDE_CHECK_SCROLL_PX = 600;
+/** (i) 두 줄 헤더에서 페이지를 내려도 sticky 오른쪽 패널(.side) 윗변이 헤더 아래에 있다(--header-h) */
+async function sidePanelBelowHeader(cdp, page, label) {
+  await setViewport(cdp, SIDE_CHECK_VIEWPORT);
+  await page.evaluate(`window.scrollTo(0, ${SIDE_CHECK_SCROLL_PX}); true`);
+  await delay(POLL_MS);
+  const m = await page.evaluate(`(() => { const h = document.querySelector('header').getBoundingClientRect(), s = document.querySelector('.side').getBoundingClientRect();
+    return { headerBottom: h.bottom, headerH: h.height, sideTop: s.top, scrollY: window.scrollY }; })()`);
+  const one = await page.evaluate(EVENT_MEASURE);
+  check(`${label} ${SIDE_CHECK_VIEWPORT.width}px: header is multi-row and, scrolled down, the side panel starts below it`,
+    !isOneRow(one) && m.scrollY > 0 && m.sideTop >= m.headerBottom - EVENT_EDGE_PX, JSON.stringify(m));
+  await page.evaluate(`window.scrollTo(0, 0); true`);
+}
+
+/** (i) 설정 버튼으로 팝오버를 열어 화면 안에 있는지 보고 다시 눌러 닫는다 */
+async function settingsPopoverInside(cdp, page, width, label) {
+  await setViewport(cdp, { width, height: 800 });
+  await page.click(await page.evaluate(centerOf('#btnSettings')));
+  const opened = await page.waitFor(`!document.getElementById('settingsPop').hidden && document.getElementById('settingsPop').offsetWidth > 0`);
+  const p = await page.evaluate(`(() => { const r = document.getElementById('settingsPop').getBoundingClientRect();
+    return { l: r.left, r: r.right, t: r.top, b: r.bottom, vw: document.documentElement.clientWidth, vh: window.innerHeight }; })()`);
+  console.log(`      ${label} settings popover at ${width}px: left ${Math.round(p.l)} right ${Math.round(p.r)} (viewport ${p.vw})`);
+  check(`${label} ${width}px settings popover opens fully inside the viewport`,
+    opened && p.l >= -EVENT_EDGE_PX && p.r <= p.vw + EVENT_EDGE_PX && p.t >= -EVENT_EDGE_PX && p.b <= p.vh + EVENT_EDGE_PX, JSON.stringify(p));
+  await page.click(await page.evaluate(centerOf('#btnSettings')));
+  check(`${label} ${width}px settings popover closes again`, await page.waitFor(`document.getElementById('settingsPop').hidden`));
 }
 
 /** (i) 시간 이벤트 칩·팝오버 배치(index.html 시드 저장, test.html 조작판), 360px 스트레스, 종료 후 칩 숨김 */
@@ -586,10 +655,14 @@ async function eventChipLayout(cdp, page) {
   check('(i) index.html loads with an active event', await openGame(cdp, page, { save: JSON.stringify(seed) }));
   for (const vp of EVENT_VIEWPORTS) await eventLayoutAt(cdp, page, vp, `(i) index.html ${vp.width}x${vp.height}`);
 
-  // 스트레스: 저장 실패 배지 + 큰 골드 + 기념비 배지 + 이벤트 칩 (저장 실패는 setItem이 던지게 해 실제 경로로 만든다)
+  // 최악 조합 스트레스: 저장 실패 배지 + 큰 골드·파편 + 광석 3종 최대 + 기념비 배지 + 가장 긴 칭호 + 이벤트 칩 (저장 실패는 setItem이 던지게 해 실제 경로로 만든다)
   const stress = JSON.parse(sinkSeedSave());
   stress.events.active = { id: EVENT_TEST_ID, remainMs: EVENT_SEED_REMAIN_MS };
   stress.gold = EVENT_STRESS_GOLD;
+  stress.shards = EVENT_STRESS_GOLD;
+  C.ORES.forEach(k => { stress.ore[k] = C.ORE_MAX; });
+  stress.achievements[RECORDS_TITLE_ACH.id] = C.ACH_CLAIMED;
+  stress.title = RECORDS_TITLE_ACH.id;
   check('(i) stress save loads', await openGame(cdp, page, { save: JSON.stringify(stress), order: SINK_SWORDS.map(s => s.id).join() }));
   await page.evaluate(`Storage.prototype.setItem = function () { throw new Error('quota'); }; true`);
   check('(i) stress: save-failed badge becomes visible', await page.waitFor(`!document.getElementById('saveBadge').hidden`, 15000));
@@ -599,7 +672,11 @@ async function eventChipLayout(cdp, page) {
     check(`(i) stress ${vp.width}: save and monument badges and event chip visible together`,
       sm.badgeVisible && sm.monumentVisible && sm.chipVisible, JSON.stringify(sm));
   }
-  await stressSweep(cdp, page);
+  check('(i) stress: title badge is visible', await page.evaluate(`!document.getElementById('titleBadge').hidden`));
+  const boundary = await headerSweep(cdp, page, '(i) worst-case header');
+  if (boundary) await settingsPopoverInside(cdp, page, boundary, '(i) worst-case boundary');
+  await settingsPopoverInside(cdp, page, SETTINGS_POP_WIDTH, '(i) worst-case');
+  await sidePanelBelowHeader(cdp, page, '(i) worst-case');
 
   // test.html: 조작판으로 이벤트를 켜고 같은 검사 후, 종료 경로로 칩이 사라지는지 확인
   const testSave = JSON.parse(seedSave());
@@ -622,7 +699,8 @@ async function eventChipLayout(cdp, page) {
  * (j) 환생 섹션(기록 탭 맨 위)과 확인 창(8-B). 상태 5가지: 잠김 / 열림(+MAX 검·골드·미수령 업적) / 환생 1회 이상 /
  * 환생 1회 이상이지만 +MAX 검 없음(버튼 비활성) / 큰 숫자 스트레스. 360·375·721·1280 폭에서 가로 넘침, 섹션 항목 겹침(V4), 창 위치, 닫기를 본다
  */
-const REBIRTH_VIEWPORTS = [{ width: 360, height: 640 }, { width: 375, height: 667 }, { width: 721, height: 800 }, { width: 1280, height: 800 }];
+const REBIRTH_VIEWPORTS = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 375, height: 667 }, { width: 390, height: 844 },
+  { width: 721, height: 800 }, { width: 1280, height: 800 }];
 const REBIRTH_EDGE_PX = 1;
 const REBIRTH_BIG_COUNT = 999999;
 const REBIRTH_BIG_FAME = 999999999;
@@ -837,6 +915,106 @@ async function rebirthLayout(cdp, page) {
   await cdp.send('Emulation.clearDeviceMetricsOverride');
 }
 
+/** (l)(m)용 시드: 기록 시드(일일 세트·수령 가능 업적·긴 칭호)에 +MAX 검(환생 열림)과 진행 중 이벤트 칩을 더한다 */
+function fullSeedSave() {
+  const st = JSON.parse(recordsSeedSave());
+  st.swords = [{ id: 1, lv: C.MAX, prot: C.PROTECT_USES, pity: 0, trait: null }];
+  st.best = C.MAX;
+  st.found = st.found.map((f, l) => f || l <= st.best);
+  st.gold = REBIRTH_GOLD;   // 의식 비용을 낼 수 있어야 [환생]이 열린다
+  st.rebirth.fame = 12;
+  st.events.active = { id: EVENT_TEST_ID, remainMs: EVENT_SEED_REMAIN_MS };
+  return JSON.stringify(st);
+}
+const FULL_VIEWPORTS = [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 720, height: 800 }, { width: 1280, height: 800 }];   // (l)
+const DEFAULT_HEADER_WIDTHS = [1280, 1024];   // (l) 배지 없는 기본 헤더가 한 줄이어야 하는 폭
+const DEFAULT_HEADER_H = 56;   // (l) 줄바꿈 도입 전 데스크톱 한 줄 헤더 높이(m1-overview AC 7)
+const CARD_EDGE_PX = 0.5;
+/** 보이는 카드마다 흐름 안의 자손이 카드 좌우 끝을 넘지 않는지(V4). 스스로 가로 스크롤하는 영역 안쪽·떠 있는 팝오버는 제외 */
+const CARD_CONTENT_MEASURE = `(() => {
+  const bad = [];
+  const cards = [...document.querySelectorAll('.card')].filter(c => !c.hidden && c.offsetWidth > 0);
+  cards.forEach(card => {
+    const cr = card.getBoundingClientRect();
+    [...card.querySelectorAll('*')].forEach(el => {
+      if (el.offsetWidth === 0 || el.closest('.popover') || (el.parentElement && el.parentElement.closest('svg'))) return;   // svg 안쪽 도형은 제외(svg 자체는 검사)
+      if (['absolute', 'fixed'].includes(getComputedStyle(el).position)) return;
+      for (let p = el.parentElement; p && p !== card; p = p.parentElement) if (['auto', 'scroll'].includes(getComputedStyle(p).overflowX)) return;
+      const r = el.getBoundingClientRect();
+      if (r.right > cr.right + ${CARD_EDGE_PX} || r.left < cr.left - ${CARD_EDGE_PX})
+        bad.push((card.dataset.panel || 'card') + ' ' + (el.id || el.className || el.tagName) + ':' + Math.round(r.left) + '..' + Math.round(r.right) + ' card ' + Math.round(cr.left) + '..' + Math.round(cr.right));
+    });
+  });
+  return { cards: cards.length, bad: bad.slice(0, 8), docScroll: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), docClient: document.documentElement.clientWidth };
+})()`;
+
+/** (l) 5탭 가로 넘침·카드 안 내용·헤더 겹침(320·390·720·1280), 배지 없는 기본 헤더의 한 줄(1280·1024) */
+async function fiveTabOverflow(cdp, page) {
+  check('(l) index.html loads the full records save', await openGame(cdp, page, { save: fullSeedSave(), order: '1' }));
+  for (const vp of FULL_VIEWPORTS) {
+    await setViewport(cdp, vp);
+    for (const id of TAB_IDS) {
+      const label = `(l) ${vp.width}x${vp.height} ${id}`;
+      const shown = (await measurePanel(page, id)).shown;
+      const m = await page.evaluate(CARD_CONTENT_MEASURE);
+      const e = await page.evaluate(EVENT_MEASURE);
+      const detail = JSON.stringify({ m, e });
+      check(`${label} panel is shown with the event chip active`, shown && e.chipVisible, detail);
+      check(`${label} no horizontal page scroll (scrollWidth <= innerWidth)`, m.docScroll <= m.docClient && e.docScroll <= e.docClient, detail);
+      check(`${label} every card's content stays inside its card`, m.cards > 0 && m.bad.length === 0, detail);
+      check(`${label} header items stay inside the viewport and do not overlap`, e.outside.length === 0 && e.overlaps.length === 0, detail);
+      check(`${label} logo stays on one line`, e.logoH < e.logoFont * LOGO_MAX_LINE_RATIO, detail);
+      if (id !== 'records') continue;
+      const rec = await page.evaluate(`({ rebirth: !!document.querySelector('#rebirthSection [data-act="askRebirth"]'),
+        daily: document.querySelectorAll('.daily-card').length, ach: document.querySelectorAll('.ach-row').length })`);
+      check(`${label} records tab shows the rebirth section, daily set and achievements`, rec.rebirth && rec.daily === C.DAILY_TASKS && rec.ach > 0, JSON.stringify(rec));
+    }
+  }
+  // 배지·이벤트 칩이 없는 기본 헤더: 모든 항목의 세로 중심이 로고 높이의 절반 안에 모여야 한 줄
+  check('(l) default header save loads', await openGame(cdp, page));
+  for (const width of DEFAULT_HEADER_WIDTHS) {
+    await setViewport(cdp, { width, height: 800 });
+    const e = await page.evaluate(EVENT_MEASURE);
+    check(`(l) default header at ${width}px is a single row (headerH ${Math.round(e.headerH)}, logoH ${Math.round(e.logoH)})`,
+      isOneRow(e) && e.logoH < e.logoFont * LOGO_MAX_LINE_RATIO, JSON.stringify(e));
+    check(`(l) default header at ${width}px keeps the ${DEFAULT_HEADER_H}px height`, Math.round(e.headerH) === DEFAULT_HEADER_H, String(e.headerH));
+  }
+  await headerSweep(cdp, page, '(l) default header');
+  await page.evaluate(`localStorage.removeItem(${REBIRTH_MIRROR_KEY}); true`);
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
+const TOUCH_VIEWPORTS = [{ width: 360, height: 640 }, { width: 390, height: 844 }];   // (m)
+const TOUCH_MIN_PX = 44;
+const TOUCH_RECORDS_SETS = { rebirthBtn: '.rebirth-btn', fameBuy: '.fame-row .buy', claim: '.claim-btn', claimAll: '.claim-all', titleOpt: '.title-opt',
+  monument: '.mon .small-btn' };
+const touchHeights = (sel, scope) => `[...${scope}.querySelectorAll(${JSON.stringify(sel)})].filter(b => b.offsetWidth > 0).map(b => Math.round(b.getBoundingClientRect().height * 10) / 10)`;
+
+/** (m) 모바일 에뮬레이션에서 기록 탭 버튼과 환생 확인 창 버튼의 터치 높이 >= 44px. 각 집합이 비어 있지 않아야 한다 */
+async function touchTargets(cdp, page) {
+  check('(m) index.html loads the full records save', await openGame(cdp, page, { save: fullSeedSave(), order: '1' }));
+  for (const vp of TOUCH_VIEWPORTS) {
+    await setViewport(cdp, vp);
+    await measurePanel(page, 'records');
+    for (const [name, sel] of Object.entries(TOUCH_RECORDS_SETS)) {
+      const hs = await page.evaluate(touchHeights(sel, `document.querySelector('[data-panel="records"]')`));
+      const label = `(m) ${vp.width}px ${name} (${sel})`;
+      check(`${label} exists`, hs.length > 0, JSON.stringify(hs));
+      check(`${label} is at least ${TOUCH_MIN_PX}px tall`, hs.length > 0 && hs.every(h => h >= TOUCH_MIN_PX), 'heights ' + JSON.stringify(hs));
+    }
+    const opened = await openRebirthModal(page);
+    check(`(m) ${vp.width}px rebirth modal opens`, opened, JSON.stringify(await page.evaluate(`({ btn: (() => { const b = document.querySelector('[data-act="askRebirth"]'); return b && { dis: b.disabled, r: b.getBoundingClientRect().toJSON() }; })(), modalHidden: ${MODAL_HIDDEN}, kind: document.getElementById('modal').dataset.kind })`)));
+    if (!opened) continue;
+    const hs = await page.evaluate(touchHeights('.rb-btns button', `document.querySelector('#modal .rebirth-sheet')`));
+    check(`(m) ${vp.width}px rebirth modal buttons exist`, hs.length === 2, JSON.stringify(hs));
+    check(`(m) ${vp.width}px rebirth modal buttons are at least ${TOUCH_MIN_PX}px tall`, hs.length > 0 && hs.every(h => h >= TOUCH_MIN_PX), 'heights ' + JSON.stringify(hs));
+    await pressEscape(cdp);
+    await page.waitFor(MODAL_HIDDEN, 2000);
+  }
+  await page.evaluate(`localStorage.removeItem(${REBIRTH_MIRROR_KEY}); true`);
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
 /** (g) 테스트 페이지(test.html)도 같은 후반 시드로 오류 없이 열리고 특성 지정 조작판이 채워진다 */
 async function testPageLoads(cdp, page) {
   const order = SINK_SWORDS.map(s => s.id).join();
@@ -876,6 +1054,8 @@ async function main() {
     await eventChipLayout(cdp, page);
     await rebirthLayout(cdp, page);
     await rebirthModalFocusTrap(cdp, page);
+    await fiveTabOverflow(cdp, page);
+    await touchTargets(cdp, page);
     await testPageLoads(cdp, page);
     check('(g) no uncaught page errors or console errors (index.html, test.html)', pageErrors.length === 0, pageErrors.join('\n      '));
   } catch (e) {

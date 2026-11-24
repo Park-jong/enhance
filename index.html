@@ -22,16 +22,19 @@
   <!-- 현재 칭호(업적 보상, 장식). 문구는 js/view.js -->
   <span class="title-badge" id="titleBadge" hidden></span>
   <div class="spacer"></div>
-  <div class="resbar">
-    <div class="gold" id="goldBox"><span class="coin"></span><span id="gold">0</span></div>
-    <div class="res-other" id="resOther"></div>
-  </div>
-  <div class="settings-wrap">
-    <button class="icon-btn" id="btnSettings" title="설정">⚙️</button>
-    <div class="popover" id="settingsPop" hidden>
-      <label><input type="checkbox" id="setSound"> 🔊 소리</label>
-      <label><input type="checkbox" id="setSkip"> ⏩ 강화 연출 건너뛰기</label>
-      <button class="small-btn" id="btnReset" title="처음부터 다시">초기화</button>
+  <!-- 자원바·설정 묶음: 헤더가 줄바꿈하면 둘이 함께 오른쪽 끝에 붙는다(설정만 홀로 왼쪽에 떨어지지 않음) -->
+  <div class="header-end">
+    <div class="resbar">
+      <div class="gold" id="goldBox"><span class="coin"></span><span id="gold">0</span></div>
+      <div class="res-other" id="resOther"></div>
+    </div>
+    <div class="settings-wrap">
+      <button class="icon-btn" id="btnSettings" title="설정">⚙️</button>
+      <div class="popover" id="settingsPop" hidden>
+        <label><input type="checkbox" id="setSound"> 🔊 소리</label>
+        <label><input type="checkbox" id="setSkip"> ⏩ 강화 연출 건너뛰기</label>
+        <button class="small-btn" id="btnReset" title="처음부터 다시">초기화</button>
+      </div>
     </div>
   </div>
   <!-- 보호 모드 배너: 닫을 수 없음. 헤더 안에 두어 항상 보이고, 탭 잠금 때 헤더와 함께 inert·잠금 화면 아래에 놓인다 -->
