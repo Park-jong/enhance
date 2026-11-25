@@ -220,3 +220,10 @@
 - 산출물: index.html·test.html(.header-end 래퍼), css/style.css, js/main.js(ResizeObserver border-box), tests/browser-strip.js(스윕 300~1400, 팝오버 검사), tests/smoke-dom.js, docs/design/m1-overview.md·m2-achievements.md
 - 결정 사항: 자원바+설정을 .header-end(margin-left:auto) 한 묶음으로 우측 정렬. 최악 조합 경계 1326/1327px, 기본 헤더 경계 355/356px. 기본 헤더 1024/1280(56px)·≤720 높이 불변. 테스트 전부 통과(browser-strip 1157, smoke-dom 659).
 - 남은 문제: 이벤트 팝오버가 721~800px에서 탭을 덮음(유지).
+
+## 2026-11-25 — 9-2 M2 아이콘 연결·문구 적용
+- 지시: 디렉터 / 관련 단계: 9단계 9-2 / 처리한 요청: REQ-019, REQ-036, REQ-048
+- 참여 팀원: client-programmer, tools-engineer
+- 산출물: js/constants.js, js/view.js, css/style.css, index.html, test.html, tests/smoke-dom.js, tests/browser-strip.js, tests/run-m1.1-qa-tests.js, docs/design/(m1-idle, m1.1-late-correction, m2-events, m2-rebirth, m2-traits)
+- 결정 사항: ic()는 M1→M2 지연 조회, SVG 없으면 이모지(특성 칩은 약자). 특성 칩=아이콘+점 3개. 문구 16건 적용. 칭호 배지 max-width 10.5em, 숙련 열 176px로 조정. 테스트: 506/692/29/36/189/1157/13 통과.
+- 남은 문제: 없음.

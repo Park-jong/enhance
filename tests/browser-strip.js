@@ -357,7 +357,7 @@ async function sinkPanelsContainContent(cdp, page) {
   const sections = await page.evaluate(`(() => {
     const forge = document.querySelector('[data-panel="forge"] .panel-body');
     return { rekind: !!forge.querySelector('[data-act="traitRekind"]'), tierUp: !!forge.querySelector('[data-act="traitTierUp"]'),
-      noOdds: forge.textContent.includes('특성은 강화 확률에 영향을 주지 않는다'),
+      noOdds: forge.textContent.includes('특성은 강화 확률에 영향을 주지 않습니다'),
       monuments: document.querySelectorAll('#monumentList .mon').length,
       buyable: document.querySelectorAll('#monumentList [data-act="buyMonument"]').length,
       badge: !document.getElementById('monumentBadge').hidden }; })()`);
@@ -382,7 +382,7 @@ async function mobileTraitChips(cdp, page) {
         const without = box(card);
         chip.style.display = '';
         const c = box(chip);
-        const svg = box(card.querySelector('svg'));
+        const svg = box(card.querySelector(':scope > svg'));
         return { chip: true, h: withChip.height, same: withChip.width === without.width && withChip.height === without.height,
           inside: c.left >= withChip.left && c.right <= withChip.right && c.top >= withChip.top && c.bottom <= withChip.bottom,
           clearOfSword: c.left >= svg.right - 1, chipOverflow: chip.scrollWidth > chip.clientWidth + 1,

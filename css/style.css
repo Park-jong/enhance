@@ -413,7 +413,8 @@ main {
 .info .gauge-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0 0; font-variant-numeric: tabular-nums; }
 .info .gauge-line .badge { display: inline-block; margin: 0; }
 .breakdown .mastery-term { color: var(--info); white-space: nowrap; }
-.mastery-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; font-size: 13px; }
+/* 칸 최소 폭: 숙련 아이콘을 붙인 가장 긴 행(+16 숙련 +12%p (4/4), 약 174px)이 한 줄에 들어가게 */
+.mastery-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 6px; font-size: 13px; }
 .mastery-list li { background: var(--panel2); border-radius: 10px; padding: 6px 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .mastery-list b { color: var(--text); }
 
@@ -509,7 +510,7 @@ main {
 .ic svg { width: 100%; height: 100%; display: block; }
 
 /* ---------- 검 특성 (M2 F14) ---------- */
-/* 약자 한 글자 + 등급 점(1~3개): 색만으로 구분하지 않는다. 등급 색은 보조 */
+/* 종류 아이콘(SVG가 없으면 약자 한 글자) + 등급 점 3개(채운 수 = 등급): 색만으로 구분하지 않는다. 등급 색은 보조 */
 .trait-chip {
   display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 2px 3px;
   border: 1px solid currentColor; border-radius: 6px; background: rgba(0, 0, 0, .35);
@@ -517,7 +518,9 @@ main {
 }
 .trait-chip b { font-weight: 800; }
 .trait-chip .pips { display: flex; flex-direction: column; gap: 1px; }
-.trait-chip .pips i { display: block; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.trait-chip .ic { display: block; }
+.trait-chip .pips i { display: block; width: 4px; height: 4px; border-radius: 50%; background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+.trait-chip .pips i.on { background: currentColor; }
 .trait-chip.trait-t2 { color: var(--info); }
 .trait-chip.trait-t3 { color: var(--gold); }
 /* 보관함 카드: 흐름 밖(검 그림 오른쪽 빈자리, ★ 활성 아래)에 띄워 카드 높이·폭을 바꾸지 않는다. 64px 모바일 카드에서도 그림과 겹치지 않는 폭 */
@@ -543,9 +546,10 @@ main {
 
 /* ---------- 일일 과제·업적·칭호 (M2 F12) ---------- */
 /* 좁은 헤더(360px)에서도 한 줄 배지로 남게 길이를 자른다(전체 이름은 title 툴팁).
- * overflow:hidden이면 flex 자동 최소 폭이 0이 되어 배지가 사라질 때까지 줄 수 있으므로 줄지 않게 둔다(V4) */
+ * overflow:hidden이면 flex 자동 최소 폭이 0이 되어 배지가 사라질 때까지 줄 수 있으므로 줄지 않게 둔다(V4).
+ * 최대 폭 = 글자 9em + 칭호 아이콘(1.1em)과 띄어쓰기 자리: 아이콘 때문에 이름이 더 일찍 잘리지 않게 */
 .title-badge {
-  flex-shrink: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex-shrink: 0; max-width: 10.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--gold); font-size: 12px; font-weight: 700;
 }
 .title-tag { margin-left: 4px; color: var(--gold); }

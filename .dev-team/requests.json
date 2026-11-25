@@ -609,7 +609,7 @@
     "priority": "P3",
     "priorityReason": "없어도 기능에 지장 없는 개선",
     "milestone": "M1.1",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-18",
     "history": [
       {
@@ -617,6 +617,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-25",
+        "by": "콘텐츠 팀장",
+        "status": "in_progress",
+        "note": "9-2: sure_badge·mastery 아이콘 제작 중 (art-director). Tech가 배선 예정."
+      },
+      {
+        "at": "2026-11-25",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "9-2에서 sure_badge(확정! 배지)·mastery(숙련 제목·행) 아이콘 연결, QA 승인"
       }
     ]
   },
@@ -1145,7 +1157,7 @@
     "priority": "P3",
     "priorityReason": "화면 완성도용 선택 사항이다. 기능 구현에는 필요 없다",
     "milestone": "5~8단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-20",
     "history": [
       {
@@ -1153,6 +1165,18 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-25",
+        "by": "콘텐츠 팀장",
+        "status": "in_progress",
+        "note": "9-2: M2 아이콘(특성·기념비·이벤트·명성/환생)과 문구안 제작 중. Tech가 배선 예정."
+      },
+      {
+        "at": "2026-11-25",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "9-2에서 assets/m2-icons.js(특성·이벤트·명성·환생·기념비·업적·칭호 아이콘)와 문구표(docs/content/m2-wording.md) 적용, 업적 이름은 기획서 유지. QA 승인"
       }
     ]
   },
@@ -1457,11 +1481,44 @@
     "priority": "P3",
     "priorityReason": "기능에는 영향 없는 외관·문구 작업이라 백로그. 9단계 화면 정리 때 함께 하면 좋음",
     "milestone": "9단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-24",
     "history": [
       {
         "at": "2026-11-24",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-25",
+        "by": "콘텐츠 팀장",
+        "status": "in_progress",
+        "note": "9-2: 이벤트 아이콘 6종·명성 아이콘·이벤트/환생 문구안 제작 중. Tech가 배선 예정."
+      },
+      {
+        "at": "2026-11-25",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "9-2에서 이벤트 아이콘 6종·명성 아이콘과 이벤트·환생 문구 적용, QA 승인"
+      }
+    ]
+  },
+  {
+    "id": "REQ-049",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "9-2 낮음 정리: 숙련 목록 열 수·이모지 대체 읽기·남은 🏆·아이콘 개수 주석",
+    "detail": "(a) 숙련 목록 최소 폭 150→176px로 360px·약 400px에서 2열이 1열로 떨어지는지 측정, 떨어지면 150px+줄바꿈 금지로. (b) SVG가 없을 때 이모지 대체가 화면 읽기에 읽히지 않게 aria-hidden. (c) js/view.js:407 noteText의 🏆를 C.ICONS.achievement로. (d) assets/m2-icons.js:4 \"Keys (21)\"·docs/content/m2-wording.md:7 \"21개\"를 19로(콘텐츠 파일이지만 한 줄 수정). 근거: 9-2 QA 검증, V5 6회",
+    "priority": "P3",
+    "priorityReason": "기능 영향 없는 외관·접근성·주석 정리라 백로그. 10단계 수치 조정 때 함께 처리 가능",
+    "milestone": "10단계",
+    "status": "open",
+    "createdAt": "2026-11-25",
+    "history": [
+      {
+        "at": "2026-11-25",
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"

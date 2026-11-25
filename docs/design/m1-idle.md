@@ -6,7 +6,7 @@
 | 항목 | 결정 |
 | --- | --- |
 | 자동 사냥 | 토글 버튼 `idle.autoOn`. 켜 두면 `autoInterval`마다 사냥 1회분을 자동 지급 |
-| 해금 | `best ≥ AUTO_UNLOCK_BEST`(5) 달성 시 토글 노출(무료). 명성 상점 "자동 사냥 면허"(`autoStart`)를 보유하면 매 런 처음부터 열린다(m2-rebirth §4, `R.isUnlocked`). M0 초반은 수동 사냥으로 배우게 함 |
+| 해금 | `best ≥ AUTO_UNLOCK_BEST`(5) 달성 시 토글 노출(무료). 명성 상점 "자동 사냥 면허"(`autoStart`)를 보유하면 환생 후 처음부터 열린다(m2-rebirth §4, `R.isUnlocked`). M0 초반은 수동 사냥으로 배우게 함 |
 | 수동 사냥과의 관계 | 독립. 수동 버튼(2.5초 쿨다운)은 자동과 별개로 그대로 동작·병행 가능 |
 | 효율 | 자동 간격 기본 `AUTO_CD_MS`=5000 → 처리량이 수동 최대치의 50%. 1회 보상은 **수동과 별도 식** `autoReward(l) = max(10, round(AUTO_COST_RATIO × cost(l)))`, `AUTO_COST_RATIO`=0.1 (m1-balance §3: 고단계 방치 수입 폭주 방지. +5 이상에서 1회 보상은 항상 수동 `huntReward`보다 적음) |
 | 보상 기준 | **보관함 최고 단계 `topLv = max(swords[].lv)`**(현재 보유 검 기준, `best` 기록 아님, 활성 여부 무관)의 `autoReward(topLv)` (골드), 광석은 `ORE_PER_HUNT`. 수동 사냥 `huntReward(topLv)`, 오프라인도 동일. 최고 검을 판매/납품/파괴하면 수입이 내려간다. 구현은 헬퍼 `topLv()` 1개로 통일 |

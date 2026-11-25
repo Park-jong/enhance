@@ -438,7 +438,7 @@ describe('AC6 mastery records', () => {
   });
   test('V.masteryToastText for the first +16 record', () => {
     const S = lateState(16);
-    assert.strictEqual(V.masteryToastText(attempt(S, 'success').mastery), '+16 숙련! 이후 +16 강화 성공률 +3%p');
+    assert.strictEqual(V.masteryToastText(attempt(S, 'success').mastery), '🎖️ +16 숙련! 이후 +16 강화 성공률 +3%p');
   });
   test('+19 -> +20 success is recorded on stage 19', () => {
     const S = lateState(19);

@@ -7,11 +7,14 @@
   // RB(환생 규칙)는 함수 안에서만 쓴다: view.js만 불러오는 node 테스트(run-m1*.js)에는 rebirth.js가 없다
   const { C, rules: R, forge: F, idle: I, quests: Q, ach: A, events: E, rebirth: RB, fx: FX } = SG;
   const fmt = FX.fmt;
-  /** 아이콘 HTML: 콘텐츠 팀 SVG가 로드돼 있으면 그것을, 아니면 이모지 */
-  const ic = id => {
-    const svg = root.M1_ICONS && root.M1_ICONS[C.ICON_ASSET_KEYS[id]];
-    return svg ? `<span class="ic">${svg}</span>` : (C.ICONS[id] || '');
+  /** SVG 아이콘 HTML(M1 → M2 순으로 찾음). 에셋 파일이 없으면 '' — 폴백은 호출하는 쪽이 고른다 */
+  const svgIc = id => {
+    const key = C.ICON_ASSET_KEYS[id];
+    const svg = key && ((root.M1_ICONS && root.M1_ICONS[key]) || (root.M2_ICONS && root.M2_ICONS[key]));
+    return svg ? `<span class="ic">${svg}</span>` : '';
   };
+  /** 아이콘 HTML: 콘텐츠 팀 SVG가 로드돼 있으면 그것을, 아니면 이모지 */
+  const ic = id => svgIc(id) || C.ICONS[id] || '';
   const $ = sel => document.querySelector(sel);
 
   // ============================================================ 문구
@@ -69,7 +72,7 @@
     anvil: { effect: v => `이 검을 모루로 강화할 때 ${v}% 확률로 내구도 보존` },
   };
   const INCOME_TRAIT_KINDS = C.TRAIT_KINDS.filter(k => TRAIT_TEXT[k].income);
-  const TRAIT_NO_ODDS_TEXT = '특성은 강화 확률에 영향을 주지 않는다';
+  const TRAIT_NO_ODDS_TEXT = '특성은 강화 확률에 영향을 주지 않습니다';
   // 골드 사용처(특성 관리·기념비): 2회 클릭 확인 문구와 막힌 사유
   const SINK_TEXT = {
     confirm: '한 번 더 누르면 구매',
@@ -189,14 +192,17 @@
     if (!TRAIT_TEXT[tr.k].income || !sw) return text;
     return isIncomeSword(S, sw) ? `${text} · 수입 검 적용 중` : `${text} · 최고 단계 검(+${R.topLv(S)})일 때만 적용`;
   }
-  /** 색만으로 구분하지 않게 약자 한 글자 + 등급 점(1~3개) */
+  /** 등급 점: 항상 TRAIT_TIER_MAX개를 그리고 등급 수만큼 채운다(2/3처럼 읽힘) */
+  const tierPipsHTML = t =>
+    `<span class="pips" aria-hidden="true">${'<i class="on"></i>'.repeat(t)}${'<i></i>'.repeat(C.TRAIT_TIER_MAX - t)}</span>`;
+  /** 색만으로 구분하지 않게 종류 아이콘(SVG가 없으면 약자 한 글자) + 등급 점. 등급 이름은 aria-label로 읽힌다 */
   const traitChipHTML = tr =>
-    `<span class="trait-chip trait-t${tr.t}"><b>${C.TRAITS[tr.k].short}</b><span class="pips">${'<i></i>'.repeat(tr.t)}</span></span>`;
+    `<span class="trait-chip trait-t${tr.t}" role="img" aria-label="${traitName(tr)}">${svgIc('trait_' + tr.k) || `<b>${C.TRAITS[tr.k].short}</b>`}${tierPipsHTML(tr.t)}</span>`;
 
   // ------------------------------------------------------------ 시간 이벤트 표시 (순수 문자열, node 테스트에서 호출 가능)
   /** 헤더 칩 안 HTML(a = E.activeEvent 결과): 아이콘 + 이름 + m:ss. ≤520px에서는 CSS가 이름을 화면에서만 감춘다(스크린 리더는 읽음) */
   const eventChipHTML = a =>
-    `<span class="ev-icon" aria-hidden="true">${a.def.icon}</span><span class="ev-name">${a.def.name}</span> <span class="ev-clock">${E.fmtEventClock(a.remainMs)}</span>`;
+    `<span class="ev-icon" aria-hidden="true">${ic('event_' + a.id)}</span><span class="ev-name">${a.def.name}</span> <span class="ev-clock">${E.fmtEventClock(a.remainMs)}</span>`;
   /** 칩 title(데스크톱 호버)에 쓰는 전체 문장 */
   const eventChipLabel = a => `${a.def.name} ${E.fmtEventClock(a.remainMs)} 남음 · ${a.def.desc}`;
   /** 이벤트 효과가 상한·천장에 잘린 원인(m2-events §9): 이벤트를 빼도 이미 상한 이상이면 'cap', 아니면 'ceil'(SUCC_CEIL) */
@@ -222,7 +228,7 @@
     const a = E.activeEvent(S);
     if (!a) return '';
     const idle = luckIdleText(S);
-    return `<b class="ev-pop-title">${a.def.icon} ${a.def.name}</b><span>${a.def.desc}</span>` +
+    return `<b class="ev-pop-title">${ic('event_' + a.id)} ${a.def.name}</b><span>${a.def.desc}</span>` +
       `<span>${EVENT_TEXT.remain} <b class="ev-clock">${E.fmtEventClock(a.remainMs)}</b></span>` +
       `<small class="muted">${EVENT_TEXT.offlineNote}</small>${idle ? `<small class="ev-idle">${idle}</small>` : ''}`;
   }
@@ -233,7 +239,7 @@
   }).join('');
   /** 이벤트 값 v(%)가 켜져 있으면 "+50%", 아니면 '' (광석 칸·방치 탭 광석 줄) */
   const eventPctText = (S, id) => { const v = E.eventValue(S, id); return v > 0 ? `+${v}%` : ''; };
-  /** 토스트 문구: 시작 "🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p", 종료 "이벤트 종료: 행운의 시간" */
+  /** 토스트 문구: 시작 "🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p"(앞 이모지는 C.ICONS 폴백), 종료 "이벤트 종료: 행운의 시간" */
   const eventStartText = id => {
     const d = C.EVENTS[id];
     return `${d.icon} 이벤트 시작: ${d.name} — ${d.durationSec / SEC_PER_MIN}분간 ${d.desc}`;
@@ -394,7 +400,7 @@
 
   /** 성공 확률 아래 천장 게이지 줄(+15~+19에서만) */
   function gaugeHTML(g) {
-    return `천장 ${g.value}/${g.n}${g.full ? ' <span class="badge good">확정!</span>' : ''}`;
+    return `천장 ${g.value}/${g.n}${g.full ? ` <span class="badge good">${ic('sure_badge')} 확정!</span>` : ''}`;
   }
 
   function noteText(lv, c, use) {
@@ -834,7 +840,7 @@
     setHTML($('#monumentList'), `${lead}<div class="mon-grid">${MONUMENT_LEVELS.map(L => monumentCellHTML(S, ui, now, L)).join('')}</div>${reason}`);
     const badge = $('#monumentBadge');
     badge.hidden = !top;
-    badge.textContent = top ? `${C.ICONS.monument} +${top}` : '';
+    setHTML(badge, top ? `${ic('monument')} +${top}` : '');
     badge.title = top ? `대표 기념비: ${monumentTitle(top)}` : '';
   }
 
@@ -843,7 +849,7 @@
     return C.MASTERY_REC_MAX.map((max, i) => {
       const lv = C.MASTERY_FROM + i;
       const count = S.mastery[i];
-      return `<li>+${lv} 숙련 <b>+${R.masteryBonus(lv, count)}%p</b> <span class="muted">(${count}/${max})</span></li>`;
+      return `<li>${ic('mastery')} +${lv} 숙련 <b>+${R.masteryBonus(lv, count)}%p</b> <span class="muted">(${count}/${max})</span></li>`;
     }).join('');
   }
 
@@ -973,22 +979,23 @@
     const claimed = C.ACHIEVEMENTS.filter(a => A.achState(S, a.id) === C.ACH_CLAIMED);
     const option = (id, label) => `<button class="title-opt ${S.title === id ? 'on' : ''}" data-act="setTitle" data-id="${id}" aria-pressed="${S.title === id}">${label}</button>`;
     const hint = claimed.length ? '' : '<small class="muted">업적 보상을 받으면 칭호를 고를 수 있습니다</small>';
-    return `<div class="title-pick"><span class="muted">칭호</span>${option(C.TITLE_NONE, '없음')}${claimed.map(a => option(a.id, `「${a.title}」`)).join('')}${hint}</div>`;
+    return `<div class="title-pick"><span class="muted">${ic('title')} 칭호</span>${option(C.TITLE_NONE, '없음')}${claimed.map(a => option(a.id, `「${a.title}」`)).join('')}${hint}</div>`;
   }
   function achSectionHTML(S) {
     const claimed = C.ACHIEVEMENTS.filter(a => A.achState(S, a.id) === C.ACH_CLAIMED).length;
     // 모두 받기는 일일 과제 수령 가능 항목도 받는다(claimAll)
     const all = `<button class="small-btn gold claim-all" data-act="claimAll" ${A.claimableAny(S) ? '' : 'disabled'}>모두 받기</button>`;
-    return sectionHead(`업적 <span class="muted ach-count">수령 ${claimed}/${C.ACHIEVEMENTS.length}</span>`, all) +
+    return sectionHead(`${ic('achievement')} 업적 <span class="muted ach-count">수령 ${claimed}/${C.ACHIEVEMENTS.length}</span>`, all) +
       titlePickerHTML(S) + ACH_TRACKS.map(t => achTrackHTML(S, t)).join('');
   }
   /** 현재 칭호: 상단 바 배지와 기록 탭 제목 옆 */
   function renderTitle(S) {
     const name = titleName(S);
-    const text = name ? `「${name}」` : '';
+    // name은 업적 상수(C.ACHIEVEMENTS)에서만 오므로 HTML로 넣어도 안전하다
+    const html = name ? `${ic('title')} 「${name}」` : '';
     [$('#titleBadge'), $('#recordsTitle')].forEach(el => {
       el.hidden = !name;
-      el.textContent = text;
+      setHTML(el, html);
     });
     $('#titleBadge').title = name ? `칭호: ${name}` : '';
   }
@@ -1008,18 +1015,18 @@
     ready: `+${C.MAX} 검 1자루를 바치고 명성 +${C.FAME_PER_REBIRTH}`,
     confirmTitle: '환생할까요?',
     confirmLead: '되돌릴 수 없습니다. 처음부터 다시 시작하고 명성을 얻습니다.',
-    keep: '업적·칭호·기념비·도감·통계·설정·명성과 상점',
-    lost: `골드, 파편, 모든 검(특성 포함), 소모품, 모루·광석, 의뢰, 방치 업그레이드·부스터, 이벤트 진행 · 숙련은 단계별 ${C.MASTERY_KEEP_REC}개만 유지`,
+    keep: '업적·칭호·일일 과제·기념비·도감·통계·설정·명성·명성 상점',
+    lost: `골드, 파편, 모든 검(특성 포함), 소모품, 모루·광석, 의뢰, 방치 업그레이드·부스터, 이벤트 진행, 숙련 기록(단계별 ${C.MASTERY_KEEP_REC}개만 남김)`,
     unclaimed: '받지 않은 업적·일일 과제 보상이 있습니다. 보상은 지금 최고 단계로 계산되니 환생 전에 받는 편이 좋습니다.',
     cancel: '취소',
     confirm: '환생하기',
   };
   // 상점 행 효과 문구(§4). when: 시작 골드·칸은 다음 환생 때, 수입·면허는 산 즉시 적용
   const FAME_TEXT = {
-    startGold: { label: '환생 시작 골드', value: v => `+${fmt(v)}G`, when: 'next' },
+    startGold: { label: '환생 시작 골드', value: v => `+${fmt(v)} G`, when: 'next' },
     income: { label: `보관함 최고 +${C.EARLY_INCOME_MAX_LV} 이하일 때 사냥·자동·오프라인 골드`, value: v => `+${v}%`, when: 'now' },
     slots: { label: '환생 시작 보관함', value: v => `+${v}칸`, when: 'next' },
-    autoStart: { label: '매 런 처음부터 자동 사냥 해금', when: 'now' },
+    autoStart: { label: '환생 후 처음부터 자동 사냥 해금', when: 'now' },
   };
   const FAME_WHEN_TEXT = { next: '다음 환생부터', now: '즉시 적용' };
 
@@ -1047,7 +1054,7 @@
     const note = check.ok
       ? `<span class="rebirth-note">수수료 ${goldText(RB.REBIRTH_FEE)} · ${REBIRTH_TEXT.ready}</span>`
       : `<span class="rebirth-note rebirth-reason">${REBIRTH_REASON[check.reason]}</span>`;
-    return `<div class="rebirth-act"><button class="small-btn gold rebirth-btn" data-act="askRebirth" ${!check.ok || ui.busy ? 'disabled' : ''}>${ic('fame')} 환생</button>${note}</div>`;
+    return `<div class="rebirth-act"><button class="small-btn gold rebirth-btn" data-act="askRebirth" ${!check.ok || ui.busy ? 'disabled' : ''}>${ic('rebirth')} 환생</button>${note}</div>`;
   }
   /** 기록 탭 맨 위 환생 섹션: 열리기 전에는 잠금 한 줄, 열리면 머리(환생 횟수·명성 잔액) + 명성 상점 + [환생] */
   function rebirthSectionHTML(S, ui) {
@@ -1066,14 +1073,14 @@
     const offering = sw ? `${swordName(sw.lv)}${sw.trait ? ` (${traitName(sw.trait)})` : ''}` : '-';
     const T = REBIRTH_TEXT;
     return `<div class="sheet rebirth-sheet" role="dialog" aria-modal="true" aria-labelledby="rebirthTitle">
-      <h3 id="rebirthTitle">${ic('fame')} ${T.confirmTitle}</h3><p>${T.confirmLead}</p>
+      <h3 id="rebirthTitle">${ic('rebirth')} ${T.confirmTitle}</h3><p>${T.confirmLead}</p>
       <dl class="rb-list">${rbItem('수수료', goldText(p.fee))}${rbItem('현재 골드', goldText(p.gold), 'rb-gold')}
         ${rbItem('수수료 후 사라지는 골드', goldText(p.goldLost), 'rb-lost')}${rbItem('얻는 명성', `${ic('fame')} +${p.fameGain}`)}
         ${rbItem('바치는 검', offering)}</dl>
       <h4>유지</h4><p>${T.keep}</p>
       <h4>사라짐</h4><p>${T.lost}</p>
       <h4>환생 후</h4>
-      <dl class="rb-list">${rbItem('시작 골드', goldText(p.startGold))}${rbItem('시작 칸', `${p.slots}칸`)}
+      <dl class="rb-list">${rbItem('시작 골드', goldText(p.startGold))}${rbItem('시작 보관함', `${p.slots}칸`)}
         ${rbItem('초반 수입', `+${p.incomePct}% (보관함 최고 +${C.EARLY_INCOME_MAX_LV} 이하)`)}${rbItem('자동 사냥 면허', p.autoStart ? '있음' : '없음')}</dl>
       ${A.claimableAny(S) ? `<p class="rb-warn">${T.unclaimed}</p>` : ''}
       <div class="rb-btns"><button class="small-btn" data-act="cancelRebirth">${T.cancel}</button><button class="small-btn gold" data-act="rebirth">${T.confirm}</button></div></div>`;
@@ -1102,8 +1109,8 @@
     return `보상 ${r.claimed.length}개를 받았습니다: ${rewardSummary(r)}${titles ? ` · 칭호 ${titles}개` : ''}`;
   }
 
-  /** 새 숙련 기록 토스트 문구(기록 1회당 1번) */
-  const masteryToastText = m => `+${m.lv} 숙련! 이후 +${m.lv} 강화 성공률 +${m.gained}%p`;
+  /** 새 숙련 기록 토스트 문구(기록 1회당 1번). 토스트는 textContent라 앞 아이콘은 이모지 폴백 */
+  const masteryToastText = m => `${C.ICONS.mastery} +${m.lv} 숙련! 이후 +${m.lv} 강화 성공률 +${m.gained}%p`;
   /** 다 써서 자동으로 꺼진 트레이 소모품 토스트(시도 1회당 1번) */
   const ranOutToastText = ids => `${ids.map(id => itemText(id)).join(', ')}을(를) 다 써서 사용을 껐습니다.`;
   /** 첫 각인 토스트 "검에 각인: <등급> <종류>"(여러 자루면 한 문장으로 합침, m2-traits §11) */
@@ -1120,6 +1127,7 @@
     $('#saveGuard').innerHTML = saveGuardHTML();
     $('#saveBadge').textContent = SAVE_SAFETY_TEXT.badge;
     $('#stageEmpty').textContent = NO_ACTIVE_TEXT;
+    $('#masteryHeadIcon').innerHTML = ic('mastery');
   }
 
   // ============================================================ 저장 안전 (배너·배지)

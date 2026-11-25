@@ -158,8 +158,8 @@ async function main() {
 
   // 1) 새 게임: 로드·렌더·저장
   let env = makeEnv({});
-  ok(env.scripts.length === 17, 'all scripts loaded');
-  ok(!!env.ctx.M1_ICONS && !!env.ctx.M1_SFX_PLAY, 'content assets loaded');
+  ok(env.scripts.length === 18, 'all scripts loaded');
+  ok(!!env.ctx.M1_ICONS && !!env.ctx.M2_ICONS && !!env.ctx.M1_SFX_PLAY, 'content assets loaded');
   ok(env.byId['#tabbar']._html.includes('<svg'), 'content SVG icons used in tabs');
   ok(saved(env).v === 2, 'v2 saved on start');
   scanRendered();
@@ -451,6 +451,8 @@ async function main() {
   await rebirthWiring(ok);
   // 7b-9) 8-B F11 화면: 기록 탭 환생 섹션(잠김·표시·상점·사유), 확인 창(열기·확인·취소·닫힘 경로·연출 중·재검사)
   await rebirthUi(ok);
+  // 7b-10) 9-2: M2 아이콘(SVG 있음 / 에셋 없음 폴백)·특성 등급 점·확정 배지·토스트는 이모지
+  await m2IconsUi(ok);
 
   // 7c) 대장간 탭이 열려 있으면 파편 0개여도 파편 교환 섹션을 보여 준다
   forgeShardExchange(ok);
@@ -745,10 +747,13 @@ async function recordsUi(ok) {
   // 칭호: 선택 → 상단 바·기록 제목에 「칭호」, 없음 → 숨김
   ok(hasButton(achs(env), 'setTitle', 'tries_1'), 'claimed title appears in the selector');
   click(env, 'setTitle', 'tries_1');
-  ok(env.byId['#titleBadge'].textContent === '「견습 대장장이」' && !env.byId['#titleBadge'].hidden && env.byId['#recordsTitle'].textContent === '「견습 대장장이」'
-    && /class="title-opt on" data-act="setTitle" data-id="tries_1"/.test(achs(env)), 'title shown in header and records title, option marked');
+  const titleIcon = `<span class="ic">${env.ctx.M2_ICONS.title}</span>`;
+  ok(env.byId['#titleBadge']._html === titleIcon + ' 「견습 대장장이」' && !env.byId['#titleBadge'].hidden && env.byId['#recordsTitle']._html === titleIcon + ' 「견습 대장장이」'
+    && /class="title-opt on" data-act="setTitle" data-id="tries_1"/.test(achs(env)), 'title (with the title SVG, 9-2) shown in header and records title, option marked');
+  ok(achs(env).includes(`<span class="muted">${titleIcon} 칭호</span>`) && achs(env).includes(`<h2><span class="ic">${env.ctx.M2_ICONS.achievement}</span> 업적 `),
+    '9-2: title picker label and achievements heading use their SVGs');
   click(env, 'setTitle', '');
-  ok(env.byId['#titleBadge'].hidden && env.byId['#recordsTitle'].hidden && saved(env).title === '', '없음 hides the title');
+  ok(env.byId['#titleBadge'].hidden && env.byId['#recordsTitle'].hidden && env.byId['#titleBadge']._html === '' && saved(env).title === '', '없음 hides the title');
 
   // 실패 문구 (§10.3): 미달성 일일·업적, 이미 받음
   click(env, 'claimDaily', '1');
@@ -845,7 +850,7 @@ async function recordsUi(ok) {
 const plain = html => html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
 async function lateCorrection(ok) {
-  const MASTERY_TOAST_16 = '+16 숙련! 이후 +16 강화 성공률 +3%p';
+  const MASTERY_TOAST_16 = '🎖️ +16 숙련! 이후 +16 강화 성공률 +3%p';
   /** 활성 검 하나(+lv), 넉넉한 골드·소모품, 미스릴 모루 장착 */
   const lateSave = (lv, fields) => {
     const s = Object.assign(SG_default(), { gold: 1e9, best: Math.max(lv, 15) }, fields);
@@ -864,6 +869,10 @@ async function lateCorrection(ok) {
   ok(!env.byId['#breakdown']._html.includes('숙련'), 'no mastery term at +14');
   ok(JSON.stringify(masteryRows(env)) === JSON.stringify(['+15 숙련 +0%p (0/4)', '+16 숙련 +6%p (2/4)', '+17 숙련 +0%p (0/4)',
     '+18 숙련 +0%p (0/3)', '+19 숙련 +0%p (0/2)']), 'records tab lists 5 mastery rows: ' + masteryRows(env).join(' | '));
+  const masteryIcon = '<span class="ic">' + env.ctx.M2_ICONS.mastery + '</span>';
+  ok((env.byId['#masteryList']._html.match(/<li>[\s\S]*?<\/li>/g) || []).every(li => li.startsWith('<li>' + masteryIcon + ' +')),
+    '9-2: every mastery row starts with the mastery SVG');
+  ok(env.byId['#masteryHeadIcon']._html === masteryIcon, '9-2: records 숙련 heading gets the mastery SVG (decorateStatic)');
   scanRendered();
 
   // +16 게이지 3/5 (저장값과 일치), 확정 아님
@@ -891,6 +900,8 @@ async function lateCorrection(ok) {
   Object.assign(full.use, { bless: true, anvil: true, protect: true });
   env = load(full);
   ok(plain(env.byId['#gaugeLine']._html) === '천장 5/5 확정!', 'full gauge shows 확정!');
+  ok(env.byId['#gaugeLine']._html.includes(`<span class="badge good"><span class="ic">${env.ctx.M2_ICONS.sure_badge}</span> 확정!</span>`)
+    && !env.byId['#gaugeLine']._html.includes(env.ctx.M1_ICONS.sure), '9-2: 확정! badge uses the sure_badge SVG, not the item icon sure');
   ok(env.byId['#vSucc'].textContent === '100%' && env.byId['#vDest'].textContent === '0%', 'full gauge odds 100% / 0%');
   ok(env.byId['#breakdown']._html.includes('천장 확정'), 'breakdown names the guaranteed attempt');
   const trayHtml = env.byId['#tray']._html;
@@ -1207,6 +1218,7 @@ async function eventsUi(ok) {
   const pop = env => env.byId['#eventPop'];
   const chipShown = env => !env.byId['#eventWrap'].hidden && !chip(env).hidden;
   const chipText = env => plain(chip(env)._html);
+  const evIcon = (env, id) => `<span class="ic">${env.ctx.M2_ICONS['event_' + id]}</span>`;
   const popOpen = env => !pop(env).hidden;
   /** 문서 클릭: inside가 '.event-wrap'이면 칩·팝오버 안쪽 클릭, null이면 바깥 빈 곳 클릭 */
   const docClick = (env, inside) => env.docListeners.click.forEach(f => f({ target: { closest: sel => (sel === inside ? {} : null) } }));
@@ -1235,14 +1247,17 @@ async function eventsUi(ok) {
     ok(env.state().events.active.id === 'luck' && JSON.stringify(toasts()) === JSON.stringify([[START_LUCK, 'toast good']]),
       `AC 34: the spawn tick shows one start toast of kind good ${tag}: ${JSON.stringify(toasts())}`);
     ok(logTexts(env).includes(START_LUCK), `the start text is also in the log ${tag}`);
-    ok(chipShown(env) && chipText(env) === '🍀행운의 시간 5:00' && chip(env).title === '행운의 시간 5:00 남음 · 강화 성공 확률 +5%p',
-      `AC 32: chip shows icon + name + m:ss with the full title ${tag}: ${chipText(env)}`);
+    ok(chipShown(env) && chipText(env) === '행운의 시간 5:00' && chip(env).title === '행운의 시간 5:00 남음 · 강화 성공 확률 +5%p'
+      && chip(env)._html.startsWith(`<span class="ev-icon" aria-hidden="true">${evIcon(env, 'luck')}</span>`),
+      `AC 32: chip shows icon (event_luck SVG, 9-2) + name + m:ss with the full title ${tag}: ${chipText(env)}`);
+    ok(eventToasts(env).length === 1 && eventToasts(env).every(el => !el.textContent.includes('<span') && el.textContent.startsWith(C.EVENTS.luck.icon + ' ')),
+      `9-2: the start toast keeps the emoji fallback (no SVG markup in textContent) ${tag}`);
     counted();
     counted();
-    ok(chipText(env) === '🍀행운의 시간 4:59', `the chip clock follows each tick ${tag}: ${chipText(env)}`);
+    ok(chipText(env) === '행운의 시간 4:59', `the chip clock follows each tick ${tag}: ${chipText(env)}`);
     env.state().events.active.remainMs = 2 * TICK + 1;
     counted();
-    ok(chipShown(env) && chipText(env) === '🍀행운의 시간 0:01' && eventToasts(env).length === 1, `AC 32: 501 ms left shows 0:01, no toast yet ${tag}`);
+    ok(chipShown(env) && chipText(env) === '행운의 시간 0:01' && eventToasts(env).length === 1, `AC 32: 501 ms left shows 0:01, no toast yet ${tag}`);
     counted();
     counted();
     ok(!chipShown(env) && env.state().events.active === null, `the end tick hides the chip ${tag}`);
@@ -1263,7 +1278,7 @@ async function eventsUi(ok) {
     clickChip(env);
     ok(expanded() === 'true', 'a11y: chip aria-expanded becomes true when the popover opens');
     const html = pop(env)._html;
-    ok(popOpen(env) && html.includes('🏹 사냥 대목') && html.includes('수동 사냥 골드 +40%') && html.includes('<b class="ev-clock">4:12</b>')
+    ok(popOpen(env) && html.includes(`<b class="ev-pop-title">${evIcon(env, 'hunt')} 사냥 대목</b>`) && html.includes('수동 사냥 골드 +40%') && html.includes('<b class="ev-clock">4:12</b>')
       && html.includes('접속 중에만 흐르고 오프라인에서는 적용되지 않습니다'), 'chip click opens the popover with icon, name, effect, clock, offline note');
     step(env, clk);
     ok(popOpen(env) && pop(env)._html.includes('<b class="ev-clock">4:11</b>'), 'the open popover clock updates per tick');
@@ -1343,7 +1358,7 @@ async function eventsUi(ok) {
     ok(eventToasts(env).length === 0 && env.state().events.active.remainMs === 2 * TICK + 100 && chipShown(env), 'AC 34: returning after 10 min announces no end');
     step(env, clk);
     step(env, clk);
-    ok(eventToasts(env).length === 0 && chipText(env) === '🍀행운의 시간 0:01', 'the first ticks after return count only their own dt');
+    ok(eventToasts(env).length === 0 && chipText(env) === '행운의 시간 0:01', 'the first ticks after return count only their own dt');
     step(env, clk);
     ok(JSON.stringify(eventToasts(env).map(el => el.textContent)) === JSON.stringify([END_LUCK]), 'the end is announced once on the tick it really ends');
   }
@@ -1463,7 +1478,7 @@ async function eventsUi(ok) {
     game.state().best = 13;
     sel.value = 'hunt';
     click(tEnv, 'testSetEvent');
-    ok(JSON.stringify(savedTest(tEnv).events.active) === JSON.stringify({ id: 'hunt', remainMs: DURATION }) && chipShown(tEnv) && chipText(tEnv) === '🏹사냥 대목 5:00'
+    ok(JSON.stringify(savedTest(tEnv).events.active) === JSON.stringify({ id: 'hunt', remainMs: DURATION }) && chipShown(tEnv) && chipText(tEnv) === '사냥 대목 5:00'
       && logTexts(tEnv).includes('[TEST] 🏹 이벤트 시작: 사냥 대목 — 5분간 수동 사냥 골드 +40%'), 'start applies the full duration, saves, shows the chip and logs');
     click(tEnv, 'testEndEvent');
     ok(savedTest(tEnv).events.active.remainMs === 1 && !toastTexts().includes('이벤트 종료: 사냥 대목'), 'end sets 1 ms left (the next tick ends it)');
@@ -1589,9 +1604,13 @@ async function traitsUi(ok) {
   // 1) 보관함 칩(약자 + 등급 점 수, 특성 없으면 없음)·카드 제목, 이름 줄·효과 문장
   let env = load(lateSave());
   const V = env.ctx.SG.view;
-  const chip = (env2, id) => (cardHTML(env2, id).match(/<span class="trait-chip trait-t(\d)"><b>(.)<\/b><span class="pips">((?:<i><\/i>)*)<\/span><\/span>/) || []);
-  ok(chip(env, 1)[1] === '3' && chip(env, 1)[2] === '약' && chip(env, 1)[3] === '<i></i>'.repeat(3), 'strip chip: letter 약 + 3 tier pips for {hunt,3}');
-  ok(chip(env, 2)[2] === '상' && chip(env, 2)[3] === '<i></i>'.repeat(2) && chip(env, 5)[3] === '<i></i>', 'strip chip pips follow the tier (2, 1)');
+  // 칩 = 종류 SVG(9-2) + 등급 점 3개(채운 수 = 등급), 등급 이름은 aria-label
+  const chip = (env2, id) => (cardHTML(env2, id).match(/<span class="trait-chip trait-t(\d)" role="img" aria-label="([^"]+)"><span class="ic">([\s\S]*?)<\/span><span class="pips" aria-hidden="true">((?:<i[^>]*><\/i>)*)<\/span><\/span>/) || []);
+  const pipsOf = t => '<i class="on"></i>'.repeat(t) + '<i></i>'.repeat(C.TRAIT_TIER_MAX - t);
+  ok(chip(env, 1)[1] === '3' && chip(env, 1)[2] === '완벽한 약탈자' && chip(env, 1)[3] === env.ctx.M2_ICONS.trait_hunt && chip(env, 1)[4] === pipsOf(3),
+    'strip chip: trait_hunt SVG + 3 filled pips for {hunt,3}, tier name in aria-label');
+  ok(chip(env, 2)[3] === env.ctx.M2_ICONS.trait_trade && chip(env, 2)[4] === pipsOf(2) && chip(env, 5)[3] === env.ctx.M2_ICONS.trait_work && chip(env, 5)[4] === pipsOf(1),
+    'strip chip: 3 pips always drawn, filled count follows the tier (2, 1)');
   ok(!cardHTML(env, 3).includes('trait-chip') && cardHTML(env, 3).includes('data-sword="3"'), 'a sword without a trait shows no chip');
   ok(cardHTML(env, 1).includes('title="+17 시간을 베는 검 · 완벽한 약탈자 ·'), 'card title names the trait');
   ok(env.byId['#swordName'].textContent === '정교한 상인 · ' + V.swordName(13), 'name line "<tier> <kind> · <sword>": ' + env.byId['#swordName'].textContent);
@@ -1663,7 +1682,7 @@ async function traitsUi(ok) {
   let html = forgeBody(env);
   const rekindPrice = sinkPrice(C.TRAIT_REKIND_MULT, 17);
   const tierPrice = sinkPrice(C.TRAIT_TIER_UP_MULT[1], 17);
-  ok(html.includes('각인 · 활성 검') && plain(html).includes('특성은 강화 확률에 영향을 주지 않는다'), 'AC50: forge 각인 section with the no-odds line');
+  ok(html.includes('각인 · 활성 검') && plain(html).includes('특성은 강화 확률에 영향을 주지 않습니다.'), 'AC50: forge 각인 section with the no-odds line');
   ok(!/상인|특성|각인/.test(env.byId['#breakdown']._html), 'AC50: the odds breakdown has no trait row');
   const plainTrait = lateSave();
   plainTrait.swords[1].trait = null;
@@ -1759,13 +1778,14 @@ async function traitsUi(ok) {
   const monSave = lateSave();
   monSave.monuments = [1, 1, 0, 0, 0, 0, 0, 0];
   env = load(monSave);
+  const monumentIcon = `<span class="ic">${env.ctx.M2_ICONS.monument}</span>`;
   const cells = env => env.byId['#monumentList']._html.match(/<div class="mon[ "]/g) || [];
   html = env.byId['#monumentList']._html;
   ok(cells(env).length === C.MONUMENT_COUNT && (html.match(/badge good">보유/g) || []).length === 2, '8 monument cells, 2 owned');
   ok([15, 16, 17].every(L => buttonHTML(html, 'buyMonument', L)) && [18, 19, 20].every(L => plain(html).includes(`최고 +${L} 달성 시`)), 'reachable levels buyable, the rest locked');
-  ok(env.byId['#monumentCount'].textContent === '(2 / 8)' && env.byId['#monumentBadge'].hidden === false && env.byId['#monumentBadge'].textContent === '🏛️ +14',
-    'count and header badge show the highest monument: ' + env.byId['#monumentBadge'].textContent);
-  ok(plain(html).includes('대표 기념비: 🏛️ +14 별빛 검 기념비'), 'records title line names the highest monument');
+  ok(env.byId['#monumentCount'].textContent === '(2 / 8)' && env.byId['#monumentBadge'].hidden === false && env.byId['#monumentBadge']._html === monumentIcon + ' +14',
+    'count and header badge show the highest monument (monument SVG, 9-2): ' + plain(env.byId['#monumentBadge']._html));
+  ok(html.includes(`대표 기념비: ${monumentIcon} +14 별빛 검 기념비`), 'records title line names the highest monument');
   const price15 = sinkPrice(C.MONUMENT_MULT, 15);
   ok(plain(buttonHTML(html, 'buyMonument', 15)) === `세우기 ${fmtG(price15)}G`, 'monument price = monumentCost');
   st = saved(env);
@@ -1774,7 +1794,7 @@ async function traitsUi(ok) {
   click(env, 'buyMonument', 15);
   after = saved(env);
   ok(after.monuments[2] === 1 && after.gold === st.gold - price15 && after.stats.sinkGold === price15, 'monument: second click buys at the shown price');
-  ok(env.byId['#monumentBadge'].textContent === '🏛️ +15' && env.byId['#monumentCount'].textContent === '(3 / 8)', 'badge and count follow the purchase');
+  ok(env.byId['#monumentBadge']._html === monumentIcon + ' +15' && env.byId['#monumentCount'].textContent === '(3 / 8)', 'badge and count follow the purchase');
   ok(buttonHTML(env.byId['#monumentList']._html, 'buyMonument', 17).includes('disabled'), 'unaffordable monument disabled');
   const poor = [16, 17].filter(L => R.monumentCost(L) > after.gold).map(L => `+${L}`);
   ok(poor.length > 0 && plain(env.byId['#monumentList']._html).includes(`${poor.join('·')}: 골드가 부족합니다.`),
@@ -1983,7 +2003,7 @@ async function testPage(ok) {
   const realUntouched = env => REAL_KEYS.every(k => env.store[k] === realStore[k]);
 
   let env = makeEnv(realStore, { page: 'test.html' });
-  ok(env.scripts.length === 19, 'test page loads all scripts');
+  ok(env.scripts.length === 20, 'test page loads all scripts');
   ok(env.ctx.SG.C.SAVE_KEY === TEST_KEY && env.ctx.SG.config.forceSuccess === true, 'test config applied');
   ok(savedTest(env).gold === 300 && savedTest(env).swords[0].lv === 0, 'test page starts its own new game (no v1 migration, no real save)');
   ok(realUntouched(env), 'real v2 / v1 / corrupt-backup keys untouched on test page start');
@@ -2226,9 +2246,12 @@ async function rebirthUi(ok) {
   env = boot({ [KEY]: JSON.stringify(ready()) });
   ok(plain(section(env)).includes('환생 0회') && plain(section(env)).includes('명성 0') && plain(section(env)).includes('명성 상점'), 'visible: count 0회, fame 0, shop heading');
   ok(['startGold', 'income', 'slots', 'autoStart'].every(t => fameRow(env, t).includes(`data-act="buyFame" data-id="${t}"`)), 'shop: 4 rows with buyFame buttons');
-  ok(plain(fameRow(env, 'startGold')).includes('여유 자금 Lv 0/4') && plain(fameRow(env, 'startGold')).includes('환생 시작 골드 +2,000G · 다음 환생부터')
+  ok(plain(fameRow(env, 'startGold')).includes('여유 자금 Lv 0/4') && plain(fameRow(env, 'startGold')).includes('환생 시작 골드 +2,000 G · 다음 환생부터')
     && /disabled/.test(fameRow(env, 'startGold')), 'row: name, Lv n/max, effect, applies next rebirth, disabled without fame');
-  ok(plain(fameRow(env, 'income')).includes('즉시 적용') && plain(fameRow(env, 'autoStart')).includes('매 런 처음부터 자동 사냥 해금'), 'income/license apply now');
+  ok(plain(fameRow(env, 'income')).includes('즉시 적용') && plain(fameRow(env, 'autoStart')).includes('환생 후 처음부터 자동 사냥 해금'), 'income/license apply now');
+  ok(section(env).includes(`<span class="fame-balance"><span class="ic">${env.ctx.M2_ICONS.fame}</span> 명성`)
+    && section(env).includes(`data-act="askRebirth" ><span class="ic">${env.ctx.M2_ICONS.rebirth}</span> 환생</button>`),
+    '9-2: fame balance keeps the fame SVG, the [환생] button uses the rebirth SVG');
   ok(!askDisabled(env) && plain(section(env)).includes(`수수료 ${env.ctx.SG.fx.fmt(FEE)} G`), 'rebirth button enabled with the fee line');
   scanRendered();
 
@@ -2246,7 +2269,7 @@ async function rebirthUi(ok) {
     rebirth: { count: 1, fame: 3, up: { startGold: 3, income: 0, slots: 0, autoStart: 0 } } });
   env = boot({ [KEY]: JSON.stringify(after) });
   ok(plain(section(env)).includes('환생 1회') && plain(section(env)).includes('명성 3') && askDisabled(env), 'after a rebirth (best 0): section still visible, button disabled');
-  ok(plain(fameRow(env, 'startGold')).includes('Lv 3/4') && plain(fameRow(env, 'startGold')).includes('+10,000G → +20,000G') && !/disabled/.test(fameRow(env, 'startGold')),
+  ok(plain(fameRow(env, 'startGold')).includes('Lv 3/4') && plain(fameRow(env, 'startGold')).includes('+10,000 G → +20,000 G') && !/disabled/.test(fameRow(env, 'startGold')),
     'row shows current → next and the next cost (3) is affordable');
   click(env, 'buyFame', 'startGold');
   ok(saved(env).rebirth.fame === 0 && saved(env).rebirth.up.startGold === 4 && plain(fameRow(env, 'startGold')).includes('최대')
@@ -2269,8 +2292,10 @@ async function rebirthUi(ok) {
   ok(modalOpen(env) && html.includes('aria-modal="true"'), 'askRebirth opens the confirm modal');
   ok([`${fmt(p.fee)} G`, `${fmt(p.gold)} G`, `${fmt(p.goldLost)} G`, `+${p.fameGain}`, `${fmt(p.startGold)} G`, `${p.slots}칸`, `+${p.incomePct}%`].every(s => plain(html).includes(s))
     && p.goldLost === 5000, 'modal numbers equal rebirthPreview (fee, gold, gold lost, fame, start gold, slots, income)');
-  ok(plain(html).includes('+20 무한의 검') && plain(html).includes('업적·칭호·기념비·도감·통계·설정·명성과 상점') && plain(html).includes('숙련은 단계별 1개만 유지')
-    && plain(html).includes('받지 않은 업적·일일 과제 보상이 있습니다'), 'modal: offered sword, kept / lost lists, unclaimed reward line');
+  ok(plain(html).includes('+20 무한의 검') && plain(html).includes('업적·칭호·일일 과제·기념비·도감·통계·설정·명성·명성 상점')
+    && plain(html).includes('이벤트 진행, 숙련 기록(단계별 1개만 남김)') && plain(html).includes('시작 보관함')
+    && html.includes(`<h3 id="rebirthTitle"><span class="ic">${env.ctx.M2_ICONS.rebirth}</span> 환생할까요?</h3>`)
+    && plain(html).includes('받지 않은 업적·일일 과제 보상이 있습니다'), 'modal: rebirth SVG title, offered sword, kept / lost lists (9-2 wording), 시작 보관함, unclaimed reward line');
   ok(html.includes('data-act="rebirth"') && html.includes('data-act="cancelRebirth"'), 'modal: confirm (rebirth) and cancel buttons');
   ok(El.focused === modal(env).querySelector('[data-act="cancelRebirth"]'), 'keyboard focus moves to the cancel button');
   ok(pageInert(env) && !modal(env).inert, 'V1: the page outside the modal (header, main) is inert while it is open');
@@ -2747,7 +2772,7 @@ async function saveSafety(ok) {
   // 테스트 페이지: 조작판(commit/newGame) 경로도 보호 모드에서 테스트 저장 키에 쓰지 않는다
   {
     const env = makeEnv({ [TEST_KEY]: RAW }, { page: 'test.html', failKeys: [TEST_KEY + '-corrupt'] });
-    ok(env.scripts.length === 19 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
+    ok(env.scripts.length === 20 && bannerShown(env), 'test page: protected mode on a corrupt test save whose backup fails');
     click(env, 'testGold');
     click(env, 'testToggleForce');
     click(env, 'testReset');
@@ -2862,6 +2887,89 @@ async function req031(ok) {
     setVisible(env, true);
     ok(bannerShown() && env.store[KEY] === RAW, 'REQ-031: once readable again, the same raw is still protected');
   }
+}
+
+/** 9-2: M2 아이콘 연결. 같은 저장을 에셋 있음/없음으로 열어 SVG와 폴백(이모지·특성 약자)을 비교한다 */
+async function m2IconsUi(ok) {
+  const C = require(path.join(ROOT, 'js', 'constants.js'));
+  const KEY = 'sword-enhance-v2';
+  const M2_KEYS = ['trait_hunt', 'trait_work', 'trait_trade', 'trait_ore', 'trait_shard', 'trait_anvil', 'event_luck', 'event_hunt', 'event_auto',
+    'event_ore', 'event_anvil', 'event_quest', 'fame', 'rebirth', 'monument', 'achievement', 'title', 'sure_badge', 'mastery'];
+  /** best 17, 활성 +16 완벽한 약탈자(게이지 가득), +13 평범한 상인, 기념비 +13·+14, 칭호 장착, 행운의 시간 진행 중 */
+  const iconSave = () => {
+    const s = Object.assign(SG_default(), { gold: 1e9, best: 17, gauge: [0, 5, 0, 0, 0], mastery: [0, 1, 0, 0, 0] });
+    s.swords = [{ id: 1, lv: 16, prot: 2, pity: 0, trait: { k: 'hunt', t: 3 } }, { id: 2, lv: 13, prot: 2, pity: 0, trait: { k: 'trade', t: 1 } }];
+    s.nextSwordId = 3;
+    s.active = 1;
+    s.monuments = s.monuments.map((_, i) => (i < 2 ? 1 : 0));
+    s.achievements = { tries_1: C.ACH_CLAIMED };
+    s.title = 'tries_1';
+    s.events = { active: { id: 'luck', remainMs: 125000 }, sinceMs: 0, nextAtMs: C.EVENT_GAP_MIN_SEC * 1000 };
+    return s;
+  };
+  // main.js가 로드 때 잡는 Math.random을 고정한다(V6): 게이지 확정 강화라 결과는 같지만 다른 굴림도 결정적으로
+  const realRandom = Math.random;
+  const boot = opts => {
+    Math.random = () => 0;
+    try { return makeEnv({ [KEY]: JSON.stringify(iconSave()) }, opts); } finally { Math.random = realRandom; }
+  };
+  const strip = env => env.byId['#strip']._html;
+  const cardOf = (env, id) => strip(env).split('<button class="slot-card').find(c => c.includes(`data-sword="${id}"`)) || '';
+  const chipOf = (env, id) => (cardOf(env, id).match(/<span class="trait-chip[\s\S]*?<\/span><\/span>/) || [''])[0];
+  const pipsOn = html => (html.match(/<i class="on"><\/i>/g) || []).length;
+  const pipsAll = html => (html.match(/<i[ >]/g) || []).length;
+  const svg = (env, key) => `<span class="ic">${env.ctx.M2_ICONS[key]}</span>`;
+  const enhance = async env => { await env.byId['#btnEnhance'].listeners.click[0](); };
+  const masteryToast = env => texts(env.byId['#toasts']).find(t => t.includes('숙련!')) || '';
+
+  // 매핑: 19개 게임 id가 모두 실제 M2_ICONS 키를 가리키고, 특성에는 이모지 폴백이 없다(약자 글자로 돌아감)
+  let env = boot();
+  ok(M2_KEYS.every(k => C.ICON_ASSET_KEYS[k] === k && typeof env.ctx.M2_ICONS[k] === 'string' && env.ctx.M2_ICONS[k].startsWith('<svg')),
+    '9-2: ICON_ASSET_KEYS maps all 19 M2 ids to existing M2_ICONS keys');
+  ok(C.TRAIT_KINDS.every(k => !('trait_' + k in C.ICONS)) && C.EVENT_IDS.every(id => C.ICONS['event_' + id] === C.EVENTS[id].icon)
+    && ['rebirth', 'achievement', 'title', 'sure_badge', 'mastery', 'fame', 'monument'].every(k => !!C.ICONS[k]),
+    '9-2: emoji fallbacks for the new ids (event_* = EVENTS icon), none for trait_*');
+
+  // SVG 있음
+  [[1, 3, 'trait_hunt'], [2, 1, 'trait_trade']].forEach(([id, t, key]) => {
+    const html = chipOf(env, id);
+    ok(html.includes(svg(env, key)) && !html.includes('<b>') && pipsAll(html) === C.TRAIT_TIER_MAX && pipsOn(html) === t,
+      `9-2 SVG: sword ${id} chip = ${key} SVG + ${C.TRAIT_TIER_MAX} pips, ${t} filled: ${html.replace(/<svg[\s\S]*?<\/svg>/, '<svg/>')}`);
+  });
+  const forgeChip = (env.byId['[data-panel="forge"]'].querySelector('.panel-body')._html.match(/<div class="shop-icon">([\s\S]*?)<\/div>/) || [])[1] || '';
+  ok(forgeChip.includes(svg(env, 'trait_hunt')) && forgeChip.includes('aria-label="완벽한 약탈자"') && pipsOn(forgeChip) === 3, '9-2 SVG: forge 각인 row chip uses the trait SVG');
+  ok(env.byId['#eventChip']._html.includes(svg(env, 'event_luck')) && !env.byId['#eventChip']._html.includes(C.EVENTS.luck.icon), '9-2 SVG: event chip uses event_luck');
+  ok(env.byId['#gaugeLine']._html.includes(`${svg(env, 'sure_badge')} 확정!`), '9-2 SVG: full gauge badge uses sure_badge');
+  ok(env.byId['#monumentBadge']._html === `${svg(env, 'monument')} +14`, '9-2 SVG: header monument badge');
+  ok(env.byId['#titleBadge']._html === `${svg(env, 'title')} 「견습 대장장이」`, '9-2 SVG: header title badge');
+  await enhance(env);
+  ok(saved(env).swords[0].lv === 17 && masteryToast(env) === `${C.ICONS.mastery} +16 숙련! 이후 +16 강화 성공률 +3%p` && !masteryToast(env).includes('<span'),
+    '9-2: the mastery toast leads with the emoji fallback even when SVGs are loaded: ' + masteryToast(env));
+  scanRendered();
+
+  // 에셋 없음: 같은 자리에 이모지, 특성 칩은 약자 글자(등급 점은 그대로 3개)
+  env = boot({ withoutAssets: true });
+  ok(env.ctx.M1_ICONS === undefined && env.ctx.M2_ICONS === undefined, 'fallback setup: no icon assets loaded');
+  const noSvg = html => !html.includes('<span class="ic">') && !html.includes('<svg');
+  [[1, 3, '약'], [2, 1, '상']].forEach(([id, t, letter]) => {
+    const html = chipOf(env, id);
+    ok(html.includes(`<b>${letter}</b>`) && noSvg(html) && pipsAll(html) === C.TRAIT_TIER_MAX && pipsOn(html) === t,
+      `9-2 fallback: sword ${id} chip = letter ${letter} + ${C.TRAIT_TIER_MAX} pips, ${t} filled: ${html}`);
+  });
+  ok(env.byId['#eventChip']._html.startsWith(`<span class="ev-icon" aria-hidden="true">${C.EVENTS.luck.icon}</span>`), '9-2 fallback: event chip shows the EVENTS emoji');
+  ok(env.byId['#gaugeLine']._html.includes(`<span class="badge good">${C.ICONS.sure_badge} 확정!</span>`) && !env.byId['#gaugeLine']._html.includes(C.ICONS.sure),
+    '9-2 fallback: 확정! badge shows the sure_badge emoji (not the 확정 강화권 icon)');
+  ok((env.byId['#masteryList']._html.match(/<li>[\s\S]*?<\/li>/g) || []).every(li => li.startsWith(`<li>${C.ICONS.mastery} +`))
+    && env.byId['#masteryHeadIcon']._html === C.ICONS.mastery, '9-2 fallback: mastery rows and the 숙련 heading show the mastery emoji');
+  ok(env.byId['#monumentBadge']._html === `${C.ICONS.monument} +14` && env.byId['#titleBadge']._html === `${C.ICONS.title} 「견습 대장장이」`,
+    '9-2 fallback: monument / title badges show emoji');
+  const achs = env.byId['#achSection']._html;
+  ok(achs.includes(`<h2>${C.ICONS.achievement} 업적 `) && achs.includes(`<span class="muted">${C.ICONS.title} 칭호</span>`), '9-2 fallback: achievements heading and title picker label');
+  [env.byId['#strip'], env.byId['#eventChip'], env.byId['#gaugeLine'], env.byId['#masteryList'], env.byId['#monumentBadge'], env.byId['#titleBadge'], env.byId['#achSection']]
+    .forEach(el => ok(!el._html.includes('<span class="ic">'), `9-2 fallback: no SVG icon markup in ${el.sel}`));   // 보관함의 검 그림 SVG는 아이콘이 아니다
+  await enhance(env);
+  ok(masteryToast(env) === `${C.ICONS.mastery} +16 숙련! 이후 +16 강화 성공률 +3%p`, '9-2 fallback: same mastery toast text');
+  scanRendered();
 }
 
 main().catch(e => { console.error('smoke-dom FAILED:', e.stack || e.message); process.exit(1); });

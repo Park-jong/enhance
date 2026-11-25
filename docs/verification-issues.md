@@ -17,7 +17,7 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 - 해소 기록: 2026-11-19 REQ-021·REQ-024로 tools/sim-late가 R.enhanceOpts(S)를 쓰도록 고쳐졌고 selfcheck 블록 G(13건)가 옵션 어긋남을 막는다. 남은 위험: 도구 자체 후보 A/B(S._gauge/S._mastery)를 켜면 게임 S.gauge/S.mastery와 함께 적용되어 이중 계산된다. A/B 후보를 쓰는 시뮬 전에 게임 쪽 값을 끄거나 후보를 폐기할 것.
 - 발생: 2026-11-19 3단계 3-6 (tools/sim-late/lib/engine.js:115, profiles.js:12, docs/design/m1-storage.md), 2026-11-19 3단계 3-3 REQ-012 (tests/run-m1-round2-tests.js의 main.js 정적 검사 2건이 탭 잠금 분리·resume(forceAdopt) 제거 후 실패. QA가 직접 수정), 2026-11-19 3단계 3-4 저장 안전 (SV.peek 계약 변경, tests/run-m1.1-qa-tests.js:648-649를 QA가 .state로 수정), 2026-11-20 5단계 5-A (swords[].trait 추가 후 tests/run-m1.1-qa-tests.js:586 기대값, QA가 수정. docs/design/m1-storage.md는 미갱신), 2026-11-23 7단계 7-1 (tests/run-m1.1-qa-tests.js:677 VM 로드 목록에 events.js 누락, QA가 수정)
 
-### 🚨 V5. 설계 문서의 합계·식·반환 형태가 자기 표나 현재 코드와 어긋난다 (5회, 문서 정리 후 옛 서술 잔존 포함)
+### 🚨 V5. 설계 문서의 합계·식·반환 형태가 자기 표나 현재 코드와 어긋난다 (6회, 문서 정리 후 옛 서술 잔존 포함)
 - **예방 규칙**: **설계 문서에 쓰는 합계·조합 수·공식은 표에서 다시 합산하고(node 한 줄), 기존 함수의 반환 필드(예: `chances()`의 `parts`가 `certain()`에서는 `null`)를 확장할 때는 모든 반환 분기(확정·최대 단계 포함)의 현재 형태를 코드에서 읽고 AC를 그에 맞춰 써라. 해금·완료 가능성이 있는 일일 과제는 풀의 항목마다 "불가능해지는 상태"(예: 모루 보유 칸 가득)를 게이트로 막아라. 구현 중 설계와 다르게 정한 사항(로드 순서, 반환 형태, 함수 인자)은 같은 변경에서 해당 설계 문서 절에 반영하거나 문서 갱신 요청을 함께 낸다.**
 - 증상: 업적 파편 합계가 표 합산 30인데 문서와 AC 31은 27. `eventGain` 공식이 같은 문서의 표와 다름. 조합 수 10,400이 실제 곱과 다름. `certain()`의 `parts`가 null인데 AC가 `parts.event=0`을 요구. `craft_m` 과제가 모루 6개 보유 시 달성 불가.
 - 근본 원인: 손으로 쓴 요약 수치를 표와 코드로 재검증하지 않았다.
@@ -26,6 +26,7 @@ dev-cycle 검증에서 나온 문제와 재발 방지 규칙. **프로그래머�
 - 증상(2회째): 규칙을 고친 절만 갱신하고 같은 규칙을 반복 서술한 결정표·Tech 요청·다른 문서가 옛 내용으로 남았다. 예방 보강: 규칙 문장을 바꾸면 그 키워드(예: 하락 시 특성, incomeTrait, 래치, setTrait)를 grep -rn docs/design 으로 모두 찾아 같은 변경에서 고쳐라. 확인 방법 보강: 사전 리뷰에 "바꾼 규칙의 키워드 grep 결과가 전부 갱신됐는가"를 넣는다.
 - 증상(4회째): 7-2에서 §11 EVENTS 필드 목록에 icon 누락, §18이 setEvent 위치를 test-mode.js로 서술(실제 js/test-panel.js). 2026-11-24 7단계 7-2 추가 발생.
 - 증상(5회째, 낮음): 8-B 후 docs/design/m2-overview.md:21,30이 4-4 F11을 "구현 전"으로 서술. 확인 방법 보강: 단계 완료 때 m2-overview 상태 줄 grep.
+- 증상(6회째, 낮음): 2026-11-25 9단계 9-2에서 assets/m2-icons.js:4 주석과 docs/content/m2-wording.md:7이 아이콘 키 "21개"라 썼으나 실제 19개(테스트도 19). 예방 보강: 개수·합계 서술은 코드에서 `Object.keys(...).length`로 다시 세어 쓴다. 확인 방법 보강: 새 에셋 파일 검토 때 헤더 주석의 개수를 node로 재계산.
 - 증상(3회째): 7-1에서 events.js 로드 순서(§18), advanceEvents 반환 형태(§6.2), eventValue opts(§8)를 구현에서 바꿨으나 m2-events.md가 옛 서술로 남음.
 
 
