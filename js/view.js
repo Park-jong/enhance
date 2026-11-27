@@ -15,6 +15,8 @@
   };
   /** 아이콘 HTML: 콘텐츠 팀 SVG가 로드돼 있으면 그것을, 아니면 이모지 */
   const ic = id => svgIc(id) || C.ICONS[id] || '';
+  /** 옆 글자가 뜻을 전하는 장식 아이콘: SVG는 이미 aria-hidden이고, 이모지 폴백도 화면 읽기에서 숨긴다 */
+  const decoIc = id => svgIc(id) || (C.ICONS[id] ? `<span aria-hidden="true">${C.ICONS[id]}</span>` : '');
   const $ = sel => document.querySelector(sel);
 
   // ============================================================ 문구
@@ -62,16 +64,18 @@
   const REBIRTH_REASON = Object.defineProperty(
     Object.assign({}, REASON, { notReached: `+${C.MAX} 검이 보관함에 있어야 합니다`, busy: '강화 연출이 끝난 뒤 다시 시도하세요' }),
     'noGold', { enumerable: true, get: () => `필요 ${fmt(RB.REBIRTH_FEE)} G` });
-  // 검 특성 (m2-traits §11). income: 최고 단계 검들 중 종류별 최댓값만 적용되는 수입형, 나머지는 '이 검'에만 적용
+  // 검 특성 효과 문장 (m2-traits §11). 수입형/거래형 구분은 C.TRAITS[k].income 데이터가 정한다
   const TRAIT_TEXT = {
-    hunt: { income: true, effect: v => `수동 사냥 골드 +${v}%` },
-    work: { income: true, effect: v => `자동 사냥·오프라인 골드 +${v}%` },
-    trade: { effect: v => `이 검을 판매·납품할 때 골드 +${v}%` },
-    ore: { income: true, effect: v => `사냥당 광석 +${v}%` },
-    shard: { effect: v => `이 검이 파괴될 때 파편 +${v}%` },
-    anvil: { effect: v => `이 검을 모루로 강화할 때 ${v}% 확률로 내구도 보존` },
+    hunt: v => `수동 사냥 골드 +${v}%`,
+    work: v => `자동 사냥·오프라인 골드 +${v}%`,
+    trade: v => `이 검을 판매·납품할 때 골드 +${v}%`,
+    ore: v => `사냥당 광석 +${v}%`,
+    shard: v => `이 검이 파괴될 때 파편 +${v}%`,
+    anvil: v => `이 검을 모루로 강화할 때 ${v}% 확률로 내구도 보존`,
   };
-  const INCOME_TRAIT_KINDS = C.TRAIT_KINDS.filter(k => TRAIT_TEXT[k].income);
+  // TRAIT_KINDS에 새 종류를 넣고 문장을 빠뜨려도 로드·렌더가 멈추지 않게 하는 일반 문장(출시 종류의 누락은 run-tests가 잡는다)
+  const traitFallbackText = (k, v) => `${C.TRAITS[k].name} 특성 +${v}%`;
+  const INCOME_TRAIT_KINDS = C.TRAIT_KINDS.filter(k => C.TRAITS[k].income);
   const TRAIT_NO_ODDS_TEXT = '특성은 강화 확률에 영향을 주지 않습니다';
   // 골드 사용처(특성 관리·기념비): 2회 클릭 확인 문구와 막힌 사유
   const SINK_TEXT = {
@@ -146,6 +150,7 @@
 
   // 시간 이벤트 표시 (F13, m2-events §9). 값·효과 문장은 모두 SG.events·C.EVENTS·chances()에서 읽는다
   const SEC_PER_MIN = 60;
+  const MS_PER_MIN = SEC_PER_MIN * 1000;
   const LUCK_EVENT = 'luck';
   const EVENT_TEXT = {
     offlineNote: '접속 중에만 흐르고 오프라인에서는 적용되지 않습니다',
@@ -162,8 +167,8 @@
     cap: c => `보너스 상한(+${c.cap}%p)에 이미 도달해 지금은 효과가 없습니다`,
     ceil: c => `성공 확률 천장(${Math.max(c.base, C.SUCC_CEIL)}%)에 닿아 지금은 효과가 없습니다`,
   };
-  // 수입 줄(#incomeNote)에 붙이는 수입 이벤트와 짧은 이름
-  const INCOME_EVENTS = [{ id: 'hunt', label: '사냥' }, { id: 'auto', label: '자동' }];
+  // 수입 줄(#incomeNote)에 붙이는 수입 이벤트: C.EVENTS의 incomeLabel(짧은 이름)이 있는 것, EVENT_IDS 순서
+  const INCOME_EVENT_IDS = C.EVENT_IDS.filter(id => C.EVENTS[id].incomeLabel);
 
   const swordName = lv => `+${lv} ${C.SWORDS[lv].n}`;
   const itemName = id => (R.itemDef(id) ? R.itemDef(id).name : C.ORE_NAMES[id]);
@@ -178,7 +183,10 @@
   // ------------------------------------------------------------ 특성 표시
   /** "완벽한 대장장이" (trait = { k, t }) */
   const traitName = tr => `${C.TRAIT_TIER_NAME[tr.t - 1]} ${C.TRAITS[tr.k].name}`;
-  const traitEffect = tr => TRAIT_TEXT[tr.k].effect(R.traitValue({ trait: tr }, tr.k));
+  function traitEffect(tr) {
+    const v = R.traitValue({ trait: tr }, tr.k);
+    return R.hasOwn(TRAIT_TEXT, tr.k) ? TRAIT_TEXT[tr.k](v) : traitFallbackText(tr.k, v);
+  }
   /** 수입 줄의 특성 몫 "+20%(약탈자)": 수입 검들 중 그 종류의 최댓값만(없으면 '') */
   function traitShare(S, kind) {
     const v = R.incomeTraitValue(S, kind);
@@ -189,7 +197,7 @@
   /** 효과 문장. 수입형은 이 검이 지금 수입 검(최고 단계)인지 덧붙인다(sw가 없으면 생략) */
   function traitLineText(S, sw, tr) {
     const text = traitEffect(tr);
-    if (!TRAIT_TEXT[tr.k].income || !sw) return text;
+    if (!C.TRAITS[tr.k].income || !sw) return text;
     return isIncomeSword(S, sw) ? `${text} · 수입 검 적용 중` : `${text} · 최고 단계 검(+${R.topLv(S)})일 때만 적용`;
   }
   /** 등급 점: 항상 TRAIT_TIER_MAX개를 그리고 등급 수만큼 채운다(2/3처럼 읽힘) */
@@ -205,7 +213,10 @@
     `<span class="ev-icon" aria-hidden="true">${ic('event_' + a.id)}</span><span class="ev-name">${a.def.name}</span> <span class="ev-clock">${E.fmtEventClock(a.remainMs)}</span>`;
   /** 칩 title(데스크톱 호버)에 쓰는 전체 문장 */
   const eventChipLabel = a => `${a.def.name} ${E.fmtEventClock(a.remainMs)} 남음 · ${a.def.desc}`;
-  /** 이벤트 효과가 상한·천장에 잘린 원인(m2-events §9): 이벤트를 빼도 이미 상한 이상이면 'cap', 아니면 'ceil'(SUCC_CEIL) */
+  /**
+   * 이벤트 효과가 상한·천장에 잘린 원인(m2-events §9): 이벤트를 빼도 이미 상한 이상이면 'cap', 아니면 'ceil'(SUCC_CEIL).
+   * 출시 상수(+5~+19)로는 'ceil'에 닿지 않지만 상수 조정에 대비해 둔다(run-tests가 손으로 만든 chances 객체로 검증)
+   */
   const eventCapCause = c => (c.raw - c.event >= c.cap ? 'cap' : 'ceil');
   /** 확률 내역 끝의 이벤트 메모: 이벤트 항이 없거나 다 들어가면 '', 일부만이면 실효 %p, 0이면 효과 없음(원인) */
   function eventBreakdownNote(c) {
@@ -233,16 +244,22 @@
       `<small class="muted">${EVENT_TEXT.offlineNote}</small>${idle ? `<small class="ev-idle">${idle}</small>` : ''}`;
   }
   /** 수입 줄의 이벤트 몫 " · 이벤트 사냥 +40%"(켜진 수입 이벤트만, 효과 계산과 같은 eventValue) */
-  const incomeEventText = S => INCOME_EVENTS.map(({ id, label }) => {
+  const incomeEventText = S => INCOME_EVENT_IDS.map(id => {
     const v = E.eventValue(S, id);
-    return v > 0 ? ` · 이벤트 ${label} +${v}%` : '';
+    return v > 0 ? ` · 이벤트 ${C.EVENTS[id].incomeLabel} +${v}%` : '';
   }).join('');
   /** 이벤트 값 v(%)가 켜져 있으면 "+50%", 아니면 '' (광석 칸·방치 탭 광석 줄) */
   const eventPctText = (S, id) => { const v = E.eventValue(S, id); return v > 0 ? `+${v}%` : ''; };
+  /** 지속 시간 글자: 300 → "5분", 270 → "4분 30초", 45 → "45초" (소수 분 "4.5분" 없음) */
+  function eventDurationText(sec) {
+    const min = Math.floor(sec / SEC_PER_MIN);
+    const rest = sec % SEC_PER_MIN;
+    return [min > 0 ? `${min}분` : '', rest > 0 ? `${rest}초` : ''].filter(Boolean).join(' ');
+  }
   /** 토스트 문구: 시작 "🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p"(앞 이모지는 C.ICONS 폴백), 종료 "이벤트 종료: 행운의 시간" */
   const eventStartText = id => {
     const d = C.EVENTS[id];
-    return `${d.icon} 이벤트 시작: ${d.name} — ${d.durationSec / SEC_PER_MIN}분간 ${d.desc}`;
+    return `${d.icon} 이벤트 시작: ${d.name} — ${eventDurationText(d.durationSec)}간 ${d.desc}`;
   };
   const eventEndText = id => `이벤트 종료: ${C.EVENTS[id].name}`;
   /** 행운의 시간 덕에 난 성공(r.eventAssist)의 결과 로그. 숙련 구간(+15~+19)이면 숙련 기록에 세지 않았음을 함께 알린다 */
@@ -308,7 +325,9 @@
       return;
     }
     setHTML(chip, eventChipHTML(a));
-    chip.title = eventChipLabel(a);
+    // 열린 호버 툴팁을 틱마다 다시 쓰지 않게 글자가 바뀔 때(초 단위)만 쓴다
+    const label = eventChipLabel(a);
+    if (chip.title !== label) chip.title = label;
     chip.setAttribute('aria-expanded', String(!pop.hidden));
     if (!pop.hidden) setHTML(pop, eventPopHTML(S));
   }
@@ -404,7 +423,7 @@
   }
 
   function noteText(lv, c, use) {
-    if (lv >= C.MAX) return '🏆 더 이상 강화할 수 없습니다. 무한의 검을 완성했습니다!';
+    if (lv >= C.MAX) return `${C.ICONS.achievement} 더 이상 강화할 수 없습니다. 무한의 검을 완성했습니다!`;
     if (c.sure) return '확정 강화권으로 반드시 성공합니다.';
     if (c.gaugeFull) return '천장 게이지가 가득 찼습니다. 이번 강화는 소모품 없이 반드시 성공합니다.';
     if (lv >= C.DROP_FROM) {
@@ -480,8 +499,9 @@
     setHTML(gaugeLine, view.gauge ? gaugeHTML(view.gauge) : '');
     $('#vDest').textContent = isMax ? '-' : c.dest + '%';
     $('#vCost').textContent = isMax ? '-' : fmt(R.cost(l));
-    // 판매 지급 미리보기(상인 특성·인장 포함, 실제 지급과 같은 함수). 파괴 연출 중(sw 없음)에는 기본가
-    $('#vSell').textContent = fmt(sw ? R.payoutPreview(S, R.sell(l), sw) : R.sell(l));
+    // 판매 지급 미리보기(상인 특성·인장 포함, 실제 지급과 같은 함수). 단계와 특성을 같은 view에서 읽어
+    // 연출 중에도 시도 직전 단계의 가격에 새 각인이 섞이지 않는다(파괴 연출 중 sw가 없어도 같은 값)
+    $('#vSell').textContent = fmt(R.payoutPreview(S, R.sell(l), { trait: view.trait || null }));
     const protWarn = !ui.view && !isMax && C.DESTROY[l] > 0 && sw.prot <= 0;
     $('#destWarn').hidden = !protWarn;
 
@@ -844,12 +864,12 @@
     badge.title = top ? `대표 기념비: ${monumentTitle(top)}` : '';
   }
 
-  /** 기록 탭: 단계별 성공 숙련 `+16 숙련 +6%p (2/4)` */
+  /** 기록 탭: 단계별 성공 숙련 `+16 숙련 +6%p (2/4)`. 이름·횟수 조각은 CSS가 줄바꿈하지 않는다(좁은 2열에서 조각 사이만 줄바꿈) */
   function masteryRowsHTML(S) {
     return C.MASTERY_REC_MAX.map((max, i) => {
       const lv = C.MASTERY_FROM + i;
       const count = S.mastery[i];
-      return `<li>${ic('mastery')} +${lv} 숙련 <b>+${R.masteryBonus(lv, count)}%p</b> <span class="muted">(${count}/${max})</span></li>`;
+      return `<li><span class="m-label">${decoIc('mastery')} +${lv} 숙련</span> <b>+${R.masteryBonus(lv, count)}%p</b> <span class="muted m-count">(${count}/${max})</span></li>`;
     }).join('');
   }
 
@@ -915,11 +935,12 @@
   const claimStateHTML = (status, act, id) => (status === 'ready'
     ? `<button class="small-btn gold claim-btn" data-act="${act}" data-id="${id}">받기</button>`
     : `<span class="claim-state">${CLAIM_STATE_TEXT[status]}</span>`);
+  const MIN_PER_HOUR = 60;
   /** "HH:MM"(분 내림, 23:59를 넘지 않음) */
   function fmtHourMin(ms) {
-    const min = Math.min(C.DAY_MS / 60000 - 1, Math.floor(Math.max(0, ms) / 60000));
+    const min = Math.min(C.DAY_MS / MS_PER_MIN - 1, Math.floor(Math.max(0, ms) / MS_PER_MIN));
     const pad = v => String(v).padStart(2, '0');
-    return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+    return `${pad(Math.floor(min / MIN_PER_HOUR))}:${pad(min % MIN_PER_HOUR)}`;
   }
   const sectionHead = (title, side) => `<div class="sec-head"><h2>${title}</h2>${side}</div>`;
 
@@ -940,14 +961,24 @@
       : claimStateHTML(status, 'claimDaily', A.BONUS);
     return `<div class="daily-bonus ${status}"><span class="reward-text">오늘 ${C.DAILY_TASKS}개 모두 달성: 보너스 ${rewardSummary(A.dailyRewardPreview(S, A.BONUS), iconBefore)}</span>${side}</div>`;
   }
-  /** 일일 과제 섹션: 잠김 / 세트 없음 안내 / 카드 3장 + 보너스. 남은 시간은 refreshDaily와 같은 시계·시간대(env) */
-  function dailySectionHTML(S, now, env) {
+  /**
+   * 일일 과제 섹션: 잠김 / 세트 없음 안내 / 카드 3장 + 보너스. 남은 시간 글자는 넣지 않는다:
+   * 분마다 바뀌는 글자가 섹션 HTML에 있으면 섹션 전체를 다시 그려 받기 버튼의 포커스·클릭이 끊기므로 renderDailyCountdown이 따로 쓴다
+   */
+  function dailySectionHTML(S) {
     if (S.best < C.DAILY_UNLOCK_BEST) {
       return sectionHead('일일 과제', '') + lockedBoxHTML(`최고 +${C.DAILY_UNLOCK_BEST} 이상에서 열림`, DAILY_TEXT_LOCKED);
     }
-    const head = sectionHead('일일 과제', `<span class="muted daily-reset">다음 갱신까지 ${fmtHourMin(A.msToNextDay(now, env.tzOffsetMin(now)))}</span>`);
+    const head = sectionHead('일일 과제', `<span class="muted daily-reset">다음 갱신까지 <span class="daily-left"></span></span>`);
     if (!A.hasDailySet(S)) return `${head}<p class="panel-note daily-wait">${DAILY_TEXT_WAITING}</p>`;
     return `${head}<div class="daily-list">${S.daily.tasks.map((_, slot) => dailyCardHTML(S, slot)).join('')}</div>${dailyBonusHTML(S)}`;
+  }
+  /** 다음 갱신까지 HH:MM만 쓴다(바뀔 때만). refreshDaily와 같은 시계·시간대(env). 잠김이면 자리가 없다 */
+  function renderDailyCountdown(now, env) {
+    const el = $('#dailySection').querySelector('.daily-left');
+    if (!el) return;
+    const text = fmtHourMin(A.msToNextDay(now, env.tzOffsetMin(now)));
+    if (el.textContent !== text) el.textContent = text;
   }
 
   /** 업적 한 행: 잠김(막대·진행 중) / 달성(강조·받기) / 수령 완료(✔ 받음·칭호) */
@@ -985,14 +1016,14 @@
     const claimed = C.ACHIEVEMENTS.filter(a => A.achState(S, a.id) === C.ACH_CLAIMED).length;
     // 모두 받기는 일일 과제 수령 가능 항목도 받는다(claimAll)
     const all = `<button class="small-btn gold claim-all" data-act="claimAll" ${A.claimableAny(S) ? '' : 'disabled'}>모두 받기</button>`;
-    return sectionHead(`${ic('achievement')} 업적 <span class="muted ach-count">수령 ${claimed}/${C.ACHIEVEMENTS.length}</span>`, all) +
+    return sectionHead(`${decoIc('achievement')} 업적 <span class="muted ach-count">수령 ${claimed}/${C.ACHIEVEMENTS.length}</span>`, all) +
       titlePickerHTML(S) + ACH_TRACKS.map(t => achTrackHTML(S, t)).join('');
   }
   /** 현재 칭호: 상단 바 배지와 기록 탭 제목 옆 */
   function renderTitle(S) {
     const name = titleName(S);
     // name은 업적 상수(C.ACHIEVEMENTS)에서만 오므로 HTML로 넣어도 안전하다
-    const html = name ? `${ic('title')} 「${name}」` : '';
+    const html = name ? `${decoIc('title')} 「${name}」` : '';
     [$('#titleBadge'), $('#recordsTitle')].forEach(el => {
       el.hidden = !name;
       setHTML(el, html);
@@ -1001,7 +1032,8 @@
   }
   function renderRecords(S, ui, now, env) {
     setHTML($('#rebirthSection'), rebirthSectionHTML(S, ui));
-    setHTML($('#dailySection'), dailySectionHTML(S, now, env));
+    setHTML($('#dailySection'), dailySectionHTML(S));
+    renderDailyCountdown(now, env);
     setHTML($('#achSection'), achSectionHTML(S));
     renderTitle(S);
   }
@@ -1121,6 +1153,8 @@
   const monumentText = (L, r) => `${C.ICONS.monument} ${monumentTitle(L)}를 세웠습니다 (${fmt(r.price)}G)`;
 
   // ============================================================ 정적 요소
+  /** 설정 팝오버의 버전 줄(REQ-050): 배포 뒤 새로고침으로 최신이 반영됐는지 플레이어가 확인한다 */
+  const versionText = () => `v${C.VERSION}`;
   /** HTML에 고정된 버튼 아이콘을 콘텐츠 팀 SVG로 교체(없으면 같은 이모지)하고, 저장 안전 배너·배지 문구를 채운다 */
   function decorateStatic() {
     $('#btnSettings').innerHTML = ic('settings');
@@ -1128,6 +1162,7 @@
     $('#saveBadge').textContent = SAVE_SAFETY_TEXT.badge;
     $('#stageEmpty').textContent = NO_ACTIVE_TEXT;
     $('#masteryHeadIcon').innerHTML = ic('mastery');
+    $('#appVersion').textContent = versionText();
   }
 
   // ============================================================ 저장 안전 (배너·배지)
@@ -1207,11 +1242,12 @@
   SG.view = {
     REASON, render, buildCollection, decorateStatic, updateCountdowns, offlineModalHTML,
     NO_ACTIVE_TEXT, swordName, itemLabel, itemText, fmtDuration, masteryToastText, ranOutToastText, engraveToastText, SAVE_FAILED_TEXT,
-    traitName, rekindText, tierUpText, monumentText,
+    traitName, traitEffect, rekindText, tierUpText, monumentText,
     REBIRTH_REASON, rebirthConfirmHTML, renderRebirthConfirm,
     CLAIM_REASON, NEW_DAILY_TEXT, achReachedText, achClaimText, dailyClaimText, bonusClaimText, claimAllText,
+    DAILY_TEXT, ACH_COND, ACH_TRACK_NAME,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
     breakdownHTML, eventChipHTML, eventChipLabel, eventCapCause, eventBreakdownNote, luckIdleText, eventPopHTML,
-    incomeEventText, eventPctText, eventStartText, eventEndText, eventAssistText,
+    incomeEventText, eventPctText, eventDurationText, eventStartText, eventEndText, eventAssistText,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

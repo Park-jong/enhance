@@ -2,6 +2,7 @@
 
 > **모든 수치 확정** (2026-11-17, `m1-balance.md`). 확정 열의 값이 기준이며, 시스템 문서 본문의 값과 다르면 이 표와 `m1-balance.md`가 우선한다. "변경" 표시는 잠정값에서 바뀐 항목, "규칙" 표시는 식/규칙까지 바뀐 항목(`m1-balance.md` §7 변경 이력).
 > **M1.1 신규 상수(천장 게이지·성공 숙련)는 `m1.1-late-correction.md`가 기준**이며 아래 §3.1에 요약한다(수치는 시뮬레이션 미검증, 플레이테스트로 조정).
+> **1.0.0 수치 상태: 모두 잠정(기획 판단값, M2는 미측정).** 아래 §9가 M2 상수 색인이다. 상태는 `release-1.0.md`.
 > 코드의 식별자는 이름 그대로 사용. 기존 M0 상수(`MAX`, `RATE`, `DESTROY`, `DROP_FROM`, `BLESS_BONUS`, `HUNT_CD`, `cost()`, `sell()`, `huntReward()`)는 유지하며 아래에서 `M0`로 표기. M1에서 `huntReward()`·`autoReward()`의 인자는 보관함 최고 단계 검 `topLv = max(swords[].lv)`다(헬퍼 `topLv()`, 신규 상수 없음, 사용자 확정, bal §3·§8 결정 2).
 > 문서 약칭: storage=m1-storage, ps=m1-protect-shards, ao=m1-anvil-ore, q=m1-quest, pc=m1-pity-cap, idle=m1-idle, cons=m1-consumables, ov=m1-overview, bal=m1-balance.
 
@@ -145,6 +146,23 @@
 | `FORGE_UNLOCK_BEST` | 대장간 탭 해금 | 5 | ov |
 | `QUEST_UNLOCK_BEST` / `AUTO_UNLOCK_BEST` | 위 표 참조 | 3 / 5 | ov |
 | `BOOSTER_SEAL_UNLOCK_BEST` | `booster`·`seal` 상점 노출 | 5 | ov |
+
+## 9. M2 상수 색인 (잠정, `js/constants.js` 기준)
+> 값은 `js/constants.js`가 기준이고 이 표는 **어디에 무엇이 있는지**만 적는다(값을 복사하지 않음). 모든 M2 값은 1.0.0에서 **잠정**(미측정). 상태: `release-1.0.md`. 약칭: tr=m2-traits, ov=m2-overview, ach=m2-achievements, ev=m2-events, rb=m2-rebirth.
+
+| # | 묶음 | 상수 (js/constants.js) | 문서 |
+| --- | --- | --- | --- |
+| 1 | 특성(F14) | `TRAIT_ROLL_LV`, `TRAIT_KINDS`, `TRAIT_KIND_WEIGHT`, `TRAIT_TIER_WEIGHT`, `TRAIT_TIER_MAX`, `TRAITS`(종류별 `values`), `TRAIT_TIER_NAME` | tr §3·§5·§12 |
+| 2 | 골드 사용처 | `TRAIT_MGMT_UNLOCK_BEST`, `TRAIT_PRICE_ROUND`, `TRAIT_REKIND_MULT`, `TRAIT_TIER_UP_MULT`, `MONUMENT_FROM`, `MONUMENT_COUNT`, `MONUMENT_MULT` | tr §8, ov §C·§E |
+| 3 | 업적(F12) | `ACH_ROUND`, `ACH_EARLY_BEST`, `ACH_EARLY_PCT`, `ACH_REACHED`, `ACH_CLAIMED`, `SELL_COUNT_MIN_LV`, `TITLE_NONE`, `ACH_METRICS`, `ACHIEVEMENTS`(34개), `ACH_BY_ID` | ach §5·§14 |
+| 4 | 일일 과제 | `DAILY_UNLOCK_BEST`, `DAILY_RESET_HOUR`, `DAY_MS`, `DAILY_TASKS`, `DAILY_BANDS`, `DAILY_POOL`(10개), `DAILY_POOL_BY_ID`, `DAILY_TASK_K`, `DAILY_ALL_K`, `DAILY_ALL_SHARD_MULT`, `DAILY_ITEM_CHANCE_PCT`, `DAILY_ITEM_KINDS`, `DAILY_ITEM_SHARD_MULT`, `DAILY_ORE_N`, `DAILY_GOAL_MAX`, `DAILY_MAXDAY_CAP` | ach §6·§14 |
+| 5 | 시간 이벤트(F13) | `EVENT_UNLOCK_BEST`, `EVENT_DT_MAX_MS`, `EVENT_GAP_MIN_SEC`, `EVENT_GAP_MAX_SEC`, `EVENT_LUCK_MIN_LV`, `EVENT_LUCK_MAX_LV`, `EVENT_WEIGHT_TOTAL`, `EVENT_ORE_VALUE_STEP`, `EVENT_ORE_SCALE`, `EVENT_IDS`, `EVENTS`(6종: 값·가중치·지속) | ev §5·§6·§11 |
+| 6 | 환생·명성(F11) | `REBIRTH_FEE_MULT`, `REBIRTH_FEE_ROUND`, `FAME_PER_REBIRTH`, `MASTERY_KEEP_REC`, `EARLY_INCOME_MAX_LV`, `REBIRTH_COUNT_MAX`, `FAME_MAX`, `FAME_SHOP`(4종), `FAME_TRACKS` | rb §2·§4·§8 |
+| 7 | 공용 정수 배율 | `PERCENT`(100), `PERCENT_SQ`(10000) | tr §3.1, ev §5.3 |
+
+- 묶음 수: 7 (`js/constants.js`의 M2-A~D 구역 + 공용 배율). 로드 시점 일관성 검사(`throw`)가 1·2·4·5·6에 있다.
+- `EVENT_DUTY_GAP_DIV`(3)는 내보내지 않고 구역 안 검사에만 쓰인다.
+- 환생 수수료의 실제 값은 `rebirth.js`가 `huntReward(MAX)`로 만든다.
 
 ## 구조 테이블 / M0 계수 포인터
 구조 테이블(`ORES`, `QUEST_TIERS`, `UPGRADES`, `CONSUMABLES`, `TRAY_TOGGLES`, `UNLOCK`, `ITEMS`, `SHOP_ITEMS`)과 M0 가격식 계수(`COST_BASE`, `COST_GROWTH`, `COST_MIN`, `SELL_BASE`, `SELL_GROWTH`, `HUNT_SELL_RATIO`, `HUNT_MIN`, `GOLD_ROUND` 등)는 `js/constants.js`가 기준(source of truth)이다. 이 문서에 복사하지 않는다.

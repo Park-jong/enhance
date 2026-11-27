@@ -204,3 +204,10 @@
 - 산출물: docs/qa/m2-playtest-checklist.md
 - 결정 사항: 목표 6종(A~F)에 기획서 출처를 달았다. 수수료 19,846,200G(4.2분)·명성 3·숙련 1기록·15분 미만이면 MASTERY_KEEP_REC=0은 m2-rebirth.md와 대조함. 코드·TODO·기획서 수정 없음
 - 남은 문제: 행운 5% 한계·특성 10% 한계의 근거 문서는 m2-events.md §16 끝(항목 ①)과 m2-overview.md C.4. 5런 20분은 m2-rebirth.md §6의 80% 바닥 값에서 나옴
+
+## 2026-11-27 — 10단계 10-2 (1.0.0 후보) 최종 검증 + REQ-035 감사
+- 지시: 디렉터 / 관련 단계: 10단계 10-2 / 처리한 요청: REQ-035 (+ 정리 묶음 REQ-042/047/049/040/050/033 검증)
+- 참여 팀원: tester(스위트·브라우저 측정·AC 감사), code-reviewer(git diff HEAD)
+- 산출물: docs/verification-issues.md (V9 2회, ⚠️)
+- 결정 사항: 전 스위트 통과(522/726/29/36/189/1208/19). 필수 수정 없음 → APPROVED. 미커밋 release-1.0.md는 같은 커밋에 포함 필요
+- 남은 문제: settleStale adopt 후 flushAchieved 누락(should), settleClaim 주석, run-tests.js:4501 durationSec/60 식, title picker decoIc, sim-late AC10 수치 변경(문서 인용값 확인 필요)

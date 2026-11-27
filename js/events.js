@@ -107,9 +107,6 @@
     return { started };
   }
 
-  /** 효과 문장(예: "수동 사냥 골드 +40%"). 알 수 없는 id는 빈 문자열 */
-  const eventDescription = id => { const def = eventDef(id); return def ? def.desc : ''; };
-
   /** 남은 시간 m:ss (초 올림이라 마지막 순간에도 0:01) */
   function fmtEventClock(ms) {
     const sec = Math.ceil(Math.max(0, ms) / SEC_MS);
@@ -127,6 +124,6 @@
 
   return {
     eventDef, eventsUnlocked, activeEvent, eventValue, luckBonus, eligibleEvents, pickEvent, drawGapMs, advanceEvents,
-    eventDescription, fmtEventClock, setEvent,
+    fmtEventClock, setEvent,
   };
 });

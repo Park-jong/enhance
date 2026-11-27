@@ -443,6 +443,8 @@ async function main() {
   await achievementsWiring(ok);
   // 7b-5) 6-B F12 화면: 기록 탭 일일 과제·업적·칭호·탭 점, 수령 토스트
   await recordsUi(ok);
+  // 7b-5b) REQ-042: 미룬 업적 달성 알림(멈춤·숨김·이어받기·연출 중 받기·새 게임)
+  await deferredAchToast(ok);
   // 7b-6) 7-1 F13: 시간 이벤트 틱 배선(단조 시계·숨김·멈춘 탭·즉시 저장·catch-up 무보너스)
   await eventsWiring(ok);
   // 7b-7) 7-2 F13 화면: 칩·팝오버(열고 닫기)·시작/종료 토스트·효과 표시·이벤트 덕 성공 로그·테스트 페이지 조작
@@ -598,6 +600,24 @@ async function achievementsWiring(ok) {
   click(env, 'claimAll');
   ok(env.store[KEY] === JSON.stringify(otherDay) && game.state().gold === 7777 && game.state().daily.maxDay === D + 1,
     'F12 two tabs: claimAll with a stale set adopts the newer save and does not write the old-day set');
+  const claimToasts = () => texts(env.byId['#toasts']);
+  ok(!claimToasts().some(t => t.startsWith('보상 ')) && claimToasts()[claimToasts().length - 1] === '일일 과제가 갱신되었습니다',
+    'REQ-042: adopted stale claimAll shows no reward summary (the adopted save replaced that payout), only the stale notice');
+  // REQ-042: 저장소가 더 오래돼 이어받지 않으면 모두 받기가 이미 지급한 업적 보상은 메모리에 남는다 → 요약 알림 후 바로 저장
+  twoTab();
+  const olderStale = JSON.parse(env.store[KEY]);
+  olderStale.daily = setOf(D - 1, true);
+  olderStale.idle.lastSeen = clk.t - 5;
+  env.store[KEY] = JSON.stringify(olderStale);
+  const goldBeforeAll = game.state().gold;
+  click(env, 'claimAll');
+  st = saved(env);
+  const paidToasts = claimToasts().filter(t => t.startsWith('보상 '));
+  ok(st.achievements.tries_1 === 2 && st.gold > goldBeforeAll && st.gold === game.state().gold && st.daily.maxDay === D && st.daily.tasks[0].claimed === 0,
+    'REQ-042: kept stale claimAll payout is saved right away (achievements paid, the stale daily slot untouched): ' + JSON.stringify([goldBeforeAll, st.gold]));
+  ok(paidToasts.length === 1 && paidToasts[0].includes(`+${env.ctx.SG.fx.fmt(st.gold - goldBeforeAll)}G`)
+    && claimToasts()[claimToasts().length - 1] === '일일 과제가 갱신되었습니다',
+    'REQ-042: kept stale claimAll shows the reward summary, then the stale notice: ' + claimToasts().slice(-2).join(' | '));
   // stale로 이어받은 뒤 날이 또 바뀌어 새 세트를 만들면 바로 저장한다: 다음 수령이 자동 저장을 기다리지 않고 성공
   twoTab();
   env.store[KEY] = JSON.stringify(otherDay);
@@ -655,6 +675,9 @@ async function recordsUi(ok) {
   const toastTexts = env => (env.byId['#toasts'] ? texts(env.byId['#toasts']) : []);
   const toastCount = (env, text) => toastTexts(env).filter(t => t === text).length;
   const daily = env => env.byId['#dailySection']._html;
+  /** 일일 과제 남은 시간(REQ-042: 섹션 HTML 밖의 .daily-left 글자). 섹션에 자리가 있을 때의 "다음 갱신까지 HH:MM" */
+  const COUNTDOWN_SLOT = '다음 갱신까지 <span class="daily-left"></span>';
+  const countdown = env => (daily(env).includes(COUNTDOWN_SLOT) ? `다음 갱신까지 ${env.byId['#dailySection'].querySelector('.daily-left').textContent}` : '');
   const achs = env => env.byId['#achSection']._html;
   /** 마크업 조각: start 표시부터 다음 같은 종류 표시(또는 끝)까지 */
   const piece = (html, start, next) => {
@@ -714,7 +737,25 @@ async function recordsUi(ok) {
   let game = null;
   env = loadWith({ [KEY]: JSON.stringify(one) }, opts({ extensions: [api => { game = api; }] }));
   ok(toastCount(env, '업적 달성: 첫 단련 — 기록 탭에서 보상을 받으세요') === 1, 'one new achievement → its name in the toast');
-  ok(plain(daily(env)).includes('다음 갱신까지 19:00'), 'countdown to the next 04:00 from the injected clock: ' + plain(daily(env)).slice(0, 40));
+  ok(countdown(env) === '다음 갱신까지 19:00', 'countdown to the next 04:00 from the injected clock: ' + countdown(env));
+  // REQ-042: 분이 바뀌어도 섹션 HTML은 그대로(받기 버튼 포커스·클릭 유지), 남은 시간 글자만 바뀐다
+  {
+    const sectionBefore = daily(env);
+    const left = env.byId['#dailySection'].querySelector('.daily-left');
+    let writes = 0;
+    let text = left.textContent;
+    Object.defineProperty(left, 'textContent', { configurable: true, get: () => text, set: v => { writes++; text = v; } });
+    env.tick();
+    ok(writes === 0, 'countdown: a tick within the same minute does not rewrite the text');
+    clk.t += 1000;   // 19:00:00 → 18:59:59, 분 내림으로 18:59
+    env.tick();
+    ok(daily(env) === sectionBefore && writes === 1 && countdown(env) === '다음 갱신까지 18:59',
+      'countdown: when the minute changes only the countdown text changes, the section HTML is not rebuilt: ' + countdown(env));
+    clk.t -= 1000;
+    env.tick();
+    delete left.textContent;
+    left.textContent = text;
+  }
   ok((daily(env).match(/class="daily-card /g) || []).length === 3 && daily(env).includes('★★★'), '3 daily cards with stars');
   const S9 = game.state();
   const pv0 = A.dailyRewardPreview(S9, 0);
@@ -805,16 +846,17 @@ async function recordsUi(ok) {
   clk.t = dayStart(D + 1) + 1000;
   env.tick();
   env.tick();
-  ok(toastCount(env, '새 일일 과제가 도착했습니다') === 1 && plain(daily(env)).includes('다음 갱신까지 23:59'), 'new day at 04:00: one arrival toast, countdown restarts');
+  ok(toastCount(env, '새 일일 과제가 도착했습니다') === 1 && countdown(env) === '다음 갱신까지 23:59', 'new day at 04:00: one arrival toast, countdown restarts');
   const toastsBefore = toastTexts(env).length;
   clk.t = dayStart(D + 1) - 5 * HOUR;
   env.tick();
   ok(toastTexts(env).length === toastsBefore && saved(env).daily.maxDay === D + 1, 'AC59: clock rollback shows no toast and keeps the set');
-  ok(/다음 갱신까지 \d\d:\d\d/.test(plain(daily(env))), 'AC59: countdown still renders on a rolled-back clock');
+  ok(/^다음 갱신까지 \d\d:\d\d$/.test(countdown(env)), 'AC59: countdown still renders on a rolled-back clock: ' + countdown(env));
   // 세트가 없는 동안(maxDay가 앞서 있고 세트가 비었음): 카드 대신 안내
   clk.t = dayStart(D) + 5 * HOUR;
   env = loadWith({ [KEY]: JSON.stringify(withLv(save({ daily: { maxDay: D + 3, tasks: [], bonus: 0 } }), 7)) }, opts());
-  ok(plain(daily(env)).includes('오늘의 일일 과제가 아직 없습니다') && !daily(env).includes('daily-card'), 'no set yet: notice instead of cards');
+  ok(plain(daily(env)).includes('오늘의 일일 과제가 아직 없습니다') && !daily(env).includes('daily-card') && countdown(env) === '다음 갱신까지 19:00',
+    'no set yet: notice instead of cards, countdown kept');
   scanRendered();
 
   // 멈춘 탭: 날이 바뀌어도 도착 토스트·달성 토스트 없음
@@ -846,6 +888,99 @@ async function recordsUi(ok) {
   ok(/max-width/.test(badge) && /text-overflow:\s*ellipsis/.test(badge) && /white-space:\s*nowrap/.test(badge), 'header title badge is length-capped');
 }
 
+/**
+ * REQ-042 (V9): 강화 결과 공개 뒤로 미룬 "업적 달성" 알림은 멈춘 탭·숨긴 탭에서 띄우지 않고 ui에 두었다가 복귀(resume) 때 알린다.
+ * 알리는 순간 아직 받지 않은 업적만 남기고, 새 게임은 비운다. 성공 굴림 0으로 고정(V6), 연출은 manualTimers로 단계 실행
+ */
+async function deferredAchToast(ok) {
+  const { KEY, HOUR, D, dayStart, loadWith, save, withLv } = F12;
+  const REACHED = '업적 달성: 첫 단련 — 기록 탭에서 보상을 받으세요';
+  const clk = { t: dayStart(D) + 5 * HOUR };
+  const toastTexts = env => (env.byId['#toasts'] ? texts(env.byId['#toasts']) : []);
+  const reachedCount = env => toastTexts(env).filter(t => t === REACHED).length;
+  const pre = withLv(save({ gold: 1e6 }), 3);
+  pre.stats.tries = 99;   // 다음 시도로 tries_1(첫 단련) 달성
+  const boot = () => loadWith({ [KEY]: JSON.stringify(pre) }, { now: () => clk.t, manualTimers: true });
+  const enhance = env => { env.byId['#btnEnhance'].listeners.click[0](); };
+  const takeOver = env => env.byId['#btnTakeover'].listeners.click[0]();
+
+  // 연출 중 다른 탭 때문에 멈춤 → 결과 공개 때 잠금 화면 뒤에 띄우지 않음 → 이어받으면 1번
+  let env = boot();
+  enhance(env);
+  fire(env, 'storage', { key: KEY });
+  await env.runAllTimers();
+  ok(isLocked(env) && saved(env).swords[0].lv === 4 && saved(env).achievements.tries_1 === 1 && reachedCount(env) === 0,
+    'V9: a tab locked mid-animation shows no achievement toast behind the lock at the reveal');
+  takeOver(env);
+  ok(!isLocked(env) && reachedCount(env) === 1, 'V9: taking the tab back announces the held achievement once (the adopted save still has it unclaimed)');
+  await env.runAllTimers();
+  env.tick();
+  ok(reachedCount(env) === 1, 'V9: no repeat after the take over');
+
+  // 연출 도중 이어받기(상태 교체로 이 시도의 연출은 끝남): 목록은 버리지 않고 이어받은 상태 기준으로 1번 알린다
+  env = boot();
+  enhance(env);
+  fire(env, 'storage', { key: KEY });
+  takeOver(env);
+  ok(reachedCount(env) === 1, 'V9: a take over before the reveal (epoch change) still announces the achievement once');
+  await env.runAllTimers();
+  ok(reachedCount(env) === 1, 'V9: the abandoned animation adds no second toast');
+
+  // 멈춘 동안 다른 탭이 이미 받았으면 이어받아도 알리지 않는다(ACH_REACHED만)
+  env = boot();
+  enhance(env);
+  fire(env, 'storage', { key: KEY });
+  await env.runAllTimers();
+  const claimedElsewhere = JSON.parse(env.store[KEY]);
+  claimedElsewhere.achievements.tries_1 = 2;
+  env.store[KEY] = JSON.stringify(claimedElsewhere);
+  takeOver(env);
+  ok(reachedCount(env) === 0, 'V9: an achievement the other tab already claimed is not announced after the take over');
+
+  // 결과 공개 때 숨김 → 알림 없음 → 보이면 복귀 정산이 1번
+  env = boot();
+  enhance(env);
+  setVisible(env, false);
+  await env.runAllTimers();
+  ok(saved(env).swords[0].lv === 4 && reachedCount(env) === 0, 'V9: a hidden tab shows no achievement toast at the reveal');
+  setVisible(env, true);
+  ok(reachedCount(env) === 1, 'V9: becoming visible again announces the held achievement once');
+
+  // 연출 중에 숨겼다가 바로 돌아옴: 복귀 정산은 결과 공개 전이라 알리지 않고, 공개 뒤에 1번
+  env = boot();
+  enhance(env);
+  setVisible(env, false);
+  setVisible(env, true);
+  ok(reachedCount(env) === 0, 'V9: returning mid-animation does not announce before the reveal');
+  await env.runAllTimers();
+  ok(reachedCount(env) === 1, 'V9: the reveal after that return announces once');
+
+  // 연출 중 받기: 공개 때는 이미 받은 업적이라 "받으세요" 알림 없음
+  env = boot();
+  enhance(env);
+  click(env, 'claimAch', 'tries_1');
+  await env.runAllTimers();
+  ok(saved(env).achievements.tries_1 === 2 && toastTexts(env).some(t => t.startsWith('업적 보상:')) && reachedCount(env) === 0,
+    'V9: an achievement claimed during the animation is not announced as 받으세요 at the reveal');
+
+  // 새 게임: 연출 중이든 숨김으로 보관 중이든 지운 진행의 알림은 나오지 않는다
+  env = boot();
+  enhance(env);
+  env.byId['#btnReset'].listeners.click[0]();
+  await env.runAllTimers();
+  setVisible(env, false);
+  setVisible(env, true);
+  ok(reachedCount(env) === 0 && saved(env).stats.tries === 0, 'new game mid-animation: no achievement toast afterwards');
+  env = boot();
+  enhance(env);
+  setVisible(env, false);
+  await env.runAllTimers();
+  env.byId['#btnReset'].listeners.click[0]();
+  setVisible(env, true);
+  ok(reachedCount(env) === 0 && saved(env).stats.tries === 0, 'new game while an achievement toast is held: the held toast is dropped');
+  scanRendered();
+}
+
 /** 태그를 지운 화면 글자(공백 정리) */
 const plain = html => html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
@@ -870,9 +1005,16 @@ async function lateCorrection(ok) {
   ok(JSON.stringify(masteryRows(env)) === JSON.stringify(['+15 숙련 +0%p (0/4)', '+16 숙련 +6%p (2/4)', '+17 숙련 +0%p (0/4)',
     '+18 숙련 +0%p (0/3)', '+19 숙련 +0%p (0/2)']), 'records tab lists 5 mastery rows: ' + masteryRows(env).join(' | '));
   const masteryIcon = '<span class="ic">' + env.ctx.M2_ICONS.mastery + '</span>';
-  ok((env.byId['#masteryList']._html.match(/<li>[\s\S]*?<\/li>/g) || []).every(li => li.startsWith('<li>' + masteryIcon + ' +')),
-    '9-2: every mastery row starts with the mastery SVG');
+  ok((env.byId['#masteryList']._html.match(/<li>[\s\S]*?<\/li>/g) || []).every(li => li.startsWith('<li><span class="m-label">' + masteryIcon + ' +')),
+    '9-2: every mastery row starts with the mastery SVG (inside the nowrap label piece, REQ-049)');
   ok(env.byId['#masteryHeadIcon']._html === masteryIcon, '9-2: records 숙련 heading gets the mastery SVG (decorateStatic)');
+  // REQ-050: 설정 팝오버의 버전 줄은 C.VERSION 하나에서 온다(두 페이지 모두 팝오버 안에 자리가 있음)
+  const VERSION = require(path.join(ROOT, 'js', 'constants.js')).VERSION;
+  ok(env.byId['#appVersion'].textContent === 'v' + VERSION, `REQ-050: decorateStatic writes v${VERSION} into #appVersion (${env.byId['#appVersion'].textContent})`);
+  ['index.html', 'test.html'].forEach(f => {
+    const pop = (fs.readFileSync(path.join(ROOT, f), 'utf8').match(/<div class="popover" id="settingsPop" hidden>([\s\S]*?)<\/div>/) || [])[1] || '';
+    ok(/<p class="muted app-version" id="appVersion"><\/p>/.test(pop), `REQ-050: ${f} has an empty #appVersion line inside #settingsPop`);
+  });
   scanRendered();
 
   // +16 게이지 3/5 (저장값과 일치), 확정 아님
@@ -1394,6 +1536,41 @@ async function eventsUi(ok) {
     for (let i = 0; i < 4; i++) step(env, clk);
     ok(eventToasts(env).length === 0 && env.state().events.active === null, 'AC 34: a locked spawn-due tab neither spawns nor toasts');
   }
+  // REQ-047: 동결 복귀 틱(기기 시계 ≥ OFFLINE_MIN_SEC)은 복귀 정산 뒤에 알린다. 정산이 다른 탭의 더 최근 저장을 이어받으면
+  // 이 틱에서 옛 상태에 생긴 이벤트는 버려졌으므로 시작 토스트가 없다
+  {
+    const FROZEN_MS = (C.OFFLINE_MIN_SEC + 60) * 1000;
+    let clk = clock();
+    let env = boot(uiSave(clk.t, almostDue()), clk);
+    env.store[KEY] = JSON.stringify(uiSave(clk.t + 5, { active: null, sinceMs: 0, nextAtMs: GAP_MIN }));   // 다른 탭이 더 나중에 저장
+    clk.t += FROZEN_MS; clk.m += TICK; env.tick();
+    ok(env.state().events.active === null && saved(env).events.active === null && eventToasts(env).length === 0,
+      'REQ-047: a frozen-wake tick that adopts a newer save does not announce the event the discarded state spawned');
+    clk = clock();
+    env = boot(uiSave(clk.t, almostDue()), clk);
+    clk.t += FROZEN_MS; clk.m += TICK; env.tick();
+    ok(saved(env).events.active.id === 'luck' && JSON.stringify(eventToasts(env).map(el => el.textContent)) === JSON.stringify([START_LUCK]),
+      'REQ-047: a frozen-wake tick that keeps its state announces the spawned event once, after the settle saved it');
+  }
+  // REQ-047: 칩 title은 글자가 바뀔 때(초 단위)만 다시 쓴다
+  {
+    const clk = clock();
+    const env = boot(uiSave(clk.t, running('hunt', 252000)), clk);
+    let title = chip(env).title;
+    let writes = 0;
+    Object.defineProperty(chip(env), 'title', { configurable: true, get: () => title, set: v => { writes++; title = v; } });
+    step(env, clk);
+    ok(writes === 0 && title === '사냥 대목 4:12 남음 · 수동 사냥 골드 +40%', 'REQ-047: a tick inside the same second does not reassign chip.title');
+    step(env, clk);
+    ok(writes === 1 && title === '사냥 대목 4:11 남음 · 수동 사냥 골드 +40%', 'REQ-047: chip.title is written once when the clock text changes: ' + title);
+  }
+  // REQ-047: 시작 토스트의 .toast.good 규칙은 다른 토스트 규칙과 한 묶음(.toast … .toast.out 사이)에 하나만 있다
+  {
+    const css = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8');
+    const at = sel => css.indexOf(sel);
+    ok((css.match(/\.toast\.good \{/g) || []).length === 1 && at('.toast {') < at('.toast.good {') && at('.toast.good {') < at('.toast.out {'),
+      'REQ-047: .toast.good sits with the other toast rules');
+  }
 
   // §9 효과 표시: 의뢰 새로고침 특가(할인 가격), 모루 가호 태그, 광맥 +50%(대장간·방치), 수입 줄
   {
@@ -1471,6 +1648,11 @@ async function eventsUi(ok) {
     const want = C.EVENT_IDS.map(id => `<option value="${id}">${C.EVENTS[id].icon} ${C.EVENTS[id].name}</option>`).join('');
     ok(sel.innerHTML === want, 'event selector lists EVENT_IDS in order with icon + name');
     const toastTexts = () => texts(tEnv.byId['#toasts'] || { children: [] });
+    // REQ-047: 목록에 없는 id(빈 값·프로토타입 키 포함)는 TypeError 없이 실패 알림만, 상태·저장 불변
+    const beforeBad = tEnv.store[TEST_KEY];
+    ['nope', '', 'constructor'].forEach(id => { sel.value = id; click(tEnv, 'testSetEvent'); });
+    ok(toastTexts().filter(t => t === '[TEST] 이벤트를 지정하지 못했습니다 (badEvent)').length === 3 && game.state().events.active === null
+      && tEnv.store[TEST_KEY] === beforeBad, 'REQ-047: an unknown event id shows the fail toast without a TypeError and changes nothing');
     sel.value = 'luck';
     click(tEnv, 'testSetEvent');
     ok(JSON.stringify(savedTest(tEnv).events.active) === JSON.stringify({ id: 'luck', remainMs: DURATION }) && toastTexts().includes('[TEST] 최고 +5 미만이라 이벤트가 적용되지 않습니다')
@@ -1562,6 +1744,34 @@ async function traitsWiring(ok) {
   click(env, 'sellSel', 2); click(env, 'sellSel', 2);
   ok(saved(env).gold - before === want, 'sell pays exactly the previewed amount');
   scanRendered();
+
+  // REQ-040(a): 강화 연출 중 #vSell은 시도 직전 단계와 시도 직전 특성으로 함께 계산한다(새 각인이 이전 단계 가격에 섞이지 않음).
+  // rng를 0.4로 고정: +4 성공(75%), 각인 종류 0.4 → 상인, 등급 1(+10%)
+  const fmtV = e => e.ctx.SG.fx.fmt;
+  env = loadWithRandom([0.4], { 'sword-enhance-v2': JSON.stringify(oldSave([[1, 4]], { gold: 1e6 })) });
+  const sellOf = (e, lv, pct) => fmtV(e)(Math.floor(e.ctx.SG.rules.sell(lv) * (100 + pct) / 100));
+  let pending = env.byId['#btnEnhance'].listeners.click[0]();
+  ok(JSON.stringify(saved(env).swords[0].trait) === '{"k":"trade","t":1}', 'REQ-040 setup: the +5 success engraved 평범한 상인');
+  ok(env.byId['#vSell'].textContent === sellOf(env, 4, 0), `REQ-040: during the animation #vSell is the +4 price without the new trait (${env.byId['#vSell'].textContent})`);
+  await pending;
+  ok(env.byId['#vSell'].textContent === sellOf(env, 5, 10), `REQ-040: after the animation #vSell is the +5 price with the merchant bonus (${env.byId['#vSell'].textContent})`);
+  // 파괴 연출 중(활성 검 없음)에도 시도 직전 특성(정교한 상인 +20%)이 들어간 +5 가격: 0.71은 성공 70% 다음 파괴 2% 칸
+  const doomed = oldSave([[1, 5]], { gold: 1e6 });
+  doomed.swords[0].trait = { k: 'trade', t: 2 };
+  env = loadWithRandom([0.71], { 'sword-enhance-v2': JSON.stringify(doomed) });
+  ok(env.byId['#vSell'].textContent === sellOf(env, 5, 20), 'REQ-040 setup: +5 merchant price before the attempt');
+  pending = env.byId['#btnEnhance'].listeners.click[0]();
+  ok(!saved(env).swords.some(s => s.id === 1) && env.byId['#vSell'].textContent === sellOf(env, 5, 20),
+    `REQ-040: during the destroy animation #vSell keeps the pre-attempt price with its trait (${env.byId['#vSell'].textContent})`);
+  await pending;
+  ok(env.byId['#vSell'].textContent === '-', 'REQ-040: after the destroy animation #vSell shows -');
+  scanRendered();
+
+  // REQ-049(c): 최대 단계 안내의 아이콘은 C.ICONS.achievement(하드코딩 🏆 아님)
+  const CC = require(path.join(ROOT, 'js', 'constants.js'));
+  env = makeEnv({ 'sword-enhance-v2': JSON.stringify(oldSave([[1, CC.MAX]])) });
+  ok(env.byId['#note'].textContent === `${CC.ICONS.achievement} 더 이상 강화할 수 없습니다. 무한의 검을 완성했습니다!`,
+    `REQ-049: +${CC.MAX} note leads with C.ICONS.achievement: ${env.byId['#note'].textContent}`);
 
   // AC 53: 연출 건너뛰기를 켜도 첫 각인 토스트는 1회 나온다
   env = loadWithRandom([0], { 'sword-enhance-v2': JSON.stringify(oldSave([[1, 4]], { gold: 1e6, settings: { muted: true, skipFx: true } })) });
@@ -2959,12 +3169,14 @@ async function m2IconsUi(ok) {
   ok(env.byId['#eventChip']._html.startsWith(`<span class="ev-icon" aria-hidden="true">${C.EVENTS.luck.icon}</span>`), '9-2 fallback: event chip shows the EVENTS emoji');
   ok(env.byId['#gaugeLine']._html.includes(`<span class="badge good">${C.ICONS.sure_badge} 확정!</span>`) && !env.byId['#gaugeLine']._html.includes(C.ICONS.sure),
     '9-2 fallback: 확정! badge shows the sure_badge emoji (not the 확정 강화권 icon)');
-  ok((env.byId['#masteryList']._html.match(/<li>[\s\S]*?<\/li>/g) || []).every(li => li.startsWith(`<li>${C.ICONS.mastery} +`))
-    && env.byId['#masteryHeadIcon']._html === C.ICONS.mastery, '9-2 fallback: mastery rows and the 숙련 heading show the mastery emoji');
-  ok(env.byId['#monumentBadge']._html === `${C.ICONS.monument} +14` && env.byId['#titleBadge']._html === `${C.ICONS.title} 「견습 대장장이」`,
-    '9-2 fallback: monument / title badges show emoji');
+  const hiddenEmoji = id => `<span aria-hidden="true">${C.ICONS[id]}</span>`;   // REQ-049(b): 장식 이모지 폴백은 화면 읽기에서 숨긴다
+  ok((env.byId['#masteryList']._html.match(/<li>[\s\S]*?<\/li>/g) || []).every(li => li.startsWith(`<li><span class="m-label">${hiddenEmoji('mastery')} +`))
+    && env.byId['#masteryHeadIcon']._html === C.ICONS.mastery, '9-2 fallback: mastery rows (aria-hidden emoji) and the 숙련 heading (aria-hidden parent) show the mastery emoji');
+  ok(env.byId['#monumentBadge']._html === `${C.ICONS.monument} +14` && env.byId['#titleBadge']._html === `${hiddenEmoji('title')} 「견습 대장장이」`
+    && env.byId['#recordsTitle']._html === env.byId['#titleBadge']._html, '9-2 fallback: monument / title badges show emoji (title emoji aria-hidden, REQ-049)');
   const achs = env.byId['#achSection']._html;
-  ok(achs.includes(`<h2>${C.ICONS.achievement} 업적 `) && achs.includes(`<span class="muted">${C.ICONS.title} 칭호</span>`), '9-2 fallback: achievements heading and title picker label');
+  ok(achs.includes(`<h2>${hiddenEmoji('achievement')} 업적 `) && achs.includes(`<span class="muted">${C.ICONS.title} 칭호</span>`),
+    '9-2 fallback: achievements heading (aria-hidden emoji, REQ-049) and title picker label');
   [env.byId['#strip'], env.byId['#eventChip'], env.byId['#gaugeLine'], env.byId['#masteryList'], env.byId['#monumentBadge'], env.byId['#titleBadge'], env.byId['#achSection']]
     .forEach(el => ok(!el._html.includes('<span class="ic">'), `9-2 fallback: no SVG icon markup in ${el.sel}`));   // 보관함의 검 그림 SVG는 아이콘이 아니다
   await enhance(env);

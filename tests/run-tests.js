@@ -4514,6 +4514,57 @@ describe('7-2 toast and log texts (§9, AC 34)', () => {
   });
 });
 
+describe('REQ-047 event text cleanup (m2-events §8·§9·§11)', () => {
+  test('eventDurationText: whole minutes "N분", otherwise "N분 S초" / "S초" (never a decimal minute)', () => {
+    assert.deepStrictEqual([300, 60, 270, 45, 61, 3600].map(V.eventDurationText), ['5분', '1분', '4분 30초', '45초', '1분 1초', '60분']);
+  });
+  test('a non-whole-minute duration reads "4분 30초간" in the start toast, not "4.5분간"', () => {
+    const def = C.EVENTS.luck;
+    const shipped = def.durationSec;
+    try {
+      def.durationSec = 270;
+      assert.strictEqual(V.eventStartText('luck'), '🍀 이벤트 시작: 행운의 시간 — 4분 30초간 강화 성공 확률 +5%p');
+    } finally {
+      def.durationSec = shipped;
+    }
+    assert.strictEqual(V.eventStartText('luck'), '🍀 이벤트 시작: 행운의 시간 — 5분간 강화 성공 확률 +5%p');
+  });
+  test('income events come from data: incomeLabel on hunt / auto only, every entry has the field', () => {
+    assert.ok(C.EVENT_IDS.every(id => Object.prototype.hasOwnProperty.call(C.EVENTS[id], 'incomeLabel')));
+    assert.deepStrictEqual(C.EVENT_IDS.filter(id => C.EVENTS[id].incomeLabel).map(id => [id, C.EVENTS[id].incomeLabel]), [['hunt', '사냥'], ['auto', '자동']]);
+    const huntRush = withEvent(evState(13), 'hunt');
+    assert.strictEqual(V.incomeEventText(huntRush),` · 이벤트 ${C.EVENTS.hunt.incomeLabel} +${C.EVENTS.hunt.value}%`);
+  });
+  test('the unused eventDescription API is gone (effect text is EVENTS[id].desc); no script refers to it', () => {
+    assert.ok(!('eventDescription' in E));
+    fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js'))
+      .forEach(f => assert.ok(!fs.readFileSync(js(f), 'utf8').includes('eventDescription'), f));
+  });
+});
+
+// REQ-042 (4): 업적 조건·트랙 이름·일일 과제 문장 표가 상수 표를 빠짐없이 덮는다(빠지면 기록 탭 렌더가 TypeError)
+describe('REQ-042 records text tables cover every achievement and daily pool entry', () => {
+  const keys = o => Object.keys(o).sort();
+  test('ACH_COND has a sentence for every achievement metric and no extra metric', () => {
+    assert.deepStrictEqual(keys(V.ACH_COND), [...new Set(C.ACHIEVEMENTS.map(a => a.metric))].sort());
+    C.ACHIEVEMENTS.forEach(a => {
+      const text = V.ACH_COND[a.metric](a.need);
+      assert.ok(typeof text === 'string' && text.length > 0 && !/undefined|NaN/.test(text), `${a.id}: ${text}`);
+    });
+  });
+  test('ACH_TRACK_NAME names every achievement track and no extra track', () => {
+    assert.deepStrictEqual(keys(V.ACH_TRACK_NAME), [...new Set(C.ACHIEVEMENTS.map(a => a.track))].sort());
+    Object.values(V.ACH_TRACK_NAME).forEach(name => assert.ok(typeof name === 'string' && name.length > 0, name));
+  });
+  test('DAILY_TEXT has a sentence for every DAILY_POOL entry (all goal bands) and no extra entry', () => {
+    assert.deepStrictEqual(keys(V.DAILY_TEXT), C.DAILY_POOL.map(e => e.id).sort());
+    C.DAILY_POOL.forEach(e => (e.goals || [1]).forEach(goal => {
+      const text = V.DAILY_TEXT[e.id](goal);
+      assert.ok(typeof text === 'string' && text.length > 0 && !/undefined|NaN/.test(text), `${e.id}: ${text}`);
+    }));
+  });
+});
+
 describe('7-2 spawn tick keeps sinceMs within the save clamp (V8)', () => {
   const GAP_MAX = C.EVENT_GAP_MAX_SEC * 1000;
   test('sinceMs near the cap + dt 2000 → spawns with sinceMs ≤ 1800000, and the saved value survives load unchanged', () => {
@@ -5350,6 +5401,77 @@ describe('F11 constants load guards (m2-rebirth §2)', () => {
     assert.strictEqual(loadError(swap('const MASTERY_KEEP_REC = 1;', 'const MASTERY_KEEP_REC = -1;'), keep), MSG);
     assert.strictEqual(loadError(swap('const FAME_PER_REBIRTH = 3;', 'const FAME_PER_REBIRTH = 0;'), keep), MSG);
     assert.strictEqual(loadError(swap('values: [1, 2], costs: [2, 3] }', 'values: [1, 6], costs: [2, 3] }'), keep), MSG);
+  });
+});
+
+// ============================================================ 10단계 출시 정리 (REQ-050, REQ-040, REQ-049)
+describe('REQ-050 game version', () => {
+  test('C.VERSION equals the VERSION file at the repo root', () => {
+    const fileVersion = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8').trim();
+    assert.strictEqual(C.VERSION, fileVersion, `C.VERSION ${C.VERSION} vs VERSION file ${fileVersion}`);
+  });
+  test('C.VERSION is a semver string', () => {
+    assert.ok(/^\d+\.\d+\.\d+$/.test(C.VERSION), C.VERSION);
+  });
+});
+
+/** constants.js를 바꿔(patch) 불러온 뒤 C를 고치고(mutate) 화면까지 불러온 새 SG. 오류는 그대로 던진다 */
+function loadWithView(patch, mutate) {
+  const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(patch(fs.readFileSync(js('constants.js'), 'utf8')), ctx, { filename: 'constants.js' });
+  mutate(ctx.SG.C);
+  ['events.js', 'rules.js', 'forge.js', 'idle.js', 'quests.js', 'save.js', 'rebirth.js', 'achievements.js', 'fx.js', 'view.js']
+    .forEach(f => vm.runInContext(fs.readFileSync(js(f), 'utf8'), ctx, { filename: f }));
+  return ctx.SG;
+}
+
+describe('REQ-040 trait income classification lives in C.TRAITS', () => {
+  test('hunt / work / ore are income traits, trade / shard / anvil are not (m2-traits §4)', () => {
+    assert.deepStrictEqual(C.TRAIT_KINDS.filter(k => C.TRAITS[k].income), ['hunt', 'work', 'ore']);
+    assert.ok(C.TRAIT_KINDS.every(k => typeof C.TRAITS[k].income === 'boolean'));
+  });
+  test('view.js no longer decides which kinds are income traits', () => {
+    const src = fs.readFileSync(js('view.js'), 'utf8');
+    assert.ok(!/income:\s*true/.test(src), 'no income flag in view.js');
+    assert.ok(src.includes('C.TRAITS[k].income') && src.includes('C.TRAITS[tr.k].income'), 'view reads the data flag');
+  });
+  test('a TRAITS entry without a boolean income flag fails the constants load check', () => {
+    const drop = src => { const from = "values: [10, 20, 30], income: false },"; assert.ok(src.includes(from)); return src.replace(from, 'values: [10, 20, 30] },'); };
+    assert.strictEqual(loadError(drop, () => {}), 'TRAIT_* tables are inconsistent');
+  });
+  test('every shipped trait kind has its own effect text (not the fallback)', () => {
+    C.TRAIT_KINDS.forEach(k => {
+      const v = C.TRAITS[k].values[0];
+      const text = V.traitEffect({ k, t: 1 });
+      assert.ok(text.includes(String(v)) && text !== `${C.TRAITS[k].name} 특성 +${v}%`, `${k}: ${text}`);
+    });
+  });
+  test('a new kind added without effect text loads view.js and renders a fallback line (no crash)', () => {
+    const SG2 = loadWithView(src => src, C2 => {
+      C2.TRAIT_KINDS.push('luck');
+      C2.TRAITS.luck = { name: '행운아', short: '행', values: [5, 10, 15], income: true };
+      C2.TRAIT_KIND_WEIGHT.luck = 10;
+    });
+    assert.strictEqual(SG2.view.traitEffect({ k: 'luck', t: 2 }), '행운아 특성 +10%');
+    assert.strictEqual(SG2.view.traitEffect({ k: 'hunt', t: 3 }), '수동 사냥 골드 +30%');
+  });
+});
+
+describe('REQ-049 icon cleanup', () => {
+  test('view.js has no hardcoded 🏆 (noteText uses C.ICONS.achievement)', () => {
+    assert.ok(!fs.readFileSync(js('view.js'), 'utf8').includes('🏆'));
+  });
+  test('assets/m2-icons.js header key count matches Object.keys(M2_ICONS).length', () => {
+    const file = path.join(__dirname, '..', 'assets', 'm2-icons.js');
+    const ctx = { window: {} };
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(file, 'utf8'), ctx);
+    const n = Object.keys(ctx.window.M2_ICONS).length;
+    const m = fs.readFileSync(file, 'utf8').match(/Keys \((\d+)\)/);
+    assert.ok(m, 'header has "Keys (N)"');
+    assert.strictEqual(Number(m[1]), n, `header ${m[1]} vs actual ${n}`);
   });
 });
 

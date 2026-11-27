@@ -8,17 +8,22 @@ const { C, R } = require('./engine.js');
 const LATE_FROM = 15, LATE_TO = 19;
 const late = l => l >= LATE_FROM && l <= LATE_TO;
 
+/** The game's own S.gauge / S.mastery feed R.attemptEnhance through R.enhanceOpts. A and B keep their own counters
+ *  (S._gauge / S._mastery), so the game's arrays are zeroed (init + after every attempt) to leave one bonus source. */
+function zeroGameInput(arr) { if (arr) arr.fill(0); }
+
 // ------------------------------------------------------------ A. ceiling gauge
 /** scope 'account': gauge[l] shared by every sword, reset only by success at l (draft default).
  *  scope 'sword'  : stored per sword, lost on destroy (comparison). */
 function gauge(p) {
-  const N = p.N;                       // N[l-15] = fails allowed; attempt N+1 is guaranteed
+  const N = p.N;                      // N[l-15] = fails allowed; attempt N+1 is guaranteed
   const scope = p.scope || 'account';
   const get = (S, sw) => (scope === 'account' ? S._gauge : (sw._gauge = sw._gauge || Array(21).fill(0)));
   return {
-    id: 'A', init(S) { S._gauge = Array(21).fill(0); },
+    id: 'A', init(S) { S._gauge = Array(21).fill(0); zeroGameInput(S.gauge); },
     forced(S, sw) { return late(sw.lv) && get(S, sw)[sw.lv] >= N[sw.lv - LATE_FROM] ? { gold: 0, by: 'A' } : null; },
     post(S, r) {
+      zeroGameInput(S.gauge);
       if (!late(r.from)) return;
       const sw = R.findSword(S, r.swordId);
       if (scope === 'sword' && !sw) return;          // destroyed: per-sword gauge gone with it
@@ -32,9 +37,9 @@ function gauge(p) {
 // ------------------------------------------------------------ B. per-level mastery (account)
 function mastery(p) {
   return {
-    id: 'B', init(S) { S._mastery = Array(21).fill(0); },
+    id: 'B', init(S) { S._mastery = Array(21).fill(0); zeroGameInput(S.mastery); },
     outside(S, sw) { return late(sw.lv) ? Math.min(p.maxPt, Math.floor(S._mastery[sw.lv] / p.perPt[sw.lv - LATE_FROM])) : 0; },
-    post(S, r) { if (late(r.from)) S._mastery[r.from]++; },
+    post(S, r) { zeroGameInput(S.mastery); if (late(r.from)) S._mastery[r.from]++; },
   };
 }
 

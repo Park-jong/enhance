@@ -1,4 +1,4 @@
-/* 검 강화하기 — 데이터 블록 (M0 + M1 상수).
+/* 검 강화하기 — 데이터 블록 (M0~M2 상수).
  * 식별자는 docs/design/m1-constants-index.md 이름 그대로 사용한다.
  * 브라우저: window.SG.C / node: module.exports
  */
@@ -16,6 +16,9 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = SG.C;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (config) {
   'use strict';
+
+  // 화면(설정 팝오버)에 보이는 게임 버전. 루트 VERSION 파일과 같아야 한다(tests/run-tests.js가 비교)
+  const VERSION = '1.0.0';
 
   // ---------------------------------------------------------------- M0
   const MAX = 20;
@@ -213,13 +216,14 @@
   const TRAIT_KIND_WEIGHT = { hunt: 20, work: 15, trade: 20, ore: 15, shard: 15, anvil: 15 };
   const TRAIT_TIER_WEIGHT = [70, 25, 5];   // 등급 1·2·3 (%)
   const TRAIT_TIER_MAX = 3;
+  // income: 수입형(최고 단계 검들 중 종류별 최댓값만 적용, m2-traits §4). false면 거래형('이 검'에만 적용)
   const TRAITS = {
-    hunt:  { name: '약탈자',   short: '약', values: [10, 20, 30] },
-    work:  { name: '일꾼',     short: '일', values: [15, 30, 45] },
-    trade: { name: '상인',     short: '상', values: [10, 20, 30] },
-    ore:   { name: '광부',     short: '광', values: [20, 40, 60] },
-    shard: { name: '수집가',   short: '집', values: [15, 30, 50] },
-    anvil: { name: '대장장이', short: '장', values: [15, 30, 45] },
+    hunt:  { name: '약탈자',   short: '약', values: [10, 20, 30], income: true },
+    work:  { name: '일꾼',     short: '일', values: [15, 30, 45], income: true },
+    trade: { name: '상인',     short: '상', values: [10, 20, 30], income: false },
+    ore:   { name: '광부',     short: '광', values: [20, 40, 60], income: true },
+    shard: { name: '수집가',   short: '집', values: [15, 30, 50], income: false },
+    anvil: { name: '대장장이', short: '장', values: [15, 30, 45], income: false },
   };
   const TRAIT_TIER_NAME = ['평범한', '정교한', '완벽한'];
   // 후반 골드 사용처 (m2-overview §C·§E). 가격 = roundTo(배수 × huntReward(기준 단계), TRAIT_PRICE_ROUND)
@@ -230,9 +234,9 @@
   const MONUMENT_FROM = 13;
   const MONUMENT_COUNT = 8;
   const MONUMENT_MULT = 150;
-  // 롤 함수는 종류·등급 표가 서로 맞는다고 가정하므로(누락 시 조용히 다른 분포) 로드 시점에 막는다
+  // 롤 함수는 종류·등급 표가 서로 맞는다고 가정하고(누락 시 조용히 다른 분포) 화면은 income 구분을 읽으므로 로드 시점에 막는다
   if (TRAIT_TIER_WEIGHT.length !== TRAIT_TIER_MAX || TRAIT_TIER_UP_MULT.length !== TRAIT_TIER_MAX - 1 ||
-      TRAIT_KINDS.some(k => !TRAITS[k] || !TRAIT_KIND_WEIGHT[k] || TRAITS[k].values.length !== TRAIT_TIER_MAX)) {
+      TRAIT_KINDS.some(k => !TRAITS[k] || !TRAIT_KIND_WEIGHT[k] || TRAITS[k].values.length !== TRAIT_TIER_MAX || typeof TRAITS[k].income !== 'boolean')) {
     throw new Error('TRAIT_* tables are inconsistent');
   }
   if (MONUMENT_COUNT !== MAX - MONUMENT_FROM + 1) throw new Error('MONUMENT_COUNT must equal MAX - MONUMENT_FROM + 1');
@@ -346,15 +350,16 @@
   const EVENT_ORE_SCALE = 2;               // ORE_PER_HUNT(0.5 단위)를 정수로 만드는 배수 (m2-events §5.3-3)
   const EVENT_IDS = ['luck', 'hunt', 'auto', 'ore', 'anvil', 'quest'];   // 가중치 누적·UI 순서
   // icon: 토스트·로그(textContent)용 이모지 폴백. 칩·팝오버는 ic('event_<id>')의 SVG를 쓴다. desc: 효과 문장(값 v로 만든다).
-  // need: 스폰 추가 조건 이름(events.js EVENT_NEEDS), 없으면 null
-  const eventEntry = (icon, name, weight, minBest, durationSec, value, desc, need) =>
-    ({ icon, name, weight, minBest, durationSec, value, desc: desc(value), need: need || null });
+  // need: 스폰 추가 조건 이름(events.js EVENT_NEEDS), 없으면 null.
+  // incomeLabel: 수입 줄(#incomeNote)에 " · 이벤트 <짧은 이름> +v%"로 붙는 수입 이벤트의 짧은 이름, 수입 이벤트가 아니면 null
+  const eventEntry = (icon, name, weight, minBest, durationSec, value, desc, extra = {}) =>
+    ({ icon, name, weight, minBest, durationSec, value, desc: desc(value), need: extra.need || null, incomeLabel: extra.incomeLabel || null });
   const EVENTS = {
     luck:  eventEntry('🍀', '행운의 시간', 12, 5, 300, 5, v => `강화 성공 확률 +${v}%p`),
-    hunt:  eventEntry('🏹', '사냥 대목', 24, 13, 300, 40, v => `수동 사냥 골드 +${v}%`),
-    auto:  eventEntry('🌾', '자동 풍년', 18, 13, 300, 50, v => `자동 사냥 골드 +${v}%`, 'autoOn'),
+    hunt:  eventEntry('🏹', '사냥 대목', 24, 13, 300, 40, v => `수동 사냥 골드 +${v}%`, { incomeLabel: '사냥' }),
+    auto:  eventEntry('🌾', '자동 풍년', 18, 13, 300, 50, v => `자동 사냥 골드 +${v}%`, { need: 'autoOn', incomeLabel: '자동' }),
     ore:   eventEntry('⛏️', '광맥 발견', 16, 5, 300, 50, v => `사냥당 광석 +${v}%`),
-    anvil: eventEntry('💫', '모루 가호', 16, 5, 300, 40, v => `모루로 강화할 때 ${v}% 확률로 내구도 보존`, 'hasAnvil'),
+    anvil: eventEntry('💫', '모루 가호', 16, 5, 300, 40, v => `모루로 강화할 때 ${v}% 확률로 내구도 보존`, { need: 'hasAnvil' }),
     quest: eventEntry('🏷️', '의뢰소 특가', 14, 5, 300, 50, v => `의뢰 새로고침 비용 −${v}%`),
   };
   // 스폰·효과 코드는 아래 성질을 전제로 하므로(누락 id = undefined 정의, 가동률 25% 상한, 광석 정수 계산) 로드 시점에 막는다
@@ -451,6 +456,7 @@
   };
 
   return Object.freeze({
+    VERSION,
     MAX, SWORDS, RARITY, BANNER_LV, RATE, DESTROY, DROP_FROM, BLESS_BONUS, HUNT_CD,
     COST_BASE, COST_GROWTH, COST_MIN, SELL_BASE, SELL_GROWTH, HUNT_SELL_RATIO, HUNT_MIN, GOLD_ROUND,
     SELL_CONFIRM_LV, SELL_CONFIRM_MS,

@@ -269,6 +269,7 @@ main {
   animation: toastIn .25s ease-out;
 }
 .toast.bad { border-left-color: var(--bad); }
+.toast.good { border-left-color: var(--good); }
 .toast.special { border-left-color: var(--gold); background: linear-gradient(90deg, #2e2a1c, #22273a); }
 .toast.out { opacity: 0; transform: translateY(6px); transition: .3s; }
 .floating { position: absolute; right: 0; top: 0; font-weight: 800; color: var(--gold); pointer-events: none; animation: floatUp 1s ease-out forwards; white-space: nowrap; }
@@ -327,6 +328,7 @@ main {
 }
 .popover label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; min-height: 32px; }
 .popover input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.app-version { margin: 0; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- 시간 이벤트 칩·팝오버 (M2 F13, m2-events §9) ---------- */
 /* 칩(nowrap)보다 좁게 줄면 칩이 옆 배지 위로 넘치므로 줄지 않게 둔다(넘칠 자리가 없으면 헤더가 줄바꿈) */
@@ -343,7 +345,6 @@ main {
 .event-pop .ev-clock { font-variant-numeric: tabular-nums; }
 .ev-idle { color: var(--warn); }
 .ev-up { color: var(--good); font-weight: 700; }
-.toast.good { border-left-color: var(--good); }
 @media (max-width: 720px) {
   /* 줄바꿈되는 헤더에서는 칩 위치와 상관없이 화면 밖으로 나가지 않게 팝오버를 헤더 마지막 줄(전체 폭, 흐름 배치)로 연다 */
   .event-wrap { display: contents; }
@@ -413,10 +414,12 @@ main {
 .info .gauge-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0 0; font-variant-numeric: tabular-nums; }
 .info .gauge-line .badge { display: inline-block; margin: 0; }
 .breakdown .mastery-term { color: var(--info); white-space: nowrap; }
-/* 칸 최소 폭: 숙련 아이콘을 붙인 가장 긴 행(+16 숙련 +12%p (4/4), 약 174px)이 한 줄에 들어가게 */
-.mastery-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 6px; font-size: 13px; }
+/* 칸 최소 폭 150px: 약 400px 폰에서 2열 유지(가장 긴 행이 한 줄에 드는 176px이면 1열로 떨어짐, REQ-049).
+   칸이 행보다 좁으면 이름·보너스·횟수 조각 사이에서만 줄바꿈한다 */
+.mastery-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; font-size: 13px; }
 .mastery-list li { background: var(--panel2); border-radius: 10px; padding: 6px 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.mastery-list b { color: var(--text); }
+.mastery-list b { color: var(--text); white-space: nowrap; }
+.mastery-list .m-label, .mastery-list .m-count { white-space: nowrap; }
 
 /* ---------- 소모품 트레이 ---------- */
 .tray-title { margin: 14px 2px 6px; font-size: 13px; color: var(--muted); font-weight: 700; }

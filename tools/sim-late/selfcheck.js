@@ -80,4 +80,30 @@ const ok = (cond, msg) => { assert.ok(cond, msg); n++; };
   ok(withM === R.chances(sw, { mastery: 5 }).succ && withM > C.RATE[17] || C.MASTERY_STEP[m] === 0, 'mastery counted in tool-side chance');
 }
 
+// H: with A/B on, the game's S.gauge / S.mastery are neutral (single bonus source); with A/B off they are untouched
+{
+  const gi = R.gaugeIndex(17), mi = R.masteryIndex(17);
+  const mech = M.combine([M.gauge({ N: [4, 5, 6, 8, 10] }), M.mastery({ maxPt: 5, perPt: [1, 1, 1, 1, 1] })]);
+  const S = fresh(17);
+  S.gauge[gi] = C.GAUGE_N[gi]; S.mastery[mi] = 5;                  // stale game state that would double-count
+  mech.init(S);
+  ok(S.gauge.every(v => v === 0) && S.mastery.every(v => v === 0), 'A/B init neutralises game gauge/mastery');
+  ok(R.enhanceOpts(S).gaugeFull === false && R.enhanceOpts(S).mastery === 0, 'game enhanceOpts neutral under A/B');
+  for (let i = 0; i < 20 && R.activeSword(S); i++) {                // real attempts: the game records progress, post() clears it
+    S.gold = 1e9; S.swords[0].lv = 17;
+    const r = R.attemptEnhance(S, () => (i % 2 ? 0 : 0.9999));
+    mech.post(S, r, {});
+  }
+  ok(S.gauge.every(v => v === 0) && S.mastery.every(v => v === 0), 'game gauge/mastery stay zero after attempts under A/B');
+  ok(S._mastery[17] > 0, 'tool mastery counter still advances (B is the only source)');
+  const sw = { lv: 17, pity: 0, prot: 0 };
+  const restore = mech.levelOverrides(S, sw);
+  const withB = R.chances(sw, R.enhanceOpts(S)).succ;
+  restore();
+  ok(withB === C.RATE[17] + Math.min(5, S._mastery[17]), `bonus at +17 is B only (${withB} = ${C.RATE[17]} + B)`);
+  const S2 = fresh(17); S2.gauge[gi] = 3; S2.mastery[mi] = 2;
+  M.combine([M.smith({ bonusFrom: 15, bonus: [0, 3], tries: [1] })]).init(S2);
+  ok(S2.gauge[gi] === 3 && S2.mastery[mi] === 2, 'without A/B the game gauge/mastery are left alone');
+}
+
 console.log(`selfcheck: ${n} checks passed`);

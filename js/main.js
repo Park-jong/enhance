@@ -52,10 +52,11 @@
 
   // epoch: 상태를 통째로 바꿀 때(resetUiFor)마다 증가. 진행 중인 강화 연출이 바뀐 상태에 결과를 적용하지 않게 한다
   // eventLastMono·eventLastWall: 직전 틱의 단조 시계·기기 시계(이벤트 dt와 catch-up 보너스 판정, stepEventClock)
+  // pendingAch: 아직 알리지 않은 업적 달성 id(강화 결과 공개 전·멈춤·숨김 동안, deferAchieved / flushAchieved)
   const ui = {
     tab: 'shop', dragId: null, armed: {}, busy: false, view: null, epoch: 0,
     huntUntil: 0, nextAutoAt: now() + I.autoInterval(S), nextEnhanceAt: 0,
-    eventLastMono: mono(), eventLastWall: now(),
+    eventLastMono: mono(), eventLastWall: now(), pendingAch: [],
   };
   let lastSaveAt = 0;
   let saveFailNoticed = false;
@@ -158,7 +159,7 @@
   }
   /**
    * 업적 동기화(새로 조건을 만족한 업적을 달성으로 래치)의 유일한 호출 길. 활성 탭 경로에서만 불린다(멈춘 탭은 resume·tick·입력이 먼저 막힘).
-   * 새 달성은 토스트 1개로 알린다(여러 개면 합침, skipFx와 무관). announceNow=false면 알림 없이 목록만 돌려준다(강화: 결과 공개 뒤에 알림)
+   * 새 달성은 토스트 1개로 알린다(여러 개면 합침, skipFx와 무관). announceNow=false면 알림 없이 목록만 돌려준다(강화·복귀: deferAchieved로 넘겨 flushAchieved가 알림)
    */
   function syncAchievements(announceNow = true) {
     const fresh = A.syncAchievements(S);
@@ -170,6 +171,20 @@
     const msg = V.achReachedText(ids);
     FX.toast(msg, 'special');
     FX.log(msg, 'good');
+  }
+  /**
+   * 미뤄 알릴 업적 달성(V9): 강화는 결과 공개 뒤에, 멈춘 탭·숨긴 탭은 복귀(resume) 때 알린다. 연출 중 이어받기로 강화가 중간에 끝나도
+   * 목록은 ui에 남아 복귀 정산이 알린다(상태 교체로 버리지 않고 알리는 순간의 상태로 대상을 거른다). 새 게임만 비운다
+   */
+  function deferAchieved(ids) {
+    ids.filter(id => !ui.pendingAch.includes(id)).forEach(id => ui.pendingAch.push(id));
+  }
+  /** 활성·보이는 탭에서만 알린다. 그사이 받았거나 이어받은 상태에서 달성이 아닌 업적은 빼고(이미 받은 업적에 '받으세요' 금지) 토스트 1개로 합친다 */
+  function flushAchieved() {
+    if (isSuspended() || document.hidden) return;
+    const ids = ui.pendingAch.filter(id => A.achState(S, id) === C.ACH_REACHED);
+    ui.pendingAch = [];
+    announceAchieved(ids);
   }
   function reject(reason, texts = V.REASON) {
     FX.toast(texts[reason] || '지금은 사용할 수 없습니다.', 'bad');
@@ -320,7 +335,7 @@
     // 결과·소모·각인은 여기서 확정·저장되고, 연출은 표시만 늦춘다 (새로고침해도 다시 굴릴 수 없음)
     const engraved = r.outcome === 'success' ? engravePending() : [];
     Q.refreshQuests(S, startedAt, rng);
-    const achieved = syncAchievements(false);   // 달성 알림은 결과 공개 뒤(연출 전에 성공·파괴가 드러나지 않게)
+    deferAchieved(syncAchievements(false));   // 달성 알림은 결과 공개 뒤(연출 전에 성공·파괴가 드러나지 않게)
     persist();
     const fx = pickFx(r);
     const outcome = OUTCOME_FX[r.outcome];
@@ -348,7 +363,7 @@
       FX.log(msg, 'good');
     }
     announceEngraved(engraved);
-    announceAchieved(achieved);
+    flushAchieved();
     if (r.anvilBroke) { FX.toast('모루가 파손되었습니다 (수리 필요)', 'bad'); sfx('anvilBreak'); }
     if (r.ranOut.length) FX.toast(V.ranOutToastText(r.ranOut));
     announceUnlocks(prevBest);
@@ -479,27 +494,33 @@
    * stale(단일 수령, 또는 claimAll 결과의 stale: true)은 settleStale로: 옛 날 세트를 저장하지 않는다
    */
   function settleClaim(r, message) {
-    if (r.reason === 'stale' || (r.ok && r.stale)) return settleStale();
+    if (r.reason === 'stale' || (r.ok && r.stale)) return settleStale(r.ok ? message(r) : '');
     if (!r.ok) return reject(r.reason, V.CLAIM_REASON);
-    const msg = message(r);
-    if (msg) {
-      FX.toast(msg, 'special');
-      FX.log(msg, 'gold');
-      sfx('coin');
-    }
+    announceClaim(message(r));
     afterChange();
+  }
+  /** 수령 보상 토스트·로그·효과음. 빈 문자열(모두 받기에서 받은 것이 없음)이면 생략 */
+  function announceClaim(msg) {
+    if (!msg) return;
+    FX.toast(msg, 'special');
+    FX.log(msg, 'gold');
+    sfx('coin');
   }
   /**
    * 다른 탭이 새 날 세트로 교체함: 더 최근 저장이면 이어받아 다시 그린다. 이어받은 뒤 날이 또 바뀌어 새 세트를 만들었을 때만 저장한다
    * (저장하지 않으면 저장소의 날과 계속 어긋나 자동 저장 전까지 수령마다 stale이 반복된다).
-   * 강제로 이어받지 않는다: 이 탭의 저장이 실패 중이면 저장소 쪽이 더 오래되어 메모리 진행을 잃는다
+   * 강제로 이어받지 않는다: 이 탭의 저장이 실패 중이면 저장소 쪽이 더 오래되어 메모리 진행을 잃는다.
+   * paidMsg: 모두 받기가 stale을 만나기 전에 이미 지급한 보상 요약(없으면 ''). 이어받지 않았으면 그 지급이 메모리에 남으므로 알리고 바로 저장한다.
+   * 이어받았으면 지급은 이어받은 저장으로 대체되어 사라지므로(업적은 다시 받을 수 있다) 알리지 않는다
    */
-  function settleStale() {
+  function settleStale(paidMsg) {
     const t = now();
-    adoptStoredSave(t, false);
-    const created = refreshDaily(t, false);   // 알림은 아래 stale 문구 하나만
+    const adopted = adoptStoredSave(t, false);
+    const created = refreshDaily(t, false);   // 도착 알림 대신 아래 stale 문구
     syncAchievements();
-    if (created) persist();
+    const keptPayout = !adopted && !!paidMsg;
+    if (keptPayout) announceClaim(paidMsg);
+    if (created || keptPayout) persist();
     reject('stale', V.CLAIM_REASON);
   }
   // data-id는 문자열: 정확한 정수 표기만 슬롯 번호로 바꾸고(범위는 claimDaily가 검사) 그 밖은 그대로 넘겨 invalid가 되게 한다
@@ -647,37 +668,43 @@
    * 저장소의 유효한 v2 상태를 이어받는다. force가 아니면 다른 탭이 더 나중에 저장했을 때(lastSeen이 더 최근)만.
    * 오래된 탭이 옛 lastSeen으로 오프라인 보상을 다시 받고 최신 저장을 덮어쓰는 것을 막는다.
    * 이 탭의 저장이 실패해 저장소 쪽이 더 오래된 경우에는 메모리 상태를 유지한다.
-   * 저장이 손상이면 이어받지 않고(메모리 상태 유지) 다음 저장 전에 원문을 백업한다(실패하면 보호 모드, AC 33)
+   * 저장이 손상이면 이어받지 않고(메모리 상태 유지) 다음 저장 전에 원문을 백업한다(실패하면 보호 모드, AC 33).
+   * 반환: 이어받아 상태를 바꿨으면 true
    */
   function adoptStoredSave(t, force) {
     const stored = keeper.checkStored(t);
     if (stored.backup) noticeCorruptBackup(stored.backup);
     const latest = stored.state;
-    if (!latest || (!force && latest.idle.lastSeen <= S.idle.lastSeen)) return;
+    if (!latest || (!force && latest.idle.lastSeen <= S.idle.lastSeen)) return false;
     resetUiFor(latest, t);
+    return true;
   }
   /** 이어받기·복귀·다시 시도에서 손상 원문을 백업한 결과 알림. 실패(보호 모드)는 배너가 알린다 */
   function noticeCorruptBackup(backup) {
     if (backup === 'written' || backup === 'same') FX.toast(V.corruptKeptText(SV.CORRUPT_BACKUP_KEY));
     else if (backup === 'occupied') FX.toast(V.SAVE_SAFETY_TEXT.occupied, 'bad');
   }
-  /** 복귀 정산: 다른 탭의 더 최근 저장을 이어받고, 오프라인 수입을 한 번 정산한다 */
+  /** 복귀 정산: 다른 탭의 더 최근 저장을 이어받고, 오프라인 수입을 한 번 정산한다. 반환: 이어받아 상태를 바꿨으면 true */
   function resume() {
-    if (isSuspended()) return;
+    if (isSuspended()) return false;
     const t = now();
     // 기기 시계 기준점(eventLastWall)은 옮기지 않는다: 숨김 동안 밀린 자동 사냥 catch-up이 이벤트 보너스를 받지 않게(m2-events AC 22a)
     resetEventMono();
-    adoptStoredSave(t, false);
+    const adopted = adoptStoredSave(t, false);
     // 부팅·이어받기·복귀로 들어온 상태(옛 저장 포함)의 미각인 검. 오프라인 정산보다 먼저(정산 시점 구성, m2-traits §4)
     announceEngraved(engravePending());
     const off = I.settleOffline(S, t);
     if (off) ui.nextAutoAt = t + I.autoInterval(S);
     Q.refreshQuests(S, t, rng);
-    syncAchievements();   // 옛 저장을 처음 불러오면 여러 개가 한꺼번에 달성되므로 토스트 1개로 합친다
+    // 옛 저장을 처음 불러오면 여러 개가 한꺼번에 달성되므로 미뤄 둔 알림과 함께 토스트 1개로 합친다.
+    // 강화 연출 중(같은 상태로 숨김에서 복귀)이면 결과 공개 뒤 enhance가 알린다
+    deferAchieved(syncAchievements(false));
+    if (!ui.busy) flushAchieved();
     refreshDaily(t, true);   // 오프라인이 아무리 길어도 새 세트는 1개(maxDay 단조)
     persist();
     render();
     if (off && off.gold > 0) showOffline(off);
+    return adopted;
   }
   /**
    * 시간 이벤트 한 틱(m2-events §6.2): 단조 시계 경과(dt)만큼 이벤트를 진행한다(상한은 advanceEvents가 자른다).
@@ -693,7 +720,7 @@
   }
   /**
    * 이벤트 시작·종료 토스트(m2-events §9): advanceEvents가 한 번에 하나만 돌려주므로 틱당 최대 1개, skipFx와 무관.
-   * 활성 틱에서 같은 동기 흐름으로 바로 띄우고(지연 없음, V9) 띄우는 순간에도 멈춤·숨김을 다시 확인한다.
+   * 활성 틱에서 같은 동기 흐름으로 띄우되(지연 없음, V9) 동결 복귀 판정(resume) 뒤에 띄우고, 띄우는 순간에도 멈춤·숨김을 다시 확인한다.
    * 숨김·잠금 동안에는 이벤트 시간이 흐르지 않으므로 복귀한 탭이 이미 지난 종료를 알릴 일이 없다
    */
   function announceEvent(res) {
@@ -707,6 +734,13 @@
       FX.toast(msg);
       FX.log(msg, 'info');
     }
+  }
+  /**
+   * 동결 복귀: 정산한 뒤에 이번 틱의 이벤트 변화를 알린다. 정산이 다른 탭의 더 최근 저장을 이어받으면 그 변화는 옛 상태와 함께
+   * 버려졌으므로 알리지 않는다(토스트가 없는 상태를 말하지 않게)
+   */
+  function wakeFromFreeze(eventRes) {
+    if (!resume()) announceEvent(eventRes);
   }
   // 이벤트 상세 팝오버: 설정 팝오버와 같은 열고 닫기(칩 클릭 토글, 바깥 클릭·Esc·탭 전환·상태 교체·잠금으로 닫힘)
   function closeEventPop() {
@@ -723,10 +757,10 @@
     const t = now();
     // 오프라인 판정보다 먼저: 이번 틱의 자동·수동 사냥은 갱신된 이벤트 상태를 읽는다
     const ev = stepEventClock(t);
+    // 탭 동결 등으로 visibilitychange 없이 오래 멈췄다 깨어난 경우도 복귀 정산으로 처리(복귀 정산이 저장한다)
+    if (t - S.idle.lastSeen >= C.OFFLINE_MIN_SEC * 1000) return wakeFromFreeze(ev.res);
     announceEvent(ev.res);
     const eventChanged = !!(ev.res.started || ev.res.ended);
-    // 탭 동결 등으로 visibilitychange 없이 오래 멈췄다 깨어난 경우도 복귀 정산으로 처리(복귀 정산이 저장한다)
-    if (t - S.idle.lastSeen >= C.OFFLINE_MIN_SEC * 1000) return resume();
     // 벽시계로 따라잡는 실행은 이벤트 시계가 멈춰 있던 시간이라 이벤트 보너스 없음(m2-events §2-3)
     const auto = I.runAutoCatchup(S, t, ui.nextAutoAt, rng, { noEvent: ev.wallDtMs > C.EVENT_DT_MAX_MS });
     ui.nextAutoAt = auto.nextAutoAt;
@@ -832,6 +866,7 @@
   function startNewGame() {
     const t = now();
     resetUiFor(SV.defaultState(t), t);
+    ui.pendingAch = [];   // 지운 진행의 업적 알림은 새 게임에서 알리지 않는다
     $('#log').innerHTML = '';
     $('#settingsPop').hidden = true;
     persist({ newGame: true });   // 명성까지 지우는 유일한 길: 환생 미러도 기본값으로 낮춘다(REQ-037)

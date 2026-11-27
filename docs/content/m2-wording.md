@@ -4,7 +4,7 @@
 > 이 문서는 **Tech가 그대로 붙여 넣는 제안**이다. `js/`·`css/`·HTML·`docs/design/`은 건드리지 않았다.
 > 규칙: 뜻과 **모든 숫자는 그대로**(밸런스 변경 없음). 문체는 기존 UI처럼 합니다체/명사형. 이미 좋은 문구는 "유지".
 > 용어: 일일 과제는 "일일 과제"(F12), "의뢰"는 F4 전용(m2-achievements §2). 업적 이름·칭호는 **바꾸지 않는다**.
-> 아이콘 키는 Art Director의 `assets/m2-icons.js`(`window.M2_ICONS`) 21개: `trait_hunt` `trait_work` `trait_trade` `trait_ore` `trait_shard` `trait_anvil` `event_luck` `event_hunt` `event_auto` `event_ore` `event_anvil` `event_quest` `fame` `rebirth` `monument` `achievement` `title` `sure_badge` `mastery`.
+> 아이콘 키는 Art Director의 `assets/m2-icons.js`(`window.M2_ICONS`) 19개: `trait_hunt` `trait_work` `trait_trade` `trait_ore` `trait_shard` `trait_anvil` `event_luck` `event_hunt` `event_auto` `event_ore` `event_anvil` `event_quest` `fame` `rebirth` `monument` `achievement` `title` `sure_badge` `mastery`.
 
 ---
 
@@ -27,14 +27,14 @@
 
 | 현재 | 제안 | 판정 | 위치 |
 |---|---|---|---|
-| 시작 토스트 `${d.icon} 이벤트 시작: ${d.name} — ${d.durationSec / SEC_PER_MIN}분간 ${d.desc}` | 형식 동일. 토스트·로그는 `textContent`라 SVG를 못 쓰므로 **이모지 폴백을 그대로 쓴다**(2장 참고). 위 (a)가 바뀐 만큼 문장 끝만 달라짐 | 유지 | `eventStartText` (view.js 237행) |
+| 시작 토스트 `${d.icon} 이벤트 시작: ${d.name} — ${eventDurationText(d.durationSec)}간 ${d.desc}` (2026-11-27 REQ-047: 지속 시간은 `5분`·`4분 30초`, 소수 분 없음) | 형식 동일. 토스트·로그는 `textContent`라 SVG를 못 쓰므로 **이모지 폴백을 그대로 쓴다**(2장 참고). 위 (a)가 바뀐 만큼 문장 끝만 달라짐 | 유지 | `eventStartText` (view.js 237행) |
 | 종료 토스트 `이벤트 종료: ${C.EVENTS[id].name}` | 동일 | 유지 | `eventEndText` (241행) |
 | `EVENT_TEXT.offlineNote` `접속 중에만 흐르고 오프라인에서는 적용되지 않습니다` | 동일 | 유지 | `EVENT_TEXT` (147행) |
 | `EVENT_TEXT.remain` `남은 시간` | 동일 | 유지 | 〃 |
 | `EVENT_TEXT.deal` `특가` / `EVENT_TEXT.guard` `가호` | 동일 | 유지 | 〃 (의뢰 새로고침 뱃지·모루 행 태그) |
 | `eventChipLabel` `${name} ${m:ss} 남음 · ${desc}` | 동일 | 유지 | view.js 201행 |
 | `eventAssistText` `${icon} 이벤트 덕에 성공 — 숙련 기록에는 세지 않습니다` | 동일(아이콘은 로그라 이모지) | 유지 | view.js 243행 |
-| `incomeEventText` ` · 이벤트 사냥 +40%` / ` · 이벤트 자동 +50%` | 동일 | 유지 | `INCOME_EVENTS` (163행) |
+| `incomeEventText` ` · 이벤트 사냥 +40%` / ` · 이벤트 자동 +50%` | 동일 | 유지 | `EVENTS[id].incomeLabel` (constants.js, 2026-11-27 REQ-047: view.js `INCOME_EVENTS`에서 이동) |
 | `LUCK_IDLE_TEXT` 5개 사유 | 동일 | 유지 | view.js 155행 |
 | `CAP_CAUSE_TEXT` `상한`/`천장`, `eventBreakdownNote` ` · 이벤트 실효 +N%p`/` · 이벤트 효과 없음(원인)` | 동일 | 유지 | 153·205행 |
 | 칩 `eventChipHTML`, 팝오버 `eventPopHTML`의 아이콘 자리 | 문구 변경 없음. 아이콘만 SVG로(2장) | 유지(문구) | 198·225행 |

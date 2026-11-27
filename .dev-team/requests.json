@@ -1070,7 +1070,7 @@
     "priority": "P3",
     "priorityReason": "시뮬레이션은 사용자가 요청할 때만 하므로 다음에 시뮬레이션을 요청받을 때만 필요하다",
     "milestone": "3단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-19",
     "history": [
       {
@@ -1078,6 +1078,17 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "tools/sim-late/lib/mechanics.js: A/B 켜면 게임 gauge/mastery 입력 0으로 중화. selfcheck 블록 H 6건 추가(19)."
       }
     ]
   },
@@ -1091,7 +1102,7 @@
     "priority": "P1",
     "priorityReason": "4단계가 끝나 5단계(특성)가 현재 단계가 된다. 5단계 범위는 지금 처리하고 6~8단계 범위는 순서대로 진행한다",
     "milestone": "5~8단계",
-    "status": "in_progress",
+    "status": "done",
     "createdAt": "2026-11-20",
     "history": [
       {
@@ -1123,6 +1134,12 @@
         "by": "개발 팀장",
         "status": "in_progress",
         "note": "7-2 이벤트 화면 구현·테스트 완료(커밋 전). 8단계가 남아 in_progress 유지."
+      },
+      {
+        "at": "2026-11-27",
+        "by": "메인 세션",
+        "status": "done",
+        "note": "M2 구현 완료: 5단계 특성·사용처, 6단계 업적·일일, 7단계 이벤트, 8단계 환생, 9단계 화면·아이콘, 1.0.0 정리 QA 승인(2026-11-27)"
       }
     ]
   },
@@ -1136,7 +1153,7 @@
     "priority": "P2",
     "priorityReason": "각 구현 단계(5~8)의 QA 검증에서 단계별로 적용한다",
     "milestone": "5~8단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-20",
     "history": [
       {
@@ -1144,6 +1161,12 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P2"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "QA 팀장",
+        "status": "done",
+        "note": "AC 감사 완료: traits 56/56, achievements 70 중 69, events 62 중 61, rebirth 41 중 40이 테스트와 연결됨(나머지는 smoke-dom/browser-strip 또는 의도적 비테스트). 높은 위험 미커버 없음. 낮은 위험: 이벤트 34a 태그, 업적 30c 이어받기 후 갱신, 환생 AC38 골든값 없음. 결과는 10-2 보고서."
       }
     ]
   },
@@ -1283,7 +1306,7 @@
     "priority": "P3",
     "priorityReason": "표시만 잠깐 어긋나는 낮음 문제와 구조 정리라서 백로그",
     "milestone": "6단계 이후",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-23",
     "history": [
       {
@@ -1291,6 +1314,17 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "vSell 일관 표시, C.TRAITS[k].income 데이터화, TRAIT_TEXT 누락 폴백. m2-traits.md 갱신."
       }
     ]
   },
@@ -1331,7 +1365,7 @@
     "priority": "P2",
     "priorityReason": "모두 낮음 심각도의 드문 경우라 6단계 완료를 막지 않음. 7단계 이벤트 작업 때 같은 알림 경로를 건드리므로 그때 함께 처리",
     "milestone": "6단계 후속 / 7단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-23",
     "history": [
       {
@@ -1339,6 +1373,17 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P2"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "js/main.js(ui.pendingAch·flushAchieved), js/view.js(.daily-left), 테스트 추가. 지연 알림은 채택 시 비우지 않고 ACH_REACHED만 필터(V9)."
       }
     ]
   },
@@ -1460,7 +1505,7 @@
     "priority": "P3",
     "priorityReason": "화면에서 일어나지 않거나 아주 드문 경우라 백로그. 9단계 정리 때 함께",
     "milestone": "9단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-24",
     "history": [
       {
@@ -1468,6 +1513,17 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "8건 모두 처리. eventDescription 제거(m2-events 문서 갱신), 천장 분기 유지+주석, incomeLabel을 C.EVENTS 데이터로."
       }
     ]
   },
@@ -1514,7 +1570,7 @@
     "priority": "P3",
     "priorityReason": "기능 영향 없는 외관·접근성·주석 정리라 백로그. 10단계 수치 조정 때 함께 처리 가능",
     "milestone": "10단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-25",
     "history": [
       {
@@ -1522,6 +1578,17 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P3"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "숙련 목록 150px+nowrap 복원(360px은 1열 유지), aria-hidden 이모지, noteText 아이콘, 아이콘 개수 19."
       }
     ]
   },
@@ -1535,7 +1602,7 @@
     "priority": "P2",
     "priorityReason": "1.0.0 후보 정리(10-2) 때 함께 넣으면 되는 작은 편의 기능. 지금 플레이 테스트는 배포 확인으로 대신 가능",
     "milestone": "10단계",
-    "status": "open",
+    "status": "done",
     "createdAt": "2026-11-25",
     "history": [
       {
@@ -1543,6 +1610,80 @@
         "by": "메인 세션",
         "status": "open",
         "note": "우선순위 P2"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "in_progress"
+      },
+      {
+        "at": "2026-11-27",
+        "by": "개발 팀장",
+        "status": "done",
+        "note": "설정 팝오버 #appVersion, C.VERSION='1.0.0', VERSION 파일 일치 테스트(VERSION을 1.0.0으로 올리면 통과)."
+      }
+    ]
+  },
+  {
+    "id": "REQ-051",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "연출 중 탭이 멈추면 숙련·각인·모루 파손·해금 알림이 잠금 화면 뒤에 뜸",
+    "detail": "강화 연출 도중 다른 탭이 열려 이 탭이 멈추면, 연출 뒤로 미룬 숙련 기록·각인·모루 파손·해금 알림이 잠금 화면 뒤에서 뜸(업적 알림은 REQ-042에서 해결). 업적과 같은 방식(활성·보이는 상태일 때만 알리고 복귀 시 내보내기)으로 통일. 근거: 1.0.0 정리 묶음 개발 보고, V9",
+    "priority": "P3",
+    "priorityReason": "두 탭을 동시에 쓰면서 연출 도중에만 생기는 드문 경우이고 알림 표시만 어긋남(상태·저장은 정상). 출시 후 백로그",
+    "milestone": "1.0.0 이후",
+    "status": "open",
+    "createdAt": "2026-11-27",
+    "history": [
+      {
+        "at": "2026-11-27",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
+  },
+  {
+    "id": "REQ-052",
+    "from": "qa",
+    "to": "tech",
+    "kind": "feedback",
+    "title": "settleStale 이어받기 때 업적 알림 내보내기와 작은 정리",
+    "detail": "강화 연출 중 수령이 stale로 저장을 이어받으면 대기 중인 업적 알림이 다음 복귀·강화 때까지 남아 엉뚱한 알림에 합쳐질 수 있음 → main.js settleStale에서 deferAchieved(syncAchievements(false)); if (!ui.busy) flushAchieved(). 그 밖에 settleClaim 주석(main.js:494) 갱신, run-tests.js:4501의 durationSec/60을 V.eventDurationText로, 칭호 선택 라벨(view.js:1013) 이모지 aria-hidden 여부 결정, view.js:504 payoutPreview 대체 검 객체에 주석. 근거: 1.0.0 QA 검증, V9 2회",
+    "priority": "P3",
+    "priorityReason": "다른 탭이 1~2초 연출 중에 날짜를 바꾸는 드문 경우이고 알림 표시만 어긋남. 출시 후 백로그",
+    "milestone": "1.0.0 이후",
+    "status": "open",
+    "createdAt": "2026-11-27",
+    "history": [
+      {
+        "at": "2026-11-27",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
+      }
+    ]
+  },
+  {
+    "id": "REQ-053",
+    "from": "qa",
+    "to": "design",
+    "kind": "feedback",
+    "title": "시뮬레이션 AC10 수치를 인용한 문서 확인",
+    "detail": "REQ-033 이중 계산 수정으로 sim-late 후보 A/B(AC10) 결과가 바뀜(예: Heavy +20 시도 138→151). 예전 AC10 수치를 인용한 기획서·.dev-team 기록이 있으면 갱신하거나 \"수정 전 값\" 표시. M1 결과는 그대로. 근거: 1.0.0 QA 검증",
+    "priority": "P3",
+    "priorityReason": "후보 메커닉(채택 안 된 A/B) 참고 수치라 게임에 영향 없음. 문서 정확도용 백로그",
+    "milestone": "1.0.0 이후",
+    "status": "open",
+    "createdAt": "2026-11-27",
+    "history": [
+      {
+        "at": "2026-11-27",
+        "by": "메인 세션",
+        "status": "open",
+        "note": "우선순위 P3"
       }
     ]
   }

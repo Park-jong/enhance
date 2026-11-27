@@ -227,3 +227,10 @@
 - 산출물: js/constants.js, js/view.js, css/style.css, index.html, test.html, tests/smoke-dom.js, tests/browser-strip.js, tests/run-m1.1-qa-tests.js, docs/design/(m1-idle, m1.1-late-correction, m2-events, m2-rebirth, m2-traits)
 - 결정 사항: ic()는 M1→M2 지연 조회, SVG 없으면 이모지(특성 칩은 약자). 특성 칩=아이콘+점 3개. 문구 16건 적용. 칭호 배지 max-width 10.5em, 숙련 열 176px로 조정. 테스트: 506/692/29/36/189/1157/13 통과.
 - 남은 문제: 없음.
+
+## 2026-11-27 — 10-2 릴리스 정리 (1.0.0 후보)
+- 지시: 디렉터 / 관련 단계: 10단계 / 처리한 요청: REQ-042, 047, 049, 040, 050, 033
+- 참여 팀원: client-programmer(2회), tools-engineer
+- 산출물: js/main.js, view.js, constants.js, events.js, test-panel.js, css/style.css, index.html, test.html, tools/sim-late/lib/mechanics.js, tests/*, docs/design/m2-events·m2-achievements·m2-traits.md, docs/content/m2-wording.md
+- 결정 사항: 지연 업적 알림은 채택 시 비우지 않고 ACH_REACHED만 필터(V9). 천장 분기 유지. eventDescription 제거. 숙련 목록 150px+nowrap(360px은 1열). 연출 중 판매가는 강화 전 값+특성. sim-late A/B는 게임 입력 중화.
+- 남은 문제: VERSION 파일을 1.0.0으로 올려야 버전 일치 테스트 통과(디렉터). 다른 연출 토스트(숙련·각인 등)의 잠금 뒤 표시는 미처리. m1-constants-index에 VERSION·TRAITS.income 추가 필요(디자인).

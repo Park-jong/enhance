@@ -16,6 +16,8 @@
  *  (l) 5탭(상점·대장간·의뢰·방치·기록)이 320·390·720·1280px에서 가로 스크롤 없이 카드 안에 들어가고 헤더 항목이 겹치지 않으며 로고가 한 줄이다.
  *      배지 없는 기본 헤더는 1280·1024px에서 한 줄이다(그 밖의 폭에서는 줄바꿈 허용). 기본 헤더도 300~1400px을 훑는다((i)와 같은 검사)
  *  (m) 360·390px 모바일에서 기록 탭 버튼(환생·명성 구매·받기·모두 받기·칭호·기념비)과 환생 확인 창 버튼이 44px 이상이다
+ *  (n) 숙련 목록이 400·1280px에서 2열이고(320·360px은 1열) 이름·횟수 조각이 줄바꿈되거나 넘치지 않고 같은 폭에서 5탭 카드가 넘치지 않으며,
+ *      설정 팝오버가 버전 줄(v + C.VERSION)을 포함해 320·360·400·1280px 화면 안에 열린다. 버전 줄 검사는 (i)의 설정 팝오버 검사에도 들어간다
  *  (g) index.html·test.html 모두 콘솔 오류·예외 없이 열린다
  * 실행: node tests/browser-strip.js  (브라우저 경로 직접 지정: BROWSER_PATH=...)
  * Chrome/Edge가 없으면 "SKIP: no Chrome/Edge"를 출력하고 0으로 끝난다. 외부 패키지 없음(Node 22 전역 WebSocket·fetch).
@@ -639,10 +641,15 @@ async function settingsPopoverInside(cdp, page, width, label) {
   await page.click(await page.evaluate(centerOf('#btnSettings')));
   const opened = await page.waitFor(`!document.getElementById('settingsPop').hidden && document.getElementById('settingsPop').offsetWidth > 0`);
   const p = await page.evaluate(`(() => { const r = document.getElementById('settingsPop').getBoundingClientRect();
-    return { l: r.left, r: r.right, t: r.top, b: r.bottom, vw: document.documentElement.clientWidth, vh: window.innerHeight }; })()`);
+    const v = document.getElementById('appVersion'), vr = v.getBoundingClientRect();
+    return { l: r.left, r: r.right, t: r.top, b: r.bottom, vw: document.documentElement.clientWidth, vh: window.innerHeight,
+      version: { text: v.textContent, shown: !v.hidden && vr.width > 0 && vr.height > 0,
+        inside: vr.left >= r.left && vr.right <= r.right && vr.top >= r.top && vr.bottom <= r.bottom } }; })()`);
   console.log(`      ${label} settings popover at ${width}px: left ${Math.round(p.l)} right ${Math.round(p.r)} (viewport ${p.vw})`);
   check(`${label} ${width}px settings popover opens fully inside the viewport`,
     opened && p.l >= -EVENT_EDGE_PX && p.r <= p.vw + EVENT_EDGE_PX && p.t >= -EVENT_EDGE_PX && p.b <= p.vh + EVENT_EDGE_PX, JSON.stringify(p));
+  check(`${label} ${width}px settings popover shows the version line v${C.VERSION} inside it`,
+    p.version.shown && p.version.inside && p.version.text === 'v' + C.VERSION, JSON.stringify(p.version));
   await page.click(await page.evaluate(centerOf('#btnSettings')));
   check(`${label} ${width}px settings popover closes again`, await page.waitFor(`document.getElementById('settingsPop').hidden`));
 }
@@ -1015,6 +1022,57 @@ async function touchTargets(cdp, page) {
   await cdp.send('Emulation.clearDeviceMetricsOverride');
 }
 
+/**
+ * (n) REQ-049(a)·REQ-050: 숙련 목록이 약 400px부터 2열을 유지하고(320~1280px) 행 안의 이름·횟수가 줄바꿈되지 않는지,
+ * 설정 팝오버가 버전 줄을 포함해 320·360·400·1280px 화면 안에 열리는지(V4)
+ */
+// 360px: 목록 폭 298px < 2열에 필요한 2×150+6px라 1열(9-2 이전 150px과 같은 배치). 약 400px(목록 338px)부터 2열
+const MASTERY_VIEWPORTS = [{ width: 320, height: 640, minCols: 1 }, { width: 360, height: 640, minCols: 1 }, { width: 400, height: 800, minCols: 2 },
+  { width: 1280, height: 800, minCols: 2 }];
+const SETTINGS_VERSION_WIDTHS = [320, 360, 400, 1280];
+const MASTERY_MEASURE = `(() => {
+  const list = document.getElementById('masteryList');
+  const lr = list.getBoundingClientRect();
+  const rows = [...list.querySelectorAll('li')];
+  const lefts = [...new Set(rows.map(li => Math.round(li.getBoundingClientRect().left)))];
+  // 줄바꿈 금지 조각(이름·횟수)이 두 줄로 나뉘면 getClientRects()가 2개 이상이다
+  const broken = [...list.querySelectorAll('.m-label, .m-count')].filter(el => el.getClientRects().length > 1).map(el => el.textContent);
+  const overflow = rows.filter(li => li.scrollWidth > li.clientWidth + ${RECORDS_EDGE_PX} || li.getBoundingClientRect().right > lr.right + ${RECORDS_EDGE_PX})
+    .map(li => li.textContent);
+  return { listW: Math.round(lr.width), rowW: rows.map(li => Math.round(li.getBoundingClientRect().width)), rowH: rows.map(li => Math.round(li.getBoundingClientRect().height)), cols: lefts.length, rows: rows.length,
+    pieces: list.querySelectorAll('.m-label, .m-count').length, broken, overflow,
+    pageScroll: document.documentElement.scrollWidth - window.innerWidth };
+})()`;
+function masterySeedSave() {
+  const st = JSON.parse(recordsSeedSave());
+  st.mastery = C.MASTERY_REC_MAX.slice();   // 가장 긴 행: 횟수가 모두 최대(보너스 자릿수 최대)
+  return JSON.stringify(st);
+}
+
+async function masteryAndVersion(cdp, page) {
+  check('(n) index.html loads the max-mastery records save', await openGame(cdp, page, { save: masterySeedSave(), order: '1' }));
+  for (const vp of MASTERY_VIEWPORTS) {
+    await setViewport(cdp, vp);
+    await measurePanel(page, 'records');
+    const m = await page.evaluate(MASTERY_MEASURE);
+    const label = `(n) ${vp.width}px mastery list`;
+    console.log(`      ${label}: list ${m.listW}px, rows ${JSON.stringify(m.rowW)} x ${JSON.stringify(m.rowH)}, columns ${m.cols}`);
+    check(`${label} renders every row with its label and count pieces`, m.rows === C.MASTERY_REC_MAX.length && m.pieces === 2 * m.rows, JSON.stringify(m));
+    check(`${label} keeps at least ${vp.minCols} column(s)`, m.cols >= vp.minCols, JSON.stringify(m));
+    check(`${label} label and count never wrap inside themselves`, m.broken.length === 0, JSON.stringify(m));
+    check(`${label} rows do not overflow the list or the page`, m.overflow.length === 0 && m.pageScroll <= 0, JSON.stringify(m));
+    for (const id of TAB_IDS) {
+      await measurePanel(page, id);
+      const cards = await page.evaluate(CARD_CONTENT_MEASURE);
+      check(`(n) ${vp.width}px ${id}: no horizontal page scroll and every card's content stays inside its card`,
+        cards.docScroll <= cards.docClient && cards.cards > 0 && cards.bad.length === 0, JSON.stringify(cards));
+    }
+  }
+  await page.evaluate('window.scrollTo(0, 0); true');
+  for (const width of SETTINGS_VERSION_WIDTHS) await settingsPopoverInside(cdp, page, width, '(n)');
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+}
+
 /** (g) 테스트 페이지(test.html)도 같은 후반 시드로 오류 없이 열리고 특성 지정 조작판이 채워진다 */
 async function testPageLoads(cdp, page) {
   const order = SINK_SWORDS.map(s => s.id).join();
@@ -1056,6 +1114,7 @@ async function main() {
     await rebirthModalFocusTrap(cdp, page);
     await fiveTabOverflow(cdp, page);
     await touchTargets(cdp, page);
+    await masteryAndVersion(cdp, page);
     await testPageLoads(cdp, page);
     check('(g) no uncaught page errors or console errors (index.html, test.html)', pageErrors.length === 0, pageErrors.join('\n      '));
   } catch (e) {

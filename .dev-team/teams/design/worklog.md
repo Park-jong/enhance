@@ -134,3 +134,17 @@
 - 산출물: docs/design/m2-events.md (§18 로드 순서, §6.2 반환형·시계 기준점·sinceMs 메모, §8 API·opts·rollAnvilKeep, §5.3.1 Lv5 전제, AC13 예시, §11 상수), docs/design/m2-traits.md:149
 - 결정 사항: §9(UI)는 기술팀 담당이라 수정하지 않음. sinceMs는 스폰 틱에 한 틱만큼 넘을 수 있으며 효과 없음으로 중립 서술(코드가 현재 클램프하지 않음). 1,341 예시는 수확 Lv5 전제 명시.
 - 남은 문제: 7-2에서 스폰 시 sinceMs 처리가 바뀌면 §6.2 메모 갱신 필요. tick의 이벤트 토스트는 7-2에서 연결 예정.
+
+## 2026-11-27 — 1.0.0 수치 결정 기록과 출시 요약 문서
+- 지시: 디렉터 / 관련 단계: 10단계(10-1 플레이 테스트 생략) / 처리한 요청: 없음
+- 참여 팀원: 없음(팀장 직접 작성, 문서만)
+- 산출물: docs/design/release-1.0.md(신규), docs/design/m1-constants-index.md(§9 M2 상수 색인 7묶음, 상태 문구), docs/design/m2-overview.md(1.0.0 상태 메모), docs/design/m1-balance.md(release-1.0 안내 한 줄)
+- 결정 사항: 1.0.0의 모든 수치는 js/constants.js 현재 값 유지(잠정, M2 미측정). 가정 A~F는 전부 "미측정"으로 기록, 손잡이는 체크리스트 §2 기준으로 상수 이름 확인.
+- 남은 문제: js/constants.js 머리 주석이 "M0 + M1 상수"로 남아 있음(코드 주석, 이 작업 범위 밖). 가정 F의 손잡이 상수명(TRAIT_REKIND_MULT 등)은 체크리스트가 이름을 적지 않아 팀장이 풀어 썼음.
+
+## 2026-11-27 — 상수 색인에 VERSION·income·incomeLabel 추가
+- 지시: 디렉터 / 관련 단계: 10단계 / 처리한 요청: 없음
+- 참여 팀원: 없음(팀장 직접 작성, 문서만)
+- 산출물: docs/design/m1-constants-index.md (§9 묶음 1 `TRAITS.income`, 묶음 5 `EVENTS.incomeLabel`, 묶음 8 `VERSION` 신설, 묶음 수 7→8)
+- 결정 사항: js/constants.js에서 이름 확인 후 값 복사 없이 위치만 기록.
+- 남은 문제: 없음

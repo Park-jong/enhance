@@ -47,7 +47,9 @@
     const { C, events: E, fx: FX } = SG;
     const S = game.state();
     const id = doc.querySelector('#testEventId').value;
-    const r = E.setEvent(S, id, C.EVENTS[id].durationSec * MS_PER_SEC);
+    const def = E.eventDef(id);
+    // 알 수 없는 id(빈 선택 등)는 지속 시간을 읽지 않고 setEvent에 넘겨 badEvent 실패 알림으로 끝낸다(상태 불변)
+    const r = E.setEvent(S, id, def ? def.durationSec * MS_PER_SEC : 0);
     if (!r.ok) return FX.toast(`[TEST] 이벤트를 지정하지 못했습니다 (${r.reason})`, 'bad');
     if (!E.eventsUnlocked(S)) FX.toast(`[TEST] 최고 +${C.EVENT_UNLOCK_BEST} 미만이라 이벤트가 적용되지 않습니다`, 'bad');
     FX.log(`[TEST] ${SG.view.eventStartText(id)}`, 'info');

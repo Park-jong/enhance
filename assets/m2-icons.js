@@ -1,7 +1,7 @@
 /* M2 icon set (classic script, no modules). Exposes a SEPARATE global window.M2_ICONS = { key: '<svg>...' }.
  * Same contract as M1 (assets/m1-icons.js): viewBox 0 0 32 32, no width/height (size via CSS, e.g. 1em),
  * currentColor + CSS vars with fallbacks, no gradients/ids. Tier pips for traits are CSS-only (not SVG).
- * Keys (21):
+ * Keys (19):
  *  Traits: trait_hunt, trait_work, trait_trade, trait_ore, trait_shard, trait_anvil
  *  Events: event_luck, event_hunt, event_auto, event_ore, event_anvil, event_quest
  *  Misc:   fame, rebirth, monument, achievement, title, sure_badge, mastery
