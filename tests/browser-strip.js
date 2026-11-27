@@ -11,13 +11,16 @@
  *      저장 실패 배지·큰 골드·기념비·칭호 배지·광석이 함께 있는 최악 조합 스트레스(320~1000px 8개 폭) 포함. index.html은 시드 저장, test.html은 조작판 버튼으로 이벤트를 지정한다
  *      기본 헤더와 최악 조합 헤더를 300~1400px 1px 간격으로 훑어(한 줄↔두 줄 경계 포함) 겹침·넘침·로고 줄바꿈이 없고 설정 버튼이 오른쪽 끝에 붙는지 보고,
  *      최악 조합의 경계(두 줄인 가장 넓은 폭)와 360px에서 설정 팝오버가 화면 안에 열리는지 본다
- *  (j) 환생 섹션·확인 창(8-B): 기록 탭 맨 위 환생 섹션(잠김·열림·환생 1회 이상·큰 숫자)이 360·375·721·1280px에서 넘치거나 겹치지 않고,
- *      확인 창이 화면 안에 있으며 바깥 클릭·Esc로 닫힌다
+ *  (j) 환생 섹션·확인 창(8-B): 기록 탭 맨 위 환생 섹션(잠김·열림·환생 1회 이상·큰 숫자)이 320·360·375·390·720·721·1280px와 1280x600에서 넘치거나 겹치지 않고,
+ *      확인 창이 화면 안에 있으며 바깥 클릭·Esc로 닫힌다. 명성 상점은 FAME_TRACKS 행 수(6)이고, 모든 트랙 최대(stress)·저항 예시 줄이 있는 상태(open·counted)를 포함한다.
+ *      데스크톱 폭에서 기록 패널이 내용보다 작게 줄지 않는다(scrollHeight <= clientHeight, V4)
  *  (l) 5탭(상점·대장간·의뢰·방치·기록)이 320·390·720·1280px에서 가로 스크롤 없이 카드 안에 들어가고 헤더 항목이 겹치지 않으며 로고가 한 줄이다.
  *      배지 없는 기본 헤더는 1280·1024px에서 한 줄이다(그 밖의 폭에서는 줄바꿈 허용). 기본 헤더도 300~1400px을 훑는다((i)와 같은 검사)
  *  (m) 360·390px 모바일에서 기록 탭 버튼(환생·명성 구매·받기·모두 받기·칭호·기념비)과 환생 확인 창 버튼이 44px 이상이다
  *  (n) 숙련 목록이 400·1280px에서 2열이고(320·360px은 1열) 이름·횟수 조각이 줄바꿈되거나 넘치지 않고 같은 폭에서 5탭 카드가 넘치지 않으며,
  *      설정 팝오버가 버전 줄(v + C.VERSION)을 포함해 320·360·400·1280px 화면 안에 열린다. 버전 줄 검사는 (i)의 설정 팝오버 검사에도 들어간다
+ *  (o) 환생 보강(m2-rebirth §15.3): 가장 긴 결과 분해 줄(+19, 파괴·하락 저항 최대, 축복·모루·보정·숙련·행운의 시간)이 320·360·390·720·721·1280px에서
+ *      카드 밖으로 넘치거나 조각끼리·이웃 줄(확률 내역·보정·안내)과 겹치지 않고, 조각이 줄 중간에서 끊기지 않는다. 같은 시드로 (d)의 5탭 높이 검사(1280x800·1280x600)
  *  (g) index.html·test.html 모두 콘솔 오류·예외 없이 열린다
  * 실행: node tests/browser-strip.js  (브라우저 경로 직접 지정: BROWSER_PATH=...)
  * Chrome/Edge가 없으면 "SKIP: no Chrome/Edge"를 출력하고 0으로 끝난다. 외부 패키지 없음(Node 22 전역 WebSocket·fetch).
@@ -707,7 +710,7 @@ async function eventChipLayout(cdp, page) {
  * 환생 1회 이상이지만 +MAX 검 없음(버튼 비활성) / 큰 숫자 스트레스. 360·375·721·1280 폭에서 가로 넘침, 섹션 항목 겹침(V4), 창 위치, 닫기를 본다
  */
 const REBIRTH_VIEWPORTS = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 375, height: 667 }, { width: 390, height: 844 },
-  { width: 721, height: 800 }, { width: 1280, height: 800 }];
+  { width: 720, height: 800 }, { width: 721, height: 800 }, { width: 1280, height: 800 }, { width: 1280, height: 600 }];
 const REBIRTH_EDGE_PX = 1;
 const REBIRTH_BIG_COUNT = 999999;
 const REBIRTH_BIG_FAME = 999999999;
@@ -728,7 +731,8 @@ function rebirthSeed(kind) {
   if (kind === 'counted' || kind === 'noSword') {
     st.rebirth.count = 3;
     st.rebirth.fame = 12;
-    st.rebirth.up = Object.assign({}, st.rebirth.up, { income: 1, startGold: 1 });
+    // 저항 3레벨: 효과 문구가 가장 길고("+10 이상 하락 확률 35% 감소 → 45% 감소 · 즉시 적용") 파괴 저항 예시 줄도 보인다
+    st.rebirth.up = Object.assign({}, st.rebirth.up, { income: 1, startGold: 1, destroyCut: 3, dropCut: 3 });
   }
   if (kind === 'stress') {
     st.rebirth.count = REBIRTH_BIG_COUNT;
@@ -766,6 +770,9 @@ const REBIRTH_MEASURE = `(() => {
   })));
   const act = sec.querySelector('[data-act="askRebirth"]');
   const rows = [...sec.querySelectorAll('.fame-row')];
+  // 상점 행 안 글씨 줄(이름·효과·예시)끼리 겹침
+  rows.forEach(r => { const lines = [...r.querySelectorAll('.shop-text > small')].filter(visible);
+    lines.forEach((a, i) => lines.slice(i + 1).forEach(b => { if (hit(rect(a), rect(b))) overlaps.push('row ' + r.dataset.track + ' small/small'); })); });
   const daily = document.getElementById('dailySection');
   return {
     unlocked: !sec.querySelector('.rebirth-locked'), lockedNote: !!sec.querySelector('.rebirth-locked'),
@@ -779,6 +786,8 @@ const REBIRTH_MEASURE = `(() => {
     outside, overlaps, panelScroll: panel.scrollWidth, panelClient: panel.clientWidth,
     docScroll: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), docClient: document.documentElement.clientWidth,
     panelBottom: pr.bottom, lastBottom: panel.lastElementChild ? rect(panel.lastElementChild).bottom : 0,
+    panelScrollH: panel.scrollHeight, panelClientH: panel.clientHeight,
+    examples: [...sec.querySelectorAll('.fame-row .fame-example')].filter(visible).map(el => el.closest('.fame-row').dataset.track + ':' + el.textContent),
   };
 })()`;
 
@@ -859,7 +868,12 @@ async function rebirthLayoutAt(cdp, page, st, vp) {
   check(`${label} header items stay inside the viewport and do not overlap`, e.outside.length === 0 && e.overlaps.length === 0, JSON.stringify(e));
   check(`${label} rebirth section comes before the daily section`, m.secBeforeDaily, detail);
   check(`${label} panel bottom is not above its last child`, m.panelBottom + PANEL_TOLERANCE_PX >= m.lastBottom, detail);
+  check(`${label} records panel is not shorter than its content (scrollHeight <= clientHeight)`, m.panelScrollH <= m.panelClientH + PANEL_TOLERANCE_PX, detail);
   if (!st.unlocked) return;
+  // 파괴 저항 예시 줄: 최대가 아니면 1줄(파괴 저항 행), 모두 최대(stress)면 없음
+  const wantExample = st.kind !== 'stress';
+  check(`${label} destroy resistance example line is ${wantExample ? 'shown once' : 'hidden at max level'}`,
+    wantExample ? m.examples.length === 1 && m.examples[0].startsWith('destroyCut:+' + (C.MAX - 1) + ' ') : m.examples.length === 0, detail);
   const h = m.has;
   check(`${label} section has head, count, fame balance, shop rows (${C.FAME_TRACKS.length}), action row`,
     h.head && h.count && h.balance && h.shop && h.rows === C.FAME_TRACKS.length && h.tracks === C.FAME_TRACKS.join() && h.act && h.btn && h.note, detail);
@@ -1073,6 +1087,73 @@ async function masteryAndVersion(cdp, page) {
   await cdp.send('Emulation.clearDeviceMetricsOverride');
 }
 
+/**
+ * (o) 환생 보강 결과 분해 줄(m2-rebirth §15.3 UI, AC 46): 가장 긴 조합(+19, 파괴·하락 저항 최대, 축복·미스릴 모루·보정·숙련·행운의 시간)
+ */
+const ODDS_VIEWPORTS = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 720, height: 800 },
+  { width: 721, height: 800 }, { width: 1280, height: 800 }];
+const ODDS_EDGE_PX = 1;
+const ODDS_PARTS = 6;   // 성공·파괴·하락·유지 실패 + 보조 줄 2개
+function oddsSeedSave() {
+  const st = SV.defaultState(Date.now());
+  const lv = C.MAX - 1;
+  st.swords = [{ id: 1, lv, prot: C.PROTECT_USES, pity: 40, trait: null }];
+  st.nextSwordId = 2;
+  st.active = 1;
+  st.best = lv;
+  st.gold = 5e7;
+  st.found = st.found.map((f, l) => f || l <= st.best);
+  Object.assign(st.inv, { bless: 3, protect: 20, keepdown: 3 });
+  Object.assign(st.use, { bless: true, anvil: true });
+  st.anvils = [{ id: 1, g: 3, dura: 50 }];
+  st.anvilEq = 1;
+  st.nextAnvilId = 2;
+  st.mastery = C.MASTERY_REC_MAX.slice();
+  st.rebirth.count = 1;
+  st.rebirth.up = Object.assign({}, st.rebirth.up, { destroyCut: C.FAME_SHOP.destroyCut.costs.length, dropCut: C.FAME_SHOP.dropCut.costs.length });
+  st.events.active = { id: EVENT_TEST_ID, remainMs: EVENT_SEED_REMAIN_MS };
+  return JSON.stringify(st);
+}
+const ODDS_MEASURE = `(() => {
+  const rect = el => el.getBoundingClientRect();
+  const box = document.getElementById('oddsSplit');
+  const card = box.closest('.card');
+  const cr = rect(card);
+  const parts = [...box.querySelectorAll('.odds-part')];
+  const hit = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > ${ODDS_EDGE_PX} && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > ${ODDS_EDGE_PX};
+  const overlaps = [];
+  parts.forEach((a, i) => parts.slice(i + 1).forEach(b => { if (hit(rect(a), rect(b))) overlaps.push(a.textContent + '/' + b.textContent); }));
+  const lines = ['breakdown', 'oddsSplit', 'pityLine', 'note', 'incomeNote'].map(id => document.getElementById(id)).filter(el => el.offsetHeight > 0);
+  lines.forEach((a, i) => lines.slice(i + 1).forEach(b => { if (hit(rect(a), rect(b))) overlaps.push(a.id + '/' + b.id); }));
+  const outside = [box, ...parts, document.getElementById('breakdown')].filter(el => rect(el).left < cr.left - ${ODDS_EDGE_PX} || rect(el).right > cr.right + ${ODDS_EDGE_PX})
+    .map(el => (el.id || el.textContent) + ':' + Math.round(rect(el).left) + '..' + Math.round(rect(el).right) + ' card ' + Math.round(cr.left) + '..' + Math.round(cr.right));
+  return { text: box.textContent, parts: parts.length, relief: !!box.querySelector('.odds-relief'), lines: lines.map(el => el.id),
+    breakdown: document.getElementById('breakdown').textContent, overlaps, outside,
+    broken: parts.filter(el => el.getClientRects().length > 1).map(el => el.textContent),
+    boxScroll: box.scrollWidth - box.clientWidth, docScroll: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+    docClient: document.documentElement.clientWidth };
+})()`;
+
+async function oddsSplitLayout(cdp, page) {
+  check('(o) index.html loads the longest odds-split save', await openGame(cdp, page, { save: oddsSeedSave(), order: '1' }));
+  for (const vp of ODDS_VIEWPORTS) {
+    await setViewport(cdp, vp);
+    await page.evaluate(`document.getElementById('oddsSplit').scrollIntoView({ block: 'center' }); true`);
+    const m = await page.evaluate(ODDS_MEASURE);
+    const label = `(o) ${vp.width}x${vp.height} odds split`;
+    const detail = JSON.stringify(m);
+    check(`${label} shows every row and both 명성 relief notes, with the event and blessing in the breakdown`,
+      m.parts === ODDS_PARTS && m.relief && m.text.includes('유지 실패') && (m.text.match(/\(명성\)/g) || []).length === 2
+      && m.breakdown.includes('축복') && m.breakdown.includes('이벤트') && m.breakdown.includes('숙련'), detail);
+    check(`${label} has no horizontal overflow (document, line) and stays inside the card`,
+      m.docScroll <= m.docClient + ODDS_EDGE_PX && m.boxScroll <= ODDS_EDGE_PX && m.outside.length === 0, detail);
+    check(`${label} pieces and neighbouring lines do not overlap`, m.overlaps.length === 0, detail);
+    check(`${label} no piece is broken across lines`, m.broken.length === 0, detail);
+  }
+  await page.evaluate(`localStorage.removeItem(${REBIRTH_MIRROR_KEY}); true`);
+  await panelsContainContent(cdp, page, '(o)');
+}
+
 /** (g) 테스트 페이지(test.html)도 같은 후반 시드로 오류 없이 열리고 특성 지정 조작판이 채워진다 */
 async function testPageLoads(cdp, page) {
   const order = SINK_SWORDS.map(s => s.id).join();
@@ -1115,6 +1196,7 @@ async function main() {
     await fiveTabOverflow(cdp, page);
     await touchTargets(cdp, page);
     await masteryAndVersion(cdp, page);
+    await oddsSplitLayout(cdp, page);
     await testPageLoads(cdp, page);
     check('(g) no uncaught page errors or console errors (index.html, test.html)', pageErrors.length === 0, pageErrors.join('\n      '));
   } catch (e) {

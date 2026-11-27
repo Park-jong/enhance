@@ -1,6 +1,7 @@
 /* 환생·명성 상점 규칙 (F11, docs/design/m2-rebirth.md §3·§4). 순수 로직: 시간은 now(ms)로 받고 난수는 쓰지 않는다.
  * 새 상태는 defaultState(now)에서 만들므로 save.js 다음에 로드한다. 명성 효과 조회(fameValue·earlyIncomePct)는
- * rules.js에 있다(isUnlocked·idle.js 수입 식이 이 모듈보다 먼저 로드되므로). 확률 함수는 S.rebirth를 읽지 않는다(§9).
+ * rules.js에 있다(isUnlocked·idle.js 수입 식이 이 모듈보다 먼저 로드되므로). 성공 확률은 S.rebirth를 읽지 않는다(§9).
+ * 파괴·하락 저항만 rules.js enhanceOpts가 읽어 chances()의 파괴·하락 분할에 넘긴다(§15.3).
  */
 (function (root, factory) {
   'use strict';
@@ -57,6 +58,8 @@
       startGold: C.START_GOLD + startGoldBonus(S),
       slots: startSlots(S),
       incomePct: famePct(S, 'income'),
+      destroyCut: famePct(S, 'destroyCut'),
+      dropCut: famePct(S, 'dropCut'),
       autoStart: R.fameValue(S, 'autoStart') > 0,
       keptMastery: keptMastery(S),
     });

@@ -430,6 +430,9 @@ async function main() {
   // 7) M1.1 천장 게이지 + 성공 숙련 화면 (m1.1-late-correction §11, AC 13)
   await lateCorrection(ok);
 
+  // 7a) 환생 보강(m2-rebirth §15.3·§15.4): 결과 분해 줄·명성 저항 보조 줄·유지 실패는 하락 방지 주문서를 쓰지 않음
+  await oddsSplitUi(ok);
+
   // 7b) 3-6: 파괴 뒤 활성 검 없음, 칸 드래그
   await noActiveAfterDestroy(ok);
   await stripDrag(ok);
@@ -1069,6 +1072,146 @@ async function lateCorrection(ok) {
   await env.byId['#btnEnhance'].listeners.click[0]();
   ok(saved(env).swords[0].lv === 17 && saved(env).mastery[1] === 4 && toastCount(env, MASTERY_TOAST_16) === 0
     && !texts(env.byId['#toasts']).some(t => t.includes('숙련!')), 'no mastery toast once the record is maxed');
+}
+
+/**
+ * 환생 보강 화면(m2-rebirth §15.3 UI·§15.4, AC 44·45·46·48): 강화 패널의 결과 분해 줄(#oddsSplit)이
+ * 성공·파괴·하락·유지 실패(+10 미만은 실패 하나)와 보조 줄 "파괴/하락 −N%p (명성)"을 굴림과 같은 chances()로 보이고,
+ * 유지 실패 굴림은 하락 방지 주문서를 쓰지 않는다. 모든 부팅은 Math.random을 고정한다(V6)
+ */
+async function oddsSplitUi(ok) {
+  const { KEY, loadWith } = F12;
+  const C = require(path.join(ROOT, 'js', 'constants.js'));
+  /** 활성 검 하나(+lv), 넉넉한 골드, 저항 레벨 [파괴, 하락], 토글은 fields.use로 */
+  const cutSave = (lv, [destroyCut, dropCut], fields = {}) => {
+    const s = Object.assign(SG_default(), { gold: 1e9, best: Math.max(lv, 15) });
+    s.swords = [{ id: 1, lv, prot: 2, pity: 0, trait: null }];
+    s.active = 1;
+    s.nextSwordId = 2;
+    Object.assign(s.inv, { bless: 3, protect: 20, keepdown: 3 });
+    Object.assign(s.use, fields.use || {});
+    if (fields.gauge) s.gauge = fields.gauge;
+    s.rebirth.up = Object.assign({}, s.rebirth.up, { destroyCut, dropCut });
+    return s;
+  };
+  let game = null;
+  const boot = (st, value = 0.5, page) => loadWith({ [page ? 'sword-enhance-test' : KEY]: JSON.stringify(st) },
+    { page, extensions: [api => { game = api; }] }, value);
+  /** #oddsSplit → { main: 분해 줄, relief: 보조 줄 } (글자만) */
+  const odds = env => {
+    const html = env.byId['#oddsSplit']._html;
+    const m = html.match(/<span class="odds-relief">([\s\S]*)<\/span>$/);
+    return { main: plain(m ? html.slice(0, m.index) : html), relief: m ? plain(m[1]) : '' };
+  };
+  const chancesOf = env => env.ctx.SG.rules.currentChances(game.state());
+  /** 화면 기대값을 chances 필드에서만 만든다(AC 46: 화면 숫자 = chances 필드) */
+  const expectMain = (lv, c) => (lv >= C.DROP_FROM
+    ? `성공 ${c.succ}% · 파괴 ${c.dest}% · 하락 ${c.drop}% · 유지 실패 ${c.stay}%`
+    : `성공 ${c.succ}% · 파괴 ${c.dest}% · 실패 ${c.fail}%`);
+  const expectRelief = c => [c.destSaved > 0 ? `파괴 −${c.destSaved}%p (명성)` : '', c.dropRelief > 0 ? `하락 −${c.dropRelief}%p (명성)` : '']
+    .filter(Boolean).join(' · ');
+
+  // 저항 없음 +15: 하락이 모든 실패, 유지 실패 0, 보조 줄 없음, 아래 안내는 기존 문구
+  let env = boot(cutSave(15, [0, 0]));
+  let c = chancesOf(env);
+  ok(odds(env).main === '성공 20% · 파괴 25% · 하락 55% · 유지 실패 0%' && odds(env).main === expectMain(15, c) && odds(env).relief === '',
+    'odds split +15 without resistance: 성공·파괴·하락·유지 실패 from chances, no relief line: ' + JSON.stringify(odds(env)));
+  ok(env.byId['#note'].textContent === '실패 시 (55%) +14로 하락합니다.', 'note without resistance is unchanged: ' + env.byId['#note'].textContent);
+  scanRendered();
+
+  // +15, 파괴·하락 저항 2레벨(25/25): AC 44 값 20/19/42/19, 보조 줄 −6·−13, 파괴 칸도 같은 값
+  env = boot(cutSave(15, [2, 2]));
+  c = chancesOf(env);
+  ok(odds(env).main === '성공 20% · 파괴 19% · 하락 42% · 유지 실패 19%' && odds(env).main === expectMain(15, c),
+    'AC 44/46: +15 with 25/25 shows 성공 20 · 파괴 19 · 하락 42 · 유지 실패 19 (= chances): ' + odds(env).main);
+  ok(odds(env).relief === '파괴 −6%p (명성) · 하락 −13%p (명성)' && odds(env).relief === expectRelief(c),
+    'AC 46: relief line 파괴 −destSaved%p (명성) · 하락 −dropRelief%p (명성): ' + odds(env).relief);
+  ok(env.byId['#vDest'].textContent === `${c.dest}%` && env.byId['#vSucc'].textContent === `${c.succ}%`, 'odds cards show the same chances (dest after resistance)');
+  ok(env.byId['#note'].textContent === `하락 (${c.drop}%) 시 +14로 내려갑니다. 유지 실패 (${c.stay}%)는 단계가 그대로입니다.`,
+    'note names the drop share and the stay share: ' + env.byId['#note'].textContent);
+  scanRendered();
+
+  // +12, 하락 저항 1레벨(15)만: 파괴 보조 줄 없이 하락 −7%p (AC 44)
+  env = boot(cutSave(12, [0, 1]));
+  c = chancesOf(env);
+  ok(odds(env).main === '성공 35% · 파괴 18% · 하락 40% · 유지 실패 7%' && odds(env).relief === '하락 −7%p (명성)' && odds(env).relief === expectRelief(c),
+    'AC 44: +12 dropCut 15 → 하락 40, 유지 실패 7, only the drop relief line: ' + JSON.stringify(odds(env)));
+
+  // +9, 45/45: +10 미만은 하락이 없어 "실패" 하나, 하락 보조 줄 없음(dropRelief 0)
+  env = boot(cutSave(9, [4, 4]));
+  c = chancesOf(env);
+  ok(odds(env).main === '성공 50% · 파괴 6% · 실패 44%' && odds(env).main === expectMain(9, c) && odds(env).relief === '파괴 −4%p (명성)' && c.dropRelief === 0,
+    'below +10: a single 실패 row (stay = fail), only the destroy relief line: ' + JSON.stringify(odds(env)));
+  ok(!odds(env).main.includes('하락') && !odds(env).main.includes('유지 실패'), 'below +10: no 하락 / 유지 실패 rows');
+
+  // +19, 45/45 + 축복(가장 긴 줄): 모든 보조 줄
+  env = boot(cutSave(19, [4, 4], { use: { bless: true } }));
+  c = chancesOf(env);
+  ok(odds(env).main === expectMain(19, c) && odds(env).relief === expectRelief(c) && c.destSaved > 0 && c.dropRelief > 0 && c.succ + c.dest + c.stay + c.drop === 100,
+    '+19 with both max resistances and a blessing: every row and both relief notes equal chances (sum 100): ' + JSON.stringify(odds(env)));
+  // 축복 토글을 끄면 같은 렌더 경로로 바로 바뀐다
+  change(env, 'tray', 'bless', false);
+  c = chancesOf(env);
+  ok(odds(env).main === '성공 5% · 파괴 20% · 하락 33% · 유지 실패 42%' && odds(env).relief === '파괴 −15%p (명성) · 하락 −27%p (명성)',
+    'AC 44: +19 45/45 → 5 / 20 / 33 / 42, relief −15 / −27 (re-rendered after a toggle): ' + JSON.stringify(odds(env)));
+  scanRendered();
+
+  // AC 46 전수: 모든 단계 × 저항(0·15·25·35·45)² × 축복·행운의 시간 — 분해 줄 숫자 = chances 필드, 구간 합 100
+  const { rules: RR, view: VV } = env.ctx.SG;
+  const cuts = [0].concat(C.FAME_SHOP.destroyCut.values);
+  const mismatch = [];
+  let combos = 0;
+  for (let lv = 0; lv < C.MAX; lv++) cuts.forEach(dc => cuts.forEach(rc => [{}, { bless: true, event: 5 }].forEach(extra => {
+    const cc = RR.chances({ lv, pity: 0 }, Object.assign({ destroyCut: dc, dropCut: rc }, extra));
+    const html = VV.oddsSplitHTML(lv, cc);
+    const m = html.match(/<span class="odds-relief">([\s\S]*)<\/span>$/);
+    const got = { main: plain(m ? html.slice(0, m.index) : html), relief: m ? plain(m[1]) : '' };
+    combos++;
+    if (got.main !== expectMain(lv, cc) || got.relief !== expectRelief(cc) || cc.succ + cc.dest + cc.stay + cc.drop !== 100 || cc.stay + cc.drop !== cc.fail) {
+      mismatch.push(`+${lv} ${dc}/${rc} ${JSON.stringify(got)}`);
+    }
+  })));
+  ok(combos === C.MAX * cuts.length * cuts.length * 2 && mismatch.length === 0, `AC 46: odds split equals chances fields in all ${combos} combos: ${mismatch.slice(0, 3).join(' | ')}`);
+
+  // 확정 시도(게이지 가득, 최대 저항)·최대 단계: 분해 줄 없음(확률 내역 줄이 성공 100%를 말한다, AC 48)
+  env = boot(cutSave(16, [4, 4], { gauge: [0, 5, 0, 0, 0] }));
+  c = chancesOf(env);
+  ok(env.byId['#oddsSplit']._html === '' && c.stay === 0 && c.drop === 0 && env.byId['#breakdown']._html.includes('천장 확정'), 'AC 48: certain attempt shows no odds split');
+  env = boot(cutSave(20, [4, 4]));
+  ok(env.byId['#oddsSplit']._html === '', '+20: no odds split');
+
+  // 유지 실패 굴림(AC 45): 단계 불변, pity·실패 +1, 하락 방지 주문서를 켜 두어도 소모하지 않음. 구간 경계는 chances에서 고른다(V6)
+  const KEEP_LV = C.KEEPDOWN_MAX_LV - 1;
+  const keepSave = () => cutSave(KEEP_LV, [2, 2], { use: { keepdown: true } });
+  c = chancesOf(boot(keepSave()));
+  ok(c.stay > 0 && c.drop > 0, `+${KEEP_LV} with 25/25 has both stay and drop shares`);
+  const rollAt = pct => pct / 100;
+  env = boot(keepSave(), rollAt(c.succ + c.dest + c.stay / 2));
+  await env.byId['#btnEnhance'].listeners.click[0]();
+  let st = saved(env);
+  ok(st.swords[0].lv === KEEP_LV && st.inv.keepdown === 3 && st.stats.fail === 1 && st.swords[0].pity === 1,
+    'AC 45: a roll in the stay band keeps the level, counts a fail and pity, and does not consume the keep-down scroll: ' + JSON.stringify({ lv: st.swords[0].lv, kd: st.inv.keepdown, fail: st.stats.fail }));
+  env = boot(keepSave(), rollAt(c.succ + c.dest + c.stay + c.drop / 2));
+  await env.byId['#btnEnhance'].listeners.click[0]();
+  st = saved(env);
+  ok(st.swords[0].lv === KEEP_LV && st.inv.keepdown === 2 && st.stats.fail === 1, 'AC 45: a roll in the drop band consumes the keep-down scroll (kept)');
+  const noScroll = keepSave();
+  noScroll.use.keepdown = false;
+  env = boot(noScroll, rollAt(c.succ + c.dest + c.stay + c.drop / 2));
+  await env.byId['#btnEnhance'].listeners.click[0]();
+  ok(saved(env).swords[0].lv === KEEP_LV - 1, 'a roll in the drop band without the scroll drops one level');
+  scanRendered();
+
+  // 테스트 페이지 강제 성공: 확정이라 분해 줄·파괴 저항 예시 줄이 없고, 강제를 끄면 둘 다 나타난다
+  const shopSave = cutSave(19, [1, 1]);
+  shopSave.rebirth.count = 1;
+  env = boot(shopSave, 0.5, 'test.html');
+  const cutRow = () => (env.byId['#rebirthSection']._html.match(/data-track="destroyCut"[\s\S]*?<\/button>/) || [''])[0];
+  ok(env.byId['#oddsSplit']._html === '' && cutRow().includes('Lv 1/') && !cutRow().includes('fame-example'),
+    'test page (forced success): no odds split and no destroy example line');
+  click(env, 'testToggleForce');
+  ok(odds(env).main === expectMain(19, chancesOf(env)) && cutRow().includes('fame-example'), 'test page with forced success off: odds split and example line appear');
+  scanRendered();
 }
 
 /** 3-6: 파괴 뒤에는 어떤 검도 활성이 되지 않고, 연타(Space/S)가 다른 검에 닿지 않는다 */
@@ -2302,6 +2445,8 @@ async function rebirthWiring(ok) {
   const KEY = 'sword-enhance-v2';
   const MIRROR = 'sword-enhance-v2-rebirth';
   const FEE = 19846200;
+  const { FAME_PER_REBIRTH, FAME_SHOP } = require(path.join(ROOT, 'js', 'constants.js'));
+  const LICENSE_COST = FAME_SHOP.autoStart.costs[0];
   const clk = { t: Date.now() };
   const ready = fields => {
     const s = SG_default();
@@ -2336,9 +2481,9 @@ async function rebirthWiring(ok) {
   click(env, 'rebirth');
   let st = saved(env);
   ok(JSON.stringify(writes) === JSON.stringify({ [KEY]: 1, [MIRROR]: 1 }), 'F11 rebirth: exactly one main-save write (+ one mirror write): ' + JSON.stringify(writes));
-  ok(st.rebirth.count === 1 && st.rebirth.fame === 3 && st.best === 0 && st.gold === 300 &&
+  ok(st.rebirth.count === 1 && st.rebirth.fame === FAME_PER_REBIRTH && st.best === 0 && st.gold === 300 &&
     JSON.stringify(st.swords) === JSON.stringify([{ id: 3, lv: 0, prot: 2, pity: 0, trait: null }]) && st.active === 3,
-  'F11 rebirth: state replaced by the reborn state (one +0 sword, start gold, fame +3)');
+  `F11 rebirth: state replaced by the reborn state (one +0 sword, start gold, fame +${FAME_PER_REBIRTH})`);
   ok(JSON.stringify(st.events) === JSON.stringify({ active: null, sinceMs: 0, nextAtMs: 900000 }) &&
     JSON.stringify(st.achievements) === achievementsBefore && st.title === 'tries_1' && st.stats.tries === 150,
   'F11 rebirth: events reset (m2-events §13), achievements/title/stats kept (m2-achievements §18)');
@@ -2355,14 +2500,14 @@ async function rebirthWiring(ok) {
   writes = countWrites(env2);
   click(env2, 'buyFame', 'autoStart');
   st = saved(env2);
-  ok(JSON.stringify(writes) === JSON.stringify({ [KEY]: 1, [MIRROR]: 1 }) && st.rebirth.fame === 0 && st.rebirth.up.autoStart === 1,
+  ok(JSON.stringify(writes) === JSON.stringify({ [KEY]: 1, [MIRROR]: 1 }) && st.rebirth.fame === FAME_PER_REBIRTH - LICENSE_COST && st.rebirth.up.autoStart === 1,
     'F11 buyFame: one save with the purchase, mirror updated');
   click(env2, 'toggleAuto');
   ok(saved(env2).idle.autoOn === true && saved(env2).best === 0, 'F11 buyFame: the license unlocks auto hunt at best 0');
   writes = countWrites(env2);
   click(env2, 'buyFame', '__proto__');
   click(env2, 'buyFame', 'autoStart');
-  ok(JSON.stringify(writes) === '{}' && saved(env2).rebirth.fame === 0, 'F11 buyFame: invalid / maxed purchases write nothing');
+  ok(JSON.stringify(writes) === '{}' && saved(env2).rebirth.fame === FAME_PER_REBIRTH - LICENSE_COST, 'F11 buyFame: invalid / maxed purchases write nothing');
   scanRendered();
 
   // 실패(창을 연 뒤 골드 부족·+20 없음이 됨): 상태·저장 불변, 쓰기 0번
@@ -2418,6 +2563,11 @@ async function rebirthUi(ok) {
   const { KEY, loadWith } = F12;
   const MIRROR = 'sword-enhance-v2-rebirth';
   const FEE = 19846200;
+  const C = require(path.join(ROOT, 'js', 'constants.js'));
+  const SHOP = C.FAME_SHOP;
+  const CUT_LV = C.MAX - 1;
+  // 테스트 쪽 기대값(§15.4 표의 식): 파괴 저항 v%를 적용한 +19 파괴 확률. 화면은 chances()에서 읽는다
+  const dest19 = v => C.DESTROY[CUT_LV] - Math.floor(C.DESTROY[CUT_LV] * v / 100);
   const clk = { t: Date.now() };
   const ready = fields => {
     const s = SG_default();
@@ -2452,13 +2602,24 @@ async function rebirthUi(ok) {
   ok(plain(section(env)).endsWith('최고 강화 +20 달성 시 환생이 열립니다') && section(env).includes('rebirth-locked') && !section(env).includes('data-act') && !section(env).includes('sec-head'),
     'locked: one line 최고 강화 +20 달성 시 환생이 열립니다, no buttons: ' + plain(section(env)));
 
-  // 표시(최고 +20, +20 검 보유, 골드 충분): 명성·횟수·상점 4행·환생 버튼 활성
+  // 표시(최고 +20, +20 검 보유, 골드 충분): 명성·횟수·상점 6행(FAME_TRACKS 순서, AC 56)·환생 버튼 활성
   env = boot({ [KEY]: JSON.stringify(ready()) });
   ok(plain(section(env)).includes('환생 0회') && plain(section(env)).includes('명성 0') && plain(section(env)).includes('명성 상점'), 'visible: count 0회, fame 0, shop heading');
-  ok(['startGold', 'income', 'slots', 'autoStart'].every(t => fameRow(env, t).includes(`data-act="buyFame" data-id="${t}"`)), 'shop: 4 rows with buyFame buttons');
-  ok(plain(fameRow(env, 'startGold')).includes('여유 자금 Lv 0/4') && plain(fameRow(env, 'startGold')).includes('환생 시작 골드 +2,000 G · 다음 환생부터')
-    && /disabled/.test(fameRow(env, 'startGold')), 'row: name, Lv n/max, effect, applies next rebirth, disabled without fame');
+  const rowOrder = [...section(env).matchAll(/data-track="([^"]+)"/g)].map(m => m[1]);
+  ok(C.FAME_TRACKS.length === 6 && rowOrder.join() === C.FAME_TRACKS.join() && C.FAME_TRACKS.every(t => fameRow(env, t).includes(`data-act="buyFame" data-id="${t}"`)),
+    `AC 56: shop has ${C.FAME_TRACKS.length} rows in FAME_TRACKS order, each with a buyFame button: ${rowOrder.join()}`);
+  ok(plain(fameRow(env, 'startGold')).includes(`여유 자금 Lv 0/${SHOP.startGold.costs.length}`)
+    && plain(fameRow(env, 'startGold')).includes(`환생 시작 골드 +${env.ctx.SG.fx.fmt(SHOP.startGold.values[0])} G · 다음 환생부터`)
+    && /disabled/.test(fameRow(env, 'startGold')), 'row: name, Lv n/max, effect, applies next rebirth, disabled without fame: ' + plain(fameRow(env, 'startGold')));
   ok(plain(fameRow(env, 'income')).includes('즉시 적용') && plain(fameRow(env, 'autoStart')).includes('환생 후 처음부터 자동 사냥 해금'), 'income/license apply now');
+  ok(plain(fameRow(env, 'destroyCut')).includes(`파괴 저항 Lv 0/${SHOP.destroyCut.costs.length}`)
+    && plain(fameRow(env, 'destroyCut')).includes(`파괴 확률 없음 → ${SHOP.destroyCut.values[0]}% 감소 · 즉시 적용`)
+    && fameRow(env, 'destroyCut').includes(`<small class="fame-example">+${CUT_LV} 파괴 ${dest19(0)}% → ${dest19(SHOP.destroyCut.values[0])}%</small>`),
+    'AC 56: destroy resistance row at Lv 0: 없음 → level-1 value, applies now, example line +19 파괴 now → next: ' + plain(fameRow(env, 'destroyCut')));
+  ok(`+${CUT_LV} 파괴 ${dest19(0)}% → ${dest19(SHOP.destroyCut.values[0])}%` === '+19 파괴 35% → 30%', 'AC 56 example text at the shipped constants is +19 파괴 35% → 30%');
+  ok(plain(fameRow(env, 'dropCut')).includes(`하락 저항 Lv 0/${SHOP.dropCut.costs.length}`)
+    && plain(fameRow(env, 'dropCut')).includes(`+${C.DROP_FROM} 이상 하락 확률 없음 → ${SHOP.dropCut.values[0]}% 감소 · 즉시 적용`)
+    && !fameRow(env, 'dropCut').includes('fame-example'), 'drop resistance row: +10 이상 하락 확률 없음 → level-1 value, applies now, no example line: ' + plain(fameRow(env, 'dropCut')));
   ok(section(env).includes(`<span class="fame-balance"><span class="ic">${env.ctx.M2_ICONS.fame}</span> 명성`)
     && section(env).includes(`data-act="askRebirth" ><span class="ic">${env.ctx.M2_ICONS.rebirth}</span> 환생</button>`),
     '9-2: fame balance keeps the fame SVG, the [환생] button uses the rebirth SVG');
@@ -2474,17 +2635,33 @@ async function rebirthUi(ok) {
   ok(askDisabled(env) && plain(section(env)).includes('필요 19,846,200 G'), 'noGold: disabled + 필요 19,846,200 G');
   ok(V(env).REASON.notReached === '아직 그 단계에 도달하지 못했습니다.', 'monument notReached wording unchanged');
 
-  // 상점 구매(환생 1회 뒤, 최고 0): 명성 3 → 여유 자금 1단계(1) → 최대·명성 부족 문구
+  // 상점 구매(환생 1회 뒤, 최고 0): 파괴 저항 4단계 → 여유 자금 4단계 → 하락 저항 1단계로 명성을 다 쓴 뒤 최대·명성 부족 문구
+  const lastCost = t => SHOP[t].costs[SHOP[t].costs.length - 1];
+  const startFame = lastCost('destroyCut') + lastCost('startGold') + SHOP.dropCut.costs[0];
   const after = ready({ best: 0, swords: [{ id: 3, lv: 0, prot: 2, pity: 0, trait: null }], active: 3, nextSwordId: 4, gold: 300,
-    rebirth: { count: 1, fame: 3, up: { startGold: 3, income: 0, slots: 0, autoStart: 0 } } });
+    rebirth: { count: 1, fame: startFame, up: { destroyCut: 3, dropCut: 0, startGold: 3, income: 0, slots: 0, autoStart: 0 } } });
   env = boot({ [KEY]: JSON.stringify(after) });
-  ok(plain(section(env)).includes('환생 1회') && plain(section(env)).includes('명성 3') && askDisabled(env), 'after a rebirth (best 0): section still visible, button disabled');
-  ok(plain(fameRow(env, 'startGold')).includes('Lv 3/4') && plain(fameRow(env, 'startGold')).includes('+10,000 G → +20,000 G') && !/disabled/.test(fameRow(env, 'startGold')),
-    'row shows current → next and the next cost (3) is affordable');
+  ok(plain(section(env)).includes('환생 1회') && plain(section(env)).includes(`명성 ${startFame}`) && askDisabled(env), 'after a rebirth (best 0): section still visible, button disabled');
+  const fmtG = env.ctx.SG.fx.fmt;
+  ok(plain(fameRow(env, 'startGold')).includes('Lv 3/4') && plain(fameRow(env, 'startGold')).includes(`+${fmtG(SHOP.startGold.values[2])} G → +${fmtG(SHOP.startGold.values[3])} G`)
+    && !/disabled/.test(fameRow(env, 'startGold')), 'row shows current → next and the next cost is affordable');
+  ok(plain(fameRow(env, 'destroyCut')).includes('Lv 3/4') && plain(fameRow(env, 'destroyCut')).includes(`파괴 확률 ${SHOP.destroyCut.values[2]}% 감소 → ${SHOP.destroyCut.values[3]}% 감소`)
+    && plain(fameRow(env, 'destroyCut')).includes(`+${CUT_LV} 파괴 ${dest19(SHOP.destroyCut.values[2])}% → ${dest19(SHOP.destroyCut.values[3])}%`)
+    && plain(fameRow(env, 'destroyCut')).endsWith(` ${lastCost('destroyCut')}`) && !/disabled/.test(fameRow(env, 'destroyCut')),
+    'destroy resistance Lv 3: now → next, example from the current and next values, next cost affordable: ' + plain(fameRow(env, 'destroyCut')));
+  click(env, 'buyFame', 'destroyCut');
+  ok(saved(env).rebirth.fame === startFame - lastCost('destroyCut') && saved(env).rebirth.up.destroyCut === 4 && plain(fameRow(env, 'destroyCut')).includes('최대')
+    && plain(fameRow(env, 'destroyCut')).includes(`파괴 확률 ${SHOP.destroyCut.values[3]}% 감소 · 즉시 적용`) && !fameRow(env, 'destroyCut').includes('→')
+    && !fameRow(env, 'destroyCut').includes('fame-example') && /disabled/.test(fameRow(env, 'destroyCut')),
+    'buy destroy resistance to max: fame spent, 최대 (disabled), effect shows only the current value, example line hidden: ' + plain(fameRow(env, 'destroyCut')));
   click(env, 'buyFame', 'startGold');
-  ok(saved(env).rebirth.fame === 0 && saved(env).rebirth.up.startGold === 4 && plain(fameRow(env, 'startGold')).includes('최대')
-    && /disabled/.test(fameRow(env, 'startGold')) && plain(section(env)).includes('명성 0'), 'buy: fame spent, row at max shows 최대 (disabled)');
-  click(env, 'buyFame', 'startGold');
+  ok(saved(env).rebirth.up.startGold === 4 && plain(fameRow(env, 'startGold')).includes('최대') && /disabled/.test(fameRow(env, 'startGold')),
+    'buy: start gold row at max shows 최대 (disabled)');
+  click(env, 'buyFame', 'dropCut');
+  ok(saved(env).rebirth.fame === 0 && saved(env).rebirth.up.dropCut === 1 && plain(section(env)).includes('명성 0')
+    && plain(fameRow(env, 'dropCut')).includes('Lv 1/4') && plain(fameRow(env, 'dropCut')).includes(`하락 확률 ${SHOP.dropCut.values[0]}% 감소 → ${SHOP.dropCut.values[1]}% 감소`)
+    && /disabled/.test(fameRow(env, 'dropCut')), 'buy drop resistance Lv 1: fame 0, now → next, next level disabled without fame: ' + plain(fameRow(env, 'dropCut')));
+  click(env, 'buyFame', 'destroyCut');
   click(env, 'buyFame', 'income');
   ok(toasts(env).includes('이미 최대 단계입니다') && toasts(env).includes('명성이 부족합니다'), 'maxed / noFame toasts');
   scanRendered();
@@ -2502,6 +2679,10 @@ async function rebirthUi(ok) {
   ok(modalOpen(env) && html.includes('aria-modal="true"'), 'askRebirth opens the confirm modal');
   ok([`${fmt(p.fee)} G`, `${fmt(p.gold)} G`, `${fmt(p.goldLost)} G`, `+${p.fameGain}`, `${fmt(p.startGold)} G`, `${p.slots}칸`, `+${p.incomePct}%`].every(s => plain(html).includes(s))
     && p.goldLost === 5000, 'modal numbers equal rebirthPreview (fee, gold, gold lost, fame, start gold, slots, income)');
+  ok(p.fameGain === C.FAME_PER_REBIRTH && plain(html).includes(`얻는 명성 +${C.FAME_PER_REBIRTH}`),
+    `AC 41/51: modal shows 얻는 명성 +${C.FAME_PER_REBIRTH} from rebirthPreview.fameGain (= FAME_PER_REBIRTH)`);
+  ok(p.destroyCut === 0 && p.dropCut === 0 && html.includes('<dt>파괴 저항</dt><dd>없음</dd>') && html.includes('<dt>하락 저항</dt><dd>없음</dd>'),
+    'AC 41: modal 환생 후 lists 파괴 저항 / 하락 저항 as 없음 without purchases');
   ok(plain(html).includes('+20 무한의 검') && plain(html).includes('업적·칭호·일일 과제·기념비·도감·통계·설정·명성·명성 상점')
     && plain(html).includes('이벤트 진행, 숙련 기록(단계별 1개만 남김)') && plain(html).includes('시작 보관함')
     && html.includes(`<h3 id="rebirthTitle"><span class="ic">${env.ctx.M2_ICONS.rebirth}</span> 환생할까요?</h3>`)
@@ -2565,12 +2746,23 @@ async function rebirthUi(ok) {
   side.scrollTop = 480;
   click(env, 'askRebirth');
   click(env, 'rebirth');
-  ok(!modalOpen(env) && saved(env).rebirth.count === 1 && toasts(env).includes('환생! 명성 +3'), 'confirm: reborn once, toast, modal closed');
+  ok(!modalOpen(env) && saved(env).rebirth.count === 1 && toasts(env).includes(`환생! 명성 +${C.FAME_PER_REBIRTH}`), `confirm: reborn once, toast 환생! 명성 +${C.FAME_PER_REBIRTH} (FAME_PER_REBIRTH), modal closed`);
   ok(pageFree(env), 'V1: confirm (rebirth) clears inert');
   ok(JSON.stringify(scrolls) === '[[0,0]]' && side.scrollTop === 0, 'confirm: scrolled to the top (page and side panel)');
-  ok(plain(section(env)).includes('환생 1회') && plain(section(env)).includes('명성 3') && askDisabled(env), 'records section after rebirth: 1회, fame 3');
+  ok(plain(section(env)).includes('환생 1회') && plain(section(env)).includes(`명성 ${C.FAME_PER_REBIRTH}`) && askDisabled(env), `records section after rebirth: 1회, fame ${C.FAME_PER_REBIRTH}`);
   ok(JSON.parse(env.store[MIRROR]).count === 1 && JSON.parse(env.store[MIRROR]).mark === 4, 'mirror carries the watermark (post-rebirth nextSwordId)');
   scanRendered();
+
+  // 저항을 산 상태의 확인 창(AC 41): 결과값이 rebirthPreview의 destroyCut·dropCut(현재 %)과 같고 상점 효과 문구와 같은 표기
+  env = boot({ [KEY]: JSON.stringify(ready({ rebirth: { count: 2, fame: 0, up: { destroyCut: 4, dropCut: 2, startGold: 0, income: 0, slots: 0, autoStart: 0 } } })) });
+  click(env, 'askRebirth');
+  const pCut = env.ctx.SG.rebirth.rebirthPreview(game.state());
+  ok(pCut.destroyCut === SHOP.destroyCut.values[3] && pCut.dropCut === SHOP.dropCut.values[1]
+    && modal(env)._html.includes(`<dt>파괴 저항</dt><dd>파괴 확률 ${pCut.destroyCut}% 감소</dd>`)
+    && modal(env)._html.includes(`<dt>하락 저항</dt><dd>+${C.DROP_FROM} 이상 하락 확률 ${pCut.dropCut}% 감소</dd>`),
+    'AC 41: modal shows the destroy / drop resistance % from rebirthPreview: ' + plain(modal(env)._html).slice(-200));
+  click(env, 'cancelRebirth');
+  ok(!modalOpen(env) && pageFree(env), 'V1: cancel still closes the modal and clears inert with resistances owned');
 
   // 재검사: 창을 연 뒤 골드가 줄면 확인해도 환생하지 않는다(문구 토스트, 창 닫힘, 쓰기 없음)
   env = boot({ [KEY]: JSON.stringify(ready()) });

@@ -18,7 +18,7 @@
   'use strict';
 
   // 화면(설정 팝오버)에 보이는 게임 버전. 루트 VERSION 파일과 같아야 한다(tests/run-tests.js가 비교)
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
 
   // ---------------------------------------------------------------- M0
   const MAX = 20;
@@ -385,23 +385,33 @@
   // 의식 비용 = roundTo(REBIRTH_FEE_MULT × huntReward(MAX), REBIRTH_FEE_ROUND). huntReward가 rules.js에 있어 값은 rebirth.js가 만든다
   const REBIRTH_FEE_MULT = 100;
   const REBIRTH_FEE_ROUND = 100;
-  const FAME_PER_REBIRTH = 3;
+  const FAME_PER_REBIRTH = 5;
   const MASTERY_KEEP_REC = 1;              // 환생 후 단계별 숙련 기록 상한
   const EARLY_INCOME_MAX_LV = 12;          // 초반 수입(income) 효과가 적용되는 topLv 상한
   const REBIRTH_COUNT_MAX = 1e6;           // 저장 정규화 상한(rebirth.count·fame). 런타임 증가도 같은 상한에서 멈춘다(V8)
   const FAME_MAX = 1e9;
-  // values[lv-1] = 그 레벨의 누적 값, costs[lv-1] = 그 레벨 구매 비용(명성). 키 순서 = UI 순서. 확률 항은 없다(§9)
+  // values[lv-1] = 그 레벨의 누적 값, costs[lv-1] = 그 레벨 구매 비용(명성). 키 순서 = UI 순서.
+  // 성공 확률 항은 없다(§9). destroyCut·dropCut은 succ가 정해진 뒤 파괴·하락 몫만 상대 %로 덜어 낸다(§15.3)
   const FAME_SHOP = {
-    startGold: { name: '여유 자금', values: [2000, 5000, 10000, 20000], costs: [1, 1, 2, 3] },
-    income:    { name: '초반 수완', values: [5, 10, 15, 20], costs: [1, 2, 3, 4] },
-    slots:     { name: '넉넉한 보관함', values: [1, 2], costs: [2, 3] },
-    autoStart: { name: '자동 사냥 면허', values: [1], costs: [3] },
+    destroyCut: { name: '파괴 저항', values: [15, 25, 35, 45], costs: [1, 1, 2, 3] },
+    dropCut:    { name: '하락 저항', values: [15, 25, 35, 45], costs: [1, 1, 2, 3] },
+    startGold:  { name: '여유 자금', values: [3000, 8000, 20000, 50000], costs: [1, 1, 2, 3] },
+    income:     { name: '초반 수완', values: [6, 12, 18, 25], costs: [1, 2, 3, 4] },
+    slots:      { name: '넉넉한 보관함', values: [1, 2], costs: [2, 3] },
+    autoStart:  { name: '자동 사냥 면허', values: [1], costs: [3] },
   };
   const FAME_TRACKS = Object.keys(FAME_SHOP);
   // 레벨·정규화 상한이 values/costs 길이에 묶이고, 시작 칸이 SLOT_MAX를 넘으면 환생 결과가 정규화에서 잘린다
   if (FAME_TRACKS.some(k => FAME_SHOP[k].values.length < 1 || FAME_SHOP[k].values.length !== FAME_SHOP[k].costs.length) ||
       MASTERY_KEEP_REC < 0 || FAME_PER_REBIRTH < 1 || SLOT_START + Math.max(...FAME_SHOP.slots.values) > SLOT_MAX) {
     throw new Error('REBIRTH / FAME_SHOP constants are inconsistent');
+  }
+  // 100% 이상이면 dest가 0이 되어 보호 토글 판정(DESTROY[lv] > 0)이 깨지고, 순증가가 아니면 상점 '지금 → 다음'이 거꾸로 간다(§2)
+  const FAME_CUT_MIN = 1;
+  const FAME_CUT_MAX = 99;
+  const isCutTable = v => v.every((x, i) => Number.isInteger(x) && x >= FAME_CUT_MIN && x <= FAME_CUT_MAX && (i === 0 || x > v[i - 1]));
+  if (!isCutTable(FAME_SHOP.destroyCut.values) || !isCutTable(FAME_SHOP.dropCut.values)) {
+    throw new Error('FAME_SHOP destroyCut / dropCut values must be strictly increasing integers in 1..99');
   }
 
   // ---------------------------------------------------------------- 아이템 정의 (데이터 주도)

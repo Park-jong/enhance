@@ -46,7 +46,7 @@ function chances(sword, opts):            // opts: {bless, anvil, sure}
   return {succ, dest, fail, parts:{bBless,bAnvil,bPity}, raw, bonus, capped: raw > BONUS_CAP or succ == SUCC_CEIL}
 ```
 - **적용 순서**: ① 각 항목 개별 계산(pity는 자체 최대치 먼저) → ② 합산 → ③ 합계 상한 → ④ 절대 천장 → ⑤ 파괴율 재계산.
-- 파괴율은 보너스로 **감소시키지 않는다**(방어는 보호권의 몫). 따라서 보너스가 클수록 실패 칸(하락/유지)이 줄어듦.
+- 파괴율은 **보너스(축복·모루·pity·숙련·이벤트)로는** 감소시키지 않는다(방어는 보호권의 몫). (2026-11-27 변경: m2-rebirth §15) 단, 명성 상점의 파괴 저항·하락 저항은 위 `succ`·`dest`를 구한 **뒤에** `dest`를 `D0 − floor(D0×v/100)`로 깎고 덜어 낸 몫을 "하락 없는 실패(`stay`)"로 돌린다. `chances()`는 `destBase`·`destSaved`·`dropRelief`·`stay`·`drop` 필드를 더 돌려준다(이 문서의 의사코드는 저항 0일 때의 값). 따라서 보너스가 클수록 실패 칸(하락/유지)이 줄어듦.
 - 절대 천장은 `+0~+1`처럼 base가 이미 높은 단계에 의미가 없도록 `max(base, SUCC_CEIL)`로 둠(기본보다 낮아지지 않음).
 
 ### 합계 예 (확정값, +15 base 20%, 상한 14)

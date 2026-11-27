@@ -211,3 +211,10 @@
 - 산출물: docs/verification-issues.md (V9 2회, ⚠️)
 - 결정 사항: 전 스위트 통과(522/726/29/36/189/1208/19). 필수 수정 없음 → APPROVED. 미커밋 release-1.0.md는 같은 커밋에 포함 필요
 - 남은 문제: settleStale adopt 후 flushAchieved 누락(should), settleClaim 주석, run-tests.js:4501 durationSec/60 식, title picker decoIc, sim-late AC10 수치 변경(문서 인용값 확인 필요)
+
+## 2026-11-27 — 환생 보강 (명성 상점) 검증 (1차)
+- 지시: 디렉터 / 관련 단계: post-1.0 F11 환생 보강 / 처리한 요청: 없음
+- 참여 팀원: 없음 (QA 리드가 직접 검증: 테스트·diff·변이 확인)
+- 산출물: 없음 (docs/verification-issues.md 변경 없음)
+- 결정 사항: APPROVED. 전 스위트 통과(541/756/29/36/189/1493/19). smoke-dom 30회 반복 0회 실패. 정체성 테스트는 git show 731f0c3 코드를 VM에 올려 비교하며, rules.js에 의도적 변경 시 8건 실패 확인.
+- 남은 문제: 없음

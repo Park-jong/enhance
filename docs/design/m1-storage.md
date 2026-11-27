@@ -117,10 +117,10 @@
 | `events.active` | `{id, remainMs}` 또는 `null` | `null` | 진행 중 이벤트. `id`가 `EVENTS`의 자기 속성(`hasOwn`, `'constructor'`·`'__proto__'` 거부)이 아니면 `null`. `remainMs`는 정수화 후 `0..durationSec×1000`으로 clamp, 0이면 만료로 보고 `null`. `{id, remainMs}` 외 필드는 버림 (2026-11-23 추가) | m2-events §10 |
 | `events.sinceMs` | 정수 `0..EVENT_GAP_MAX_SEC×1000` | 0 | 직전 이벤트 종료(또는 최초)부터 쌓인 활성 플레이 ms (2026-11-23 추가) | m2-events §6.2·§10 |
 | `events.nextAtMs` | 정수 `EVENT_GAP_MIN_SEC×1000..EVENT_GAP_MAX_SEC×1000` | `EVENT_GAP_MIN_SEC×1000` | 다음 스폰 임계값 ms. 이벤트 종료 때 뽑아 저장(새로고침으로 다시 뽑지 못함). 범위 밖은 clamp, 없거나 비수치면 최소값 (2026-11-23 추가) | m2-events §6.2·§10 |
-| `rebirth` | `{ count, fame, up }` | `{count:0, fame:0, up:{startGold:0, income:0, slots:0, autoStart:0}}` | M2 F11 환생 상태. 객체가 아니면(없음·배열·숫자·문자열·null) 기본값, `up`도 객체가 아니면 전부 0. `{count, fame, up}`·`up` 4키 외는 버림. 지출 ≤ 획득은 강제하지 않음. 환생은 이 필드를 유지(+1·+3)하고 다른 필드는 m2-rebirth §8 표대로 초기화·유지 (2026-11-24 추가) | m2-rebirth §8 |
+| `rebirth` | `{ count, fame, up }` | `{count:0, fame:0, up:{destroyCut:0, dropCut:0, startGold:0, income:0, slots:0, autoStart:0}}` | M2 F11 환생 상태. 객체가 아니면(없음·배열·숫자·문자열·null) 기본값, `up`도 객체가 아니면 전부 0. `{count, fame, up}`·`up` 6키 외는 버림(2026-11-27: 4키 → 6키, 새 키가 없는 옛 저장은 0으로 채움). 지출 ≤ 획득은 강제하지 않음. 환생은 이 필드를 유지(+1·+`FAME_PER_REBIRTH`(5))하고 다른 필드는 m2-rebirth §8 표대로 초기화·유지 (2026-11-24 추가) | m2-rebirth §8 |
 | `rebirth.count` | 정수 `0..REBIRTH_COUNT_MAX`(1e6) | 0 | 환생 횟수. `int(v,0,0,1e6)` (2026-11-24 추가) | m2-rebirth §8 |
 | `rebirth.fame` | 정수 `0..FAME_MAX`(1e9) | 0 | 명성 잔액. `int(v,0,0,1e9)` (2026-11-24 추가) | m2-rebirth §8 |
-| `rebirth.up.startGold/income/slots/autoStart` | 정수 0..트랙 최대 레벨(4/4/2/1) | 0 | 명성 상점 레벨. `int(v,0,0,FAME_SHOP[트랙].costs.length)` (2026-11-24 추가) | m2-rebirth §4·§8 |
+| `rebirth.up.destroyCut/dropCut/startGold/income/slots/autoStart` | 정수 0..트랙 최대 레벨(4/4/4/4/2/1) | 0 | 명성 상점 레벨. `int(v,0,0,FAME_SHOP[트랙].costs.length)` (2026-11-24 추가) | m2-rebirth §4·§8 |
 
 ### 로드 규칙(`load()`)
 1. `sword-enhance-v2`가 있으면 파싱 후 기본값 병합(M0 `load()`와 같은 얕은 병합 + 중첩 객체별 병합). 

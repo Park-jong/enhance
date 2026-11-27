@@ -234,3 +234,10 @@
 - 산출물: js/main.js, view.js, constants.js, events.js, test-panel.js, css/style.css, index.html, test.html, tools/sim-late/lib/mechanics.js, tests/*, docs/design/m2-events·m2-achievements·m2-traits.md, docs/content/m2-wording.md
 - 결정 사항: 지연 업적 알림은 채택 시 비우지 않고 ACH_REACHED만 필터(V9). 천장 분기 유지. eventDescription 제거. 숙련 목록 150px+nowrap(360px은 1열). 연출 중 판매가는 강화 전 값+특성. sim-late A/B는 게임 입력 중화.
 - 남은 문제: VERSION 파일을 1.0.0으로 올려야 버전 일치 테스트 통과(디렉터). 다른 연출 토스트(숙련·각인 등)의 잠금 뒤 표시는 미처리. m1-constants-index에 VERSION·TRAITS.income 추가 필요(디자인).
+
+## 2026-11-27 — F11 환생 보강 (명성 상점 6트랙, 파괴·하락 저항)
+- 지시: 디렉터 / 관련 단계: 1.0 이후 변경 요청 / 처리한 요청: 없음
+- 참여 팀원: client-programmer(규칙·데이터·run-tests), client-programmer(화면·smoke·browser-strip·문구), tools-engineer(문서 소비자)
+- 산출물: js/constants.js, rules.js, rebirth.js, view.js, index.html, test.html, css/style.css, docs/content/m2-wording.md, docs/qa/m2-playtest-checklist.md, docs/design/m2-rebirth.md §15 동기화, tests/run-tests.js, smoke-dom.js, browser-strip.js
+- 결정 사항: 저항 0이면 1.0.0과 동일(커밋 731f0c3 기준 동일성 테스트). +10 이상 유지 실패 0%도 표시. AC45 주문서 검사는 +14로 이동(주문서는 +10~+14만). 소급 명성 없음.
+- 남은 문제: 콘텐츠의 신규 문구 검토, 플레이 테스트(AC 57), m2-overview 상태 줄 갱신(설계 팀)

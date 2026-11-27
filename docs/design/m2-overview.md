@@ -273,7 +273,7 @@ H_L = huntReward(L): 13→2,676, 14→4,951, 15→9,158, 16→16,943, 17→31,34
 | 환생 시 이벤트 상태(`events`) | **C에서 확정됨 → m2-rebirth.md §8** | **초기화**(진행 중 이벤트 취소) |
 | 환생 시 `stats.eventsSeen` | **C에서 확정됨 → m2-rebirth.md §8** | **유지** |
 | 환생 후 이벤트 해금 기준 | **C에서 확정됨 → m2-rebirth.md §8.1** | `S.best ≥ EVENT_UNLOCK_BEST(5)` 그대로(새 필드 없음) |
-| 환생 보상이 확률을 올릴 때 행운의 시간 | **C에서 확정됨 → m2-rebirth.md §9** | 환생·명성은 확률 항을 더하지 않음(해소). 이벤트 하드 규칙 유지 |
+| 환생 보상이 확률을 올릴 때 행운의 시간 | **C에서 확정됨 → m2-rebirth.md §9** | 환생·명성은 **성공** 확률 항을 더하지 않음(해소). 이벤트 하드 규칙 유지. (2026-11-27: 명성 상점의 파괴·하락 저항은 파괴·하락 몫만 줄이며 `succ`에 영향 없음, m2-rebirth §15) |
 | 환생 의식 비용과 이벤트 | **C에서 확정됨** | 연동 없음 |
 
 ## I. 인수 조건 (Given/When/Then)
@@ -287,4 +287,4 @@ H_L = huntReward(L): 13→2,676, 14→4,951, 15→9,158, 16→16,943, 17→31,34
 8. **페이스 보호**: Given 임의의 `S`, When `traitRekindCost`·`traitTierUpCost`·`buyMonument`를 실행(성공 포함), Then `chances()` 출력, 게이지, 숙련 기록, `BONUS_CAP` 값이 실행 전과 같다.
 9. **해금**: Given `S.best=12`, When 종류 변경·등급 올리기를 시도, Then 거부(`locked`, 사유 이름은 `m2-traits.md`). Given `S.best=13`, Then 허용.
 10. **배치 B 인수 조건 위치**: F12 업적·일일 과제의 AC는 `m2-achievements.md` §16, F13 시간 이벤트의 AC는 `m2-events.md` §14에 있다. 항목 7(기존 수입·가격 회귀)·8(페이스 보호)은 F12의 `claim*`·`refreshDaily`·`syncAchievements`와 F13의 `advanceEvents`·이벤트 효과도 같은 입력에서 `huntReward`·`autoReward`·`boosterPrice`·`cost`·`sell`·가격 상수를 바꾸지 않고, 사용처 실행이 `chances()`·게이지·숙련·`BONUS_CAP` 값을 바꾸지 않는다는 뜻으로 확장해 읽는다(이벤트 비활성 시 `chances()` 출력은 M1과 같다).
-11. **환생·저장 인수 조건 위치**: F11 환생·명성 상점·저장 필드 전체 표(`rebirth` 정규화, 환생 전이 불변식)의 AC는 `m2-rebirth.md` §10(AC 1~41), 구현 단계별 훅은 §11이다. 항목 7(회귀)·8(페이스 보호)은 `rebirth`가 기본값(`count=0`, `up` 전부 0)일 때 환생 기능이 `chances()`·가격식·수입을 바꾸지 않는다는 뜻으로도 읽는다.
+11. **환생·저장 인수 조건 위치**: F11 환생·명성 상점·저장 필드 전체 표(`rebirth` 정규화, 환생 전이 불변식)의 AC는 `m2-rebirth.md` §10(AC 1~41)과 §15.8(AC 42~57, 2026-11-27 환생 보강), 구현 단계별 훅은 §11이다. 항목 7(회귀)·8(페이스 보호)은 `rebirth`가 기본값(`count=0`, `up` 전부 0)일 때 환생 기능이 `chances()`·가격식·수입을 바꾸지 않는다는 뜻으로도 읽는다.

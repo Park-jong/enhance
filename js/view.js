@@ -417,6 +417,23 @@
     return s + eventBreakdownNote(c);
   }
 
+  // 결과 분해 줄(m2-rebirth §15.3 UI): 숫자는 모두 굴림과 같은 chances() 필드(AC 46)
+  const ODDS_TEXT = { succ: '성공', dest: '파괴', drop: '하락', stay: '유지 실패', fail: '실패', relief: '(명성)' };
+  const oddsPart = text => `<span class="odds-part">${text}</span>`;
+  /**
+   * "성공 · 파괴 · 하락 · 유지 실패"(+DROP_FROM 미만은 하락이 없어 "실패" 하나) + 명성 저항 보조 줄.
+   * 확정 시도·최대 단계(parts 없음)는 확률 내역 줄이 이미 "성공 100% · 파괴 0%"를 말하므로 ''
+   */
+  function oddsSplitHTML(lv, c) {
+    if (!c || !c.parts) return '';
+    const rows = [['succ', c.succ], ['dest', c.dest]]
+      .concat(lv >= C.DROP_FROM ? [['drop', c.drop], ['stay', c.stay]] : [['fail', c.fail]]);
+    const split = rows.map(([k, v]) => oddsPart(`${ODDS_TEXT[k]} ${v}%`)).join(' · ');
+    const relief = [['dest', c.destSaved], ['drop', c.dropRelief]].filter(([, n]) => n > 0)
+      .map(([k, n]) => oddsPart(`${ODDS_TEXT[k]} −${n}%p ${ODDS_TEXT.relief}`)).join(' · ');
+    return split + (relief ? `<span class="odds-relief">${relief}</span>` : '');
+  }
+
   /** 성공 확률 아래 천장 게이지 줄(+15~+19에서만) */
   function gaugeHTML(g) {
     return `천장 ${g.value}/${g.n}${g.full ? ` <span class="badge good">${ic('sure_badge')} 확정!</span>` : ''}`;
@@ -426,6 +443,12 @@
     if (lv >= C.MAX) return `${C.ICONS.achievement} 더 이상 강화할 수 없습니다. 무한의 검을 완성했습니다!`;
     if (c.sure) return '확정 강화권으로 반드시 성공합니다.';
     if (c.gaugeFull) return '천장 게이지가 가득 찼습니다. 이번 강화는 소모품 없이 반드시 성공합니다.';
+    if (lv >= C.DROP_FROM && c.stay > 0) {
+      // 하락 저항·파괴 저항이 만든 유지 실패는 단계가 그대로이고 하락 방지 주문서도 쓰지 않는다(§15.4)
+      return use.keepdown
+        ? `하락 (${c.drop}%) 시 하락 방지 주문서가 단계를 지켜 줍니다. 유지 실패 (${c.stay}%)에는 쓰지 않습니다.`
+        : `하락 (${c.drop}%) 시 +${lv - 1}로 내려갑니다. 유지 실패 (${c.stay}%)는 단계가 그대로입니다.`;
+    }
     if (lv >= C.DROP_FROM) {
       return use.keepdown
         ? `실패 시 (${c.fail}%) 하락 방지 주문서가 단계를 지켜 줍니다.`
@@ -464,6 +487,7 @@
     setHTML($('#gaugeLine'), '');
     $('#destWarn').hidden = true;
     setHTML($('#breakdown'), '');
+    setHTML($('#oddsSplit'), '');
     setHTML($('#pityLine'), '');
     $('#note').textContent = '보관함의 검을 한 번 클릭하면 바로 활성 검이 됩니다.';
     renderIncomeNote(S);
@@ -506,6 +530,7 @@
     $('#destWarn').hidden = !protWarn;
 
     setHTML($('#breakdown'), isMax ? '' : breakdownHTML(c));
+    setHTML($('#oddsSplit'), isMax ? '' : oddsSplitHTML(l, c));
     const pity = c.parts ? c.parts.pity : 0;
     const pityMax = C.PITY_MAX[R.pityBand(Math.min(l, C.MAX - 1))];
     setHTML($('#pityLine'), pity > 0
@@ -1053,8 +1078,12 @@
     cancel: '취소',
     confirm: '환생하기',
   };
-  // 상점 행 효과 문구(§4). when: 시작 골드·칸은 다음 환생 때, 수입·면허는 산 즉시 적용
+  // 상점 행 효과 문구(§4·§7.1). when: 시작 골드·칸은 다음 환생 때, 저항·수입·면허는 산 즉시 적용.
+  // zero: 0레벨에서 '지금' 자리 글자(없으면 1레벨 값만), example: 효과 예시 줄(lv → 문구, 없으면 '')
+  const resistValue = v => `${v}% 감소`;
   const FAME_TEXT = {
+    destroyCut: { label: '파괴 확률', value: resistValue, zero: '없음', when: 'now', example: destroyCutExample },
+    dropCut: { label: `+${C.DROP_FROM} 이상 하락 확률`, value: resistValue, zero: '없음', when: 'now' },
     startGold: { label: '환생 시작 골드', value: v => `+${fmt(v)} G`, when: 'next' },
     income: { label: `보관함 최고 +${C.EARLY_INCOME_MAX_LV} 이하일 때 사냥·자동·오프라인 골드`, value: v => `+${v}%`, when: 'now' },
     slots: { label: '환생 시작 보관함', value: v => `+${v}칸`, when: 'next' },
@@ -1067,17 +1096,33 @@
     const t = FAME_TEXT[track];
     if (!t.value) return t.label;
     const at = n => t.value(R.fameValueAt(track, n));
-    if (lv <= 0) return `${t.label} ${at(1)}`;
+    if (lv <= 0) return t.zero ? `${t.label} ${t.zero} → ${at(1)}` : `${t.label} ${at(1)}`;
     return lv >= RB.fameMaxLevel(track) ? `${t.label} ${at(lv)}` : `${t.label} ${at(lv)} → ${at(lv + 1)}`;
   }
+  // 파괴 저항 예시 단계: 파괴 확률이 가장 큰 마지막 강화 단계(+19)
+  const FAME_EXAMPLE_LV = C.MAX - 1;
+  /**
+   * "+19 파괴 35% → 30%": 지금 레벨과 다음 레벨 값을 넣은 chances()의 파괴 확률(굴림과 같은 식). 최대 레벨이면 ''.
+   * 테스트 페이지의 강제 성공(parts 없음)에서는 파괴가 늘 0이라 예시가 뜻이 없어 ''
+   */
+  function destroyCutExample(lv) {
+    if (lv >= RB.fameMaxLevel('destroyCut')) return '';
+    const at = n => R.chances({ lv: FAME_EXAMPLE_LV, pity: 0 }, { destroyCut: R.fameValueAt('destroyCut', n) });
+    const now = at(lv);
+    if (!now.parts) return '';
+    return `+${FAME_EXAMPLE_LV} ${ODDS_TEXT.dest} ${now.dest}% → ${at(lv + 1).dest}%`;
+  }
+  /** 확인 창 '환생 후' 결과값: 0이면 '없음', 아니면 상점 효과 문구와 같은 표기("파괴 확률 45% 감소") */
+  const fameResultText = (track, v) => (v > 0 ? `${FAME_TEXT[track].label} ${FAME_TEXT[track].value(v)}` : FAME_TEXT[track].zero);
   /** 명성 상점 한 행: 이름·레벨 n/최대·효과·적용 시점, 버튼 = 다음 비용(최대면 '최대'). 최대 여부는 사유가 아니라 비용 데이터로 본다(V7) */
   function fameRowHTML(S, track) {
     const lv = S.rebirth.up[track];
     const cost = RB.nextFameCost(S, track);
     const label = cost === null ? REBIRTH_TEXT.max : `${ic('fame')} ${fmt(cost)}`;
+    const example = FAME_TEXT[track].example ? FAME_TEXT[track].example(lv) : '';
     return `<div class="row fame-row" data-track="${track}">
       <div class="shop-text">${C.FAME_SHOP[track].name} <span class="muted">Lv ${lv}/${RB.fameMaxLevel(track)}</span>
-        <small>${fameEffectText(track, lv)} · ${FAME_WHEN_TEXT[FAME_TEXT[track].when]}</small></div>
+        <small>${fameEffectText(track, lv)} · ${FAME_WHEN_TEXT[FAME_TEXT[track].when]}</small>${example ? `<small class="fame-example">${example}</small>` : ''}</div>
       <button class="buy" data-act="buyFame" data-id="${track}" ${RB.fameBlock(S, track) ? 'disabled' : ''}>${label}</button></div>`;
   }
   /** [환생] 버튼과 한 줄 안내: 막히면 비활성 + 사유(§7), 강화 연출 중에도 비활성(확인 창을 열지 않음) */
@@ -1113,7 +1158,8 @@
       <h4>사라짐</h4><p>${T.lost}</p>
       <h4>환생 후</h4>
       <dl class="rb-list">${rbItem('시작 골드', goldText(p.startGold))}${rbItem('시작 보관함', `${p.slots}칸`)}
-        ${rbItem('초반 수입', `+${p.incomePct}% (보관함 최고 +${C.EARLY_INCOME_MAX_LV} 이하)`)}${rbItem('자동 사냥 면허', p.autoStart ? '있음' : '없음')}</dl>
+        ${rbItem('초반 수입', `+${p.incomePct}% (보관함 최고 +${C.EARLY_INCOME_MAX_LV} 이하)`)}${rbItem('자동 사냥 면허', p.autoStart ? '있음' : '없음')}
+        ${rbItem(C.FAME_SHOP.destroyCut.name, fameResultText('destroyCut', p.destroyCut))}${rbItem(C.FAME_SHOP.dropCut.name, fameResultText('dropCut', p.dropCut))}</dl>
       ${A.claimableAny(S) ? `<p class="rb-warn">${T.unclaimed}</p>` : ''}
       <div class="rb-btns"><button class="small-btn" data-act="cancelRebirth">${T.cancel}</button><button class="small-btn gold" data-act="rebirth">${T.confirm}</button></div></div>`;
   }
@@ -1247,7 +1293,7 @@
     CLAIM_REASON, NEW_DAILY_TEXT, achReachedText, achClaimText, dailyClaimText, bonusClaimText, claimAllText,
     DAILY_TEXT, ACH_COND, ACH_TRACK_NAME,
     SAVE_SAFETY_TEXT, corruptKeptText, renderSaveStatus, showCorruptRaw,
-    breakdownHTML, eventChipHTML, eventChipLabel, eventCapCause, eventBreakdownNote, luckIdleText, eventPopHTML,
+    breakdownHTML, oddsSplitHTML, eventChipHTML, eventChipLabel, eventCapCause, eventBreakdownNote, luckIdleText, eventPopHTML,
     incomeEventText, eventPctText, eventDurationText, eventStartText, eventEndText, eventAssistText,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

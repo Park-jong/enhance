@@ -54,16 +54,36 @@
   }
   const isGaugeFull = (S, l) => { const g = gaugeInfo(S, l); return !!g && g.full; };
 
+  // 확정·최대 단계에는 나눌 실패가 없다: 파괴·하락 저항 분할 필드는 모두 0(m2-rebirth §15.3)
+  const NO_SPLIT = { destBase: 0, destSaved: 0, dropRelief: 0, stay: 0, drop: 0 };
   // 상한·천장·보정을 모두 건너뛰는 확정 결과(테스트 강제 / 확정 강화권 / 천장 게이지). flag: forced|sure|gaugeFull
   // 이벤트 항(m2-events §5.2)은 확정·최대 단계에서 0이고 parts는 null 그대로다
-  const certain = (l, flag) => ({
+  const certain = (l, flag) => Object.assign({
     succ: 100, dest: 0, fail: 0, base: C.RATE[l], parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0, [flag]: true,
     event: 0, succNoEvent: 100, eventGain: 0, eventLost: 0,
-  });
+  }, NO_SPLIT);
+  /** 정수 x의 pct%를 내림(파괴·하락 저항의 덜어 내는 몫) */
+  const cutOf = (x, pct) => Math.floor(x * pct / C.PERCENT);
 
   /**
-   * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure, gaugeFull, mastery(성공 기록 횟수), event(행운의 시간 %p) }
-   * — m1-pity-cap §3, m1.1-late-correction §3.3. 규칙 모듈은 S를 모르므로 gaugeFull·mastery는 호출자가 주입한다.
+   * 성공이 아닌 몫을 파괴·하락 없는 실패(stay)·하락(drop)으로 나눈다(m2-rebirth §15.3). succ는 이미 끝난 값이고 바꾸지 않는다.
+   * 파괴 저항이 덜어 낸 파괴는 하락이 아니라 stay로 간다. +10(DROP_FROM) 미만은 모든 실패가 stay(하락 없음)
+   */
+  function splitFailure(l, succ, destroyCut, dropCut) {
+    const destBase = Math.max(0, Math.min(C.DESTROY[l], 100 - succ));
+    const destSaved = cutOf(destBase, destroyCut);
+    const dest = destBase - destSaved;
+    const fail = 100 - succ - dest;
+    const drops = l >= C.DROP_FROM;
+    const dropRelief = drops ? cutOf(100 - succ - destBase, dropCut) : 0;
+    const stay = drops ? destSaved + dropRelief : fail;
+    return { dest, fail, destBase, destSaved, dropRelief, stay, drop: fail - stay };
+  }
+
+  /**
+   * 성공/파괴/실패 확률(정수 %). opts: { bless, anvilGrade(0..3), sure, gaugeFull, mastery(성공 기록 횟수), event(행운의 시간 %p),
+   * destroyCut·dropCut(명성 파괴·하락 저항 %) } — m1-pity-cap §3, m1.1-late-correction §3.3, m2-rebirth §15.3.
+   * 규칙 모듈은 S를 모르므로 gaugeFull·mastery·저항은 호출자(enhanceOpts)가 주입한다. 굴림 구간: 성공 → 파괴 → stay → drop.
    * config.forceSuccess(테스트 페이지 설정)가 켜져 있으면 모든 단계·옵션에서 성공 100%. 강화 굴림은 모두 이 값을 따른다
    * 주의: forceSuccess는 테스트 페이지(test.html, js/test-mode.js) 전용이다. 실제 페이지(index.html)에서는 절대 켜지 않는다
    */
@@ -71,8 +91,8 @@
     const l = sword.lv;
     const o = opts || {};
     if (l >= C.MAX) {
-      return { succ: 0, dest: 0, fail: 0, base: 0, parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0,
-        event: 0, succNoEvent: 0, eventGain: 0, eventLost: 0 };
+      return Object.assign({ succ: 0, dest: 0, fail: 0, base: 0, parts: null, raw: 0, bonus: 0, cap: 0, capped: false, mastery: 0,
+        event: 0, succNoEvent: 0, eventGain: 0, eventLost: 0 }, NO_SPLIT);
     }
     if (config.forceSuccess) return certain(l, 'forced');
     if (o.sure && l < C.SURE_MAX_TARGET) return certain(l, 'sure');
@@ -94,12 +114,13 @@
     const mastery = masteryBonus(l, o.mastery || 0);
     const succOf = b => Math.min(base + b + mastery, Math.max(base, C.SUCC_CEIL));
     const succ = succOf(bonus);
-    const dest = Math.max(0, Math.min(C.DESTROY[l], 100 - succ));
+    const split = splitFailure(l, succ, o.destroyCut || 0, o.dropCut || 0);
     const succNoEvent = event > 0 ? succOf(Math.min(rawNoEvent, cap)) : succ;
     const eventGain = succ - succNoEvent;
     return {
-      succ, dest, fail: 100 - succ - dest, base, parts, raw, bonus, cap, capped: raw > cap || succ < base + bonus + mastery, mastery,
+      succ, dest: split.dest, fail: split.fail, base, parts, raw, bonus, cap, capped: raw > cap || succ < base + bonus + mastery, mastery,
       event, succNoEvent, eventGain, eventLost: event - eventGain,
+      destBase: split.destBase, destSaved: split.destSaved, dropRelief: split.dropRelief, stay: split.stay, drop: split.drop,
     };
   }
 
@@ -111,7 +132,8 @@
   /** 사냥·자동·오프라인 수입 기준 단계: 보관함 최고 단계 검(사용자 결정) */
   const topLv = S => bestSword(S).lv;
 
-  // ============================================================ 명성 상점 효과 조회 (F11, m2-rebirth §4) — chances()·가격식은 이 함수들을 쓰지 않는다
+  // ============================================================ 명성 상점 효과 조회 (F11, m2-rebirth §4)
+  // chances()·가격식은 이 함수들을 쓰지 않는다. 파괴·하락 저항은 enhanceOpts가 읽어 chances()의 opts로 넘긴다(§15.3)
   /** 그 트랙의 현재 레벨 값(0레벨·알 수 없는 트랙이면 0). rebirth가 없는 상태(직접 조립한 옛 테스트·도구 상태)는 0레벨로 본다 */
   function fameValue(S, track) {
     if (!hasOwn(C.FAME_SHOP, track) || !S.rebirth || !S.rebirth.up) return 0;
@@ -369,7 +391,10 @@
     anvil: opts => Object.assign({}, opts, { anvilGrade: 0 }),
   };
 
-  /** 활성 검의 이번 시도 확률 옵션: 실제 적용되는 토글 + 계정 공통 천장 게이지·숙련 기록(m1.1 §3.3). 활성 검 없으면 null */
+  /**
+   * 활성 검의 이번 시도 확률 옵션: 실제 적용되는 토글 + 계정 공통 천장 게이지·숙련 기록(m1.1 §3.3)
+   * + 명성 파괴·하락 저항(m2-rebirth §15.3, S.rebirth에서 읽는 것은 이 둘뿐). 활성 검 없으면 null
+   */
   function enhanceOpts(S) {
     const sw = activeSword(S);
     if (!sw) return null;
@@ -379,6 +404,7 @@
     return {
       bless: use.bless, anvilGrade: anvil ? anvil.g : 0, sure: use.sure,
       gaugeFull: isGaugeFull(S, lv), mastery: masteryCount(S, lv), event: E.luckBonus(S, lv),
+      destroyCut: fameValue(S, 'destroyCut'), dropCut: fameValue(S, 'dropCut'),
     };
   }
   /** 지금 강화하면 적용될 확률(화면 표시와 실제 굴림이 같은 값을 쓰도록 한 곳에서 계산). 활성 검 없으면 null */
@@ -444,10 +470,15 @@
       r.newActiveId = removed.activeId;
       return 'destroy';
     },
-    fail(S, sw, r, use) {
+    // 하락 없는 실패: +10 미만의 모든 실패와 +10 이상에서 저항이 덜어 낸 몫. 하락 방지 주문서는 쓰지 않는다(§15.4)
+    stay(S, sw) {
       S.stats.fail++;
       sw.pity++;
-      if (sw.lv < C.DROP_FROM) return 'fail';
+      return 'fail';
+    },
+    drop(S, sw, r, use) {
+      S.stats.fail++;
+      sw.pity++;
       if (use.keepdown && S.inv.keepdown > 0) {
         S.inv.keepdown--;
         return 'kept';
@@ -457,6 +488,12 @@
       return 'drop';
     },
   };
+  /** 결과 롤 roll(= rng() × 100)이 떨어진 chances 구간: 성공 → 파괴 → 하락 없는 실패 → 하락 */
+  function rollKind(ch, roll) {
+    if (roll < ch.succ) return 'success';
+    if (roll < ch.succ + ch.dest) return 'destroy';
+    return roll < ch.succ + ch.dest + ch.stay ? 'stay' : 'drop';
+  }
 
   /**
    * 계정 공통 천장 게이지·숙련 기록 갱신(시도 시작 단계 l 기준, m1.1 §2·§3.1).
@@ -510,8 +547,7 @@
 
     const r = { ok: true, swordId: sw.id, from: l, price, chances: ch, used: use, gaugeBefore: gaugeInfo(S, l) };
     const roll = rng() * 100;
-    const kind = roll < ch.succ ? 'success' : roll < ch.succ + ch.dest ? 'destroy' : 'fail';
-    r.outcome = OUTCOME[kind](S, sw, r, use);
+    r.outcome = OUTCOME[rollKind(ch, roll)](S, sw, r, use);
     // 행운의 시간이 없었으면 성공이 아니었던 롤(같은 결과 롤로 판정, m2-events §5.2)
     r.eventAssist = r.outcome === 'success' && ch.event > 0 && roll >= ch.succNoEvent;
     // 대장장이·모루 가호: 결과 롤 다음, 파손 판정 전. 파괴로 칸에서 빠져도 sw 객체의 특성을 읽는다(m2-traits §3.1-6)

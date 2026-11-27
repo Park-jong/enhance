@@ -3716,6 +3716,8 @@ describe('F12 daily table load guards', () => {
 // rng는 countedSeq(고정 값 + 호출 횟수)와 시드 LCG만 쓴다(V6)
 const EV_MS = C.EVENTS.luck.durationSec * 1000;
 const NEW_CHANCE_KEYS = ['event', 'succNoEvent', 'eventGain', 'eventLost'];
+// 8-C(m2-rebirth §15.3) 파괴·하락 저항 분할 필드: F13 이전 다이제스트에는 없다
+const SPLIT_CHANCE_KEYS = ['destBase', 'destSaved', 'dropRelief', 'stay', 'drop'];
 /** 활성 이벤트 id를 지정한다(테스트 전용 setEvent, 실패하면 단언) */
 function withEvent(S, id, remainMs = EV_MS) {
   assert.ok(E.setEvent(S, id, remainMs).ok, id);
@@ -4237,7 +4239,7 @@ describe('F13 hard rule §2.5: no active event = pre-F13 values and rng call seq
   }
   // 시드 고정 900회 강화(축복·모루·보호·하락 방지·확정권·특성 교체) + 사냥 + 자동 catch-up + 판매·납품·새로고침 + 오프라인.
   // 기대값은 F13 도입 전 코드(커밋 dda600f의 js/)를 별도 VM에 올려 같은 시나리오로 한 번 계산해 박아 둔 것이다.
-  // 새 결과 필드(eventAssist, chances의 event·succNoEvent·eventGain·eventLost)와 S.events만 빼고 비교한다
+  // 새 결과 필드(eventAssist, chances의 event·succNoEvent·eventGain·eventLost와 8-C 분할 필드)와 S.events만 빼고 비교한다
   const PRE_EVENT_SHA = '0d0f092c185c812c8952ec6e4dcb4833ef90b91dd4d0bda1199d538791ab3119';
   const PRE_EVENT_MARKS_SHA = 'cb896f43abcf13b95d9f91490017fc65e0dbfa85d4d33e093655945e4c5c9fa7';
   function eventIdentityScenario(seed) {
@@ -4265,7 +4267,7 @@ describe('F13 hard rule §2.5: no active event = pre-F13 values and rng call seq
       const p = Object.assign({}, r);
       if (p.eventAssist) assists++;
       delete p.eventAssist;
-      if (p.chances) { p.chances = Object.assign({}, p.chances); NEW_CHANCE_KEYS.forEach(k => delete p.chances[k]); }
+      if (p.chances) { p.chances = Object.assign({}, p.chances); NEW_CHANCE_KEYS.concat(SPLIT_CHANCE_KEYS).forEach(k => delete p.chances[k]); }
       results.push(p);
       S.anvils.forEach(a => { if (a.dura <= 0) { C.ORES.forEach(k => { S.ore[k] = Math.max(S.ore[k], 300); }); F.repairAnvil(S, a.id); } });
       if (i % 50 === 25) R.setActive(S, S.swords.reduce((lo, s) => (s.lv < lo.lv ? s : lo), S.swords[0]).id);
@@ -4627,6 +4629,8 @@ describe('7-2 EVENT_IDS / EVENTS load check is set equality (constants.js)', () 
 const REBIRTH_FEE = 19846200;
 const T_RB = NOW + 5 * MIN;
 const deepCopy = x => JSON.parse(JSON.stringify(x));
+/** 정규화된 rebirth.up(FAME_TRACKS 6키, 기본 0) 위에 fields를 덮은 값 */
+const upWith = fields => Object.assign({}, SV.defaultState(NOW).rebirth.up, fields);
 const sw20 = (id, extra) => Object.assign({ id, lv: C.MAX, prot: C.PROTECT_USES, pity: 0, trait: null }, extra || {});
 /** 환생 가능한 최소 상태: 첫 칸 +20 검, 골드 = 수수료 */
 function rebirthReady(fields) {
@@ -4669,7 +4673,7 @@ function fullRebirthState() {
   A.refreshDaily(S, NOW - HOUR, () => 0.2, { tzOffsetMin: () => 0 });
   S.daily.tasks[0].claimed = 1;
   S.events = { active: { id: 'luck', remainMs: 1000 }, sinceMs: 1000, nextAtMs: 1000000 };
-  S.rebirth = { count: 2, fame: 5, up: { startGold: 1, income: 2, slots: 1, autoStart: 1 } };
+  S.rebirth = { count: 2, fame: 5, up: upWith({ destroyCut: 2, dropCut: 1, startGold: 1, income: 2, slots: 1, autoStart: 1 }) };
   return SV.normalize(S, NOW);
 }
 // §8 표(최종)를 그대로 옮긴 분류. defaultState에 새 최상위 키가 생기면 AC 12가 실패한다(결정 없이 넘어가지 않게)
@@ -4746,7 +4750,7 @@ describe('F11 rebirth: conditions, fee, consumption (AC 1~9)', () => {
     assert.strictEqual(R.huntReward(C.MAX), 198462);
     assert.strictEqual(RB.REBIRTH_FEE, REBIRTH_FEE);
     assert.strictEqual(RB.rebirthFee(), R.roundTo(C.REBIRTH_FEE_MULT * R.huntReward(C.MAX), C.REBIRTH_FEE_ROUND));
-    const rich = rebirthReady({ gold: 1e12, rebirth: { count: 9, fame: 99, up: { startGold: 4, income: 4, slots: 2, autoStart: 1 } } });
+    const rich = rebirthReady({ gold: 1e12, rebirth: { count: 9, fame: 99, up: upWith({ destroyCut: 4, dropCut: 4, startGold: 4, income: 4, slots: 2, autoStart: 1 }) } });
     assert.strictEqual(RB.rebirthPreview(rich).fee, REBIRTH_FEE);
     assert.strictEqual(RB.rebirthPreview(rebirthReady()).fee, REBIRTH_FEE);
   });
@@ -4763,31 +4767,33 @@ describe('F11 rebirth: conditions, fee, consumption (AC 1~9)', () => {
     assert.deepStrictEqual([r.fee, r.goldLost, S.gold], [REBIRTH_FEE, 10153800, C.START_GOLD]);
     assert.deepStrictEqual([S.stats.sinkGold, S.stats.earned], [1234, 5678]);
   });
-  test('AC 9: count 0 / fame 0 → 1 / 3, again → 2 / 6', () => {
+  test('AC 9 / 51: count 0 / fame 0 → 1 / 5 (FAME_PER_REBIRTH), again → 2 / 10', () => {
+    assert.strictEqual(C.FAME_PER_REBIRTH, 5);
     const S = rebirthReady();
     const r1 = rebirthOk(S);
-    assert.deepStrictEqual([r1.count, r1.fame, r1.fameGain, S.rebirth.count, S.rebirth.fame], [1, 3, 3, 1, 3]);
+    assert.deepStrictEqual([r1.count, r1.fame, r1.fameGain, S.rebirth.count, S.rebirth.fame], [1, 5, 5, 1, 5]);
     Object.assign(S, { swords: [sw20(S.nextSwordId)], best: C.MAX, gold: REBIRTH_FEE, nextSwordId: S.nextSwordId + 1 });
     const r2 = rebirthOk(S);
-    assert.deepStrictEqual([r2.count, r2.fame, S.rebirth.count, S.rebirth.fame], [2, 6, 2, 6]);
+    assert.deepStrictEqual([r2.count, r2.fame, S.rebirth.count, S.rebirth.fame], [2, 10, 2, 10]);
   });
   test('count and fame stop at the save caps (runtime = load cap, V8)', () => {
-    const S = rebirthReady({ rebirth: { count: C.REBIRTH_COUNT_MAX, fame: C.FAME_MAX - 1, up: { startGold: 0, income: 0, slots: 0, autoStart: 0 } } });
+    const S = rebirthReady({ rebirth: { count: C.REBIRTH_COUNT_MAX, fame: C.FAME_MAX - 1, up: upWith({}) } });
     rebirthOk(S);
     assert.deepStrictEqual([S.rebirth.count, S.rebirth.fame], [C.REBIRTH_COUNT_MAX, C.FAME_MAX]);
     assert.deepStrictEqual(SV.normalize(deepCopy(S), T_RB), S);
   });
-  test('rebirthPreview: read-only values for the confirm dialog; failure keeps the reason and has no offering', () => {
+  test('rebirthPreview (AC 41 / 51): read-only values for the confirm dialog incl. destroyCut / dropCut; failure keeps the reason and has no offering', () => {
     const S = fullRebirthState();
     const before = deepCopy(S);
     assert.deepStrictEqual(RB.rebirthPreview(S), {
-      ok: true, fee: REBIRTH_FEE, gold: 30000000, goldLost: 10153800, fameGain: 3, consumedSwordId: 3,
-      startGold: 2300, slots: 4, incomePct: 10, autoStart: true, keptMastery: [1, 1, 0, 1, 1],
+      ok: true, fee: REBIRTH_FEE, gold: 30000000, goldLost: 10153800, fameGain: C.FAME_PER_REBIRTH, consumedSwordId: 3,
+      startGold: 3300, slots: 4, incomePct: 12, destroyCut: 25, dropCut: 15, autoStart: true, keptMastery: [1, 1, 0, 1, 1],
     });
     assert.deepStrictEqual(S, before);
     const poor = rebirthReady({ swords: [{ id: 1, lv: 0, prot: 2, pity: 0, trait: null }], gold: 100 });
     const p = RB.rebirthPreview(poor);
-    assert.deepStrictEqual([p.ok, p.reason, p.consumedSwordId, p.goldLost, p.startGold, p.autoStart], [false, 'notReached', null, 0, 300, false]);
+    assert.deepStrictEqual([p.ok, p.reason, p.consumedSwordId, p.goldLost, p.startGold, p.autoStart, p.destroyCut, p.dropCut],
+      [false, 'notReached', null, 0, 300, false, 0, 0]);
     assert.deepStrictEqual(RB.rebirthPreview(null), { ok: false, reason: 'invalid' });
   });
 });
@@ -4807,8 +4813,8 @@ describe('F11 rebirth: every save field reset/kept per the §8 table (AC 10~13, 
     const before = deepCopy(S);
     const r = rebirthOk(S);
     checkRebirthTable(before, S, T_RB);
-    assert.deepStrictEqual([r.goldLost, r.consumedSwordId, r.count, r.fame], [10153800, 3, 3, 8]);
-    assert.deepStrictEqual([S.gold, S.slots, S.idle.lastSeen, S.idle.autoOn], [2300, 4, T_RB, false]);
+    assert.deepStrictEqual([r.goldLost, r.consumedSwordId, r.count, r.fame], [10153800, 3, 3, 10]);
+    assert.deepStrictEqual([S.gold, S.slots, S.idle.lastSeen, S.idle.autoOn], [3300, 4, T_RB, false]);
   });
   test('AC 13: counters are monotonic: new sword id 57, nextSwordId 58, nextAnvilId 9, quests.nextId 12; next rebirth uses a bigger id', () => {
     const S = fullRebirthState();
@@ -4837,7 +4843,7 @@ describe('F11 rebirth: every save field reset/kept per the §8 table (AC 10~13, 
     S.gold = REBIRTH_FEE * 2;
     const before = deepCopy(S);
     const r = rebirthOk(S, T_RB + HOUR);
-    assert.deepStrictEqual([r.count, r.fame], [4, 11]);
+    assert.deepStrictEqual([r.count, r.fame], [4, 15]);
     checkRebirthTable(before, S, T_RB + HOUR);
     assert.deepStrictEqual(SV.normalize(deepCopy(S), T_RB + HOUR), S);
   });
@@ -4930,12 +4936,29 @@ describe('F11 rebirth: events, achievements, codex, offline (AC 16~20)', () => {
 });
 
 describe('F11 fame shop: table, purchases, start effects, license (AC 21~27)', () => {
-  test('AC 21: FAME_SHOP values/costs, total cost 25, fixed track order', () => {
+  test('AC 21 / 50: FAME_SHOP values/costs (§15.2), total cost 39 = 8 rebirths at 5 fame, fixed track order', () => {
     const pick = k => [C.FAME_SHOP[k].values, C.FAME_SHOP[k].costs];
-    assert.deepStrictEqual(C.FAME_TRACKS, ['startGold', 'income', 'slots', 'autoStart']);
+    assert.deepStrictEqual(C.FAME_TRACKS, ['destroyCut', 'dropCut', 'startGold', 'income', 'slots', 'autoStart']);
+    assert.deepStrictEqual(C.FAME_TRACKS, Object.keys(C.FAME_SHOP));
     assert.deepStrictEqual(C.FAME_TRACKS.map(pick), [
-      [[2000, 5000, 10000, 20000], [1, 1, 2, 3]], [[5, 10, 15, 20], [1, 2, 3, 4]], [[1, 2], [2, 3]], [[1], [3]]]);
-    assert.strictEqual(C.FAME_TRACKS.reduce((s, k) => s + C.FAME_SHOP[k].costs.reduce((a, b) => a + b, 0), 0), 25);
+      [[15, 25, 35, 45], [1, 1, 2, 3]], [[15, 25, 35, 45], [1, 1, 2, 3]],
+      [[3000, 8000, 20000, 50000], [1, 1, 2, 3]], [[6, 12, 18, 25], [1, 2, 3, 4]], [[1, 2], [2, 3]], [[1], [3]]]);
+    const total = C.FAME_TRACKS.reduce((s, k) => s + C.FAME_SHOP[k].costs.reduce((a, b) => a + b, 0), 0);
+    assert.deepStrictEqual([total, C.FAME_PER_REBIRTH, Math.ceil(total / C.FAME_PER_REBIRTH)], [39, 5, 8]);
+    assert.deepStrictEqual(C.FAME_TRACKS.map(k => C.FAME_SHOP[k].costs.length), [4, 4, 4, 4, 2, 1]);
+  });
+  test('AC 50: buyFame on destroyCut / dropCut costs 1, 1, 2, 3 then maxed; order invalid → maxed → noFame unchanged', () => {
+    ['destroyCut', 'dropCut'].forEach(track => {
+      const S = fresh();
+      S.rebirth.fame = 7;
+      assert.deepStrictEqual([1, 2, 3, 4].map(() => RB.buyFame(S, track)), [
+        { ok: true, cost: 1, level: 1 }, { ok: true, cost: 1, level: 2 }, { ok: true, cost: 2, level: 3 }, { ok: true, cost: 3, level: 4 }]);
+      assert.deepStrictEqual([RB.buyFame(S, track), S.rebirth.fame, S.rebirth.up[track]], [{ ok: false, reason: 'maxed' }, 0, 4]);
+      const poor = fresh();
+      poor.rebirth.up[track] = 2;
+      poor.rebirth.fame = 1;
+      assert.deepStrictEqual(RB.buyFame(poor, track), { ok: false, reason: 'noFame' });
+    });
   });
   test('AC 22: fame 3 → startGold costs 1 (level 1, fame 2); further costs 1, 2, 3 then maxed; gold and chances unchanged', () => {
     const S = stateWith({ sword: { lv: 12 } });
@@ -4975,13 +4998,13 @@ describe('F11 fame shop: table, purchases, start effects, license (AC 21~27)', (
     assert.deepStrictEqual(RB.buyFame(S, 'slots'), { ok: false, reason: 'noFame' });
     assert.deepStrictEqual(S, before);
   });
-  test('AC 25: startGold level 0..4 → start gold 300 / 2,300 / 5,300 / 10,300 / 20,300', () => {
+  test('AC 25 / 55: startGold level 0..4 → start gold 300 / 3,300 / 8,300 / 20,300 / 50,300', () => {
     assert.deepStrictEqual([0, 1, 2, 3, 4].map(lv => {
       const S = rebirthReady();
       S.rebirth.up.startGold = lv;
       rebirthOk(S);
       return S.gold;
-    }), [300, 2300, 5300, 10300, 20300]);
+    }), [300, 3300, 8300, 20300, 50300]);
   });
   test('AC 26: slots level 0/1/2 → 3/4/5 slots and one sword; expandCost at 5 slots = 30,000; SLOT_MAX stays 8', () => {
     assert.deepStrictEqual([0, 1, 2].map(lv => {
@@ -5001,13 +5024,16 @@ describe('F11 fame shop: table, purchases, start effects, license (AC 21~27)', (
     const L = fresh();
     assert.deepStrictEqual(I.setAutoOn(L, true), { ok: false, reason: 'locked' });
   });
-  test('purchases apply now: income and license immediately, start gold and slots only at the next rebirth', () => {
+  test('purchases apply now: income, license and both resistances immediately, start gold and slots only at the next rebirth', () => {
     const S = stateWith({ sword: { lv: 10 } });
-    S.rebirth.fame = 25;
-    const [gold, slots, hunt] = [S.gold, S.slots, I.manualHuntGold(S, NOW)];
+    S.rebirth.fame = 39;
+    const [gold, slots, hunt, ch] = [S.gold, S.slots, I.manualHuntGold(S, NOW), R.currentChances(S)];
     C.FAME_TRACKS.forEach(k => { while (RB.buyFame(S, k).ok); });
-    assert.deepStrictEqual([S.rebirth.fame, S.rebirth.up], [0, { startGold: 4, income: 4, slots: 2, autoStart: 1 }]);
-    assert.deepStrictEqual([S.gold, S.slots, I.manualHuntGold(S, NOW), hunt], [gold, slots, 507, 423]);
+    assert.deepStrictEqual([S.rebirth.fame, S.rebirth.up],
+      [0, { destroyCut: 4, dropCut: 4, startGold: 4, income: 4, slots: 2, autoStart: 1 }]);
+    assert.deepStrictEqual([S.gold, S.slots, I.manualHuntGold(S, NOW), hunt], [gold, slots, 528, 423]);
+    const now = R.currentChances(S);
+    assert.deepStrictEqual([ch.succ, ch.dest, ch.drop, now.succ, now.dest, now.drop], [45, 12, 43, 45, 7, 24]);
   });
 });
 
@@ -5021,30 +5047,30 @@ function incomeState(lv, income) {
 }
 
 describe('F11 early income: single integer formula, topLv ≤ 12 only, never in prices (AC 28~32)', () => {
-  test('AC 28: manual hunt 507 / boosted 761 / +raider 20 → 609; topLv 12 income 1 → 1,518; topLv 13 income 4 → 2,676', () => {
+  test('AC 28 / 55: manual hunt 528 / boosted 793 / +raider 20 → 634; topLv 12 income 1 → 1,532; topLv 13 income 4 → 2,676', () => {
     const S = incomeState(10, 4);
-    assert.strictEqual(I.manualHuntGold(S, NOW), 507);
+    assert.strictEqual(I.manualHuntGold(S, NOW), 528);
     S.idle.boostUntil = NOW + MIN;
-    assert.strictEqual(I.manualHuntGold(S, NOW), 761);
+    assert.strictEqual(I.manualHuntGold(S, NOW), 793);
     S.idle.boostUntil = 0;
     S.swords[0].trait = { k: 'hunt', t: 2 };
-    assert.strictEqual(I.manualHuntGold(S, NOW), 609);
-    assert.strictEqual(I.manualHuntGold(incomeState(12, 1), NOW), 1518);
+    assert.strictEqual(I.manualHuntGold(S, NOW), 634);
+    assert.strictEqual(I.manualHuntGold(incomeState(12, 1), NOW), 1532);
     assert.strictEqual(I.manualHuntGold(incomeState(13, 4), NOW), 2676);
   });
-  test('AC 29: auto run (harvest lv5) 288 with income 4, 240 with 0; topLv 13 ignores income', () => {
+  test('AC 29 / 55: auto run (harvest lv5) 300 with income 4, 240 with 0; topLv 13 ignores income', () => {
     const at = (lv, income) => { const S = incomeState(lv, income); S.idle.up.gold = 5; return I.autoRunGold(S, NOW); };
-    assert.deepStrictEqual([at(10, 4), at(10, 0)], [288, 240]);
+    assert.deepStrictEqual([at(10, 4), at(10, 0)], [300, 240]);
     assert.strictEqual(at(13, 4), at(13, 0));
   });
-  test('AC 30: offline 8 h (harvest lv5, auto on) 414,720 with income 4, 345,600 with 0', () => {
+  test('AC 30 / 55: offline 8 h (harvest lv5, auto on) 432,000 with income 4, 345,600 with 0', () => {
     const off = income => {
       const S = incomeState(10, income);
       Object.assign(S.idle, { autoOn: true, lastSeen: NOW - 8 * HOUR });
       S.idle.up.gold = 5;
       return I.settleOffline(S, NOW);
     };
-    assert.deepStrictEqual([off(4).runs, off(4).gold, off(0).gold], [5760, 414720, 345600]);
+    assert.deepStrictEqual([off(4).runs, off(4).gold, off(0).gold], [5760, 432000, 345600]);
   });
   test('AC 31: income 0 (default rebirth) is bit-identical to a state without rebirth for topLv 0..20, and to the base formulas', () => {
     for (let lv = 0; lv <= C.MAX; lv++) {
@@ -5071,20 +5097,21 @@ describe('F11 early income: single integer formula, topLv ≤ 12 only, never in 
   });
 });
 
-describe('F11 save: rebirth normalization, old saves, regressions (AC 33~35, 38, 39)', () => {
-  const DEF = { count: 0, fame: 0, up: { startGold: 0, income: 0, slots: 0, autoStart: 0 } };
+describe('F11 save: rebirth normalization, old saves, regressions (AC 33~35, 38, 52, 54)', () => {
+  const DEF = { count: 0, fame: 0, up: { destroyCut: 0, dropCut: 0, startGold: 0, income: 0, slots: 0, autoStart: 0 } };
   const norm = rebirth => SV.normalize(Object.assign(fresh(), { rebirth }), NOW).rebirth;
-  test('AC 33: missing / null / [] / 5 / "x" → defaults; bad fields clamp, unknown keys dropped, count capped', () => {
+  test('AC 33: missing / null / [] / 5 / "x" → defaults (6 up keys); bad fields clamp, unknown keys dropped, count capped', () => {
     [undefined, null, [], 5, 'x'].forEach(v => assert.deepStrictEqual(norm(v), DEF, String(v)));
-    assert.deepStrictEqual(norm({ count: '3.7', fame: -5, up: { startGold: 9, income: '2', slots: 3, autoStart: 5, junk: 1 }, extra: 1 }),
-      { count: 3, fame: 0, up: { startGold: 4, income: 2, slots: 2, autoStart: 1 } });
+    const tampered = { count: '3.7', fame: -5, up: { destroyCut: '9', dropCut: -1, startGold: 9, income: '2', slots: 3, autoStart: 5, junk: 1 }, extra: 1 };
+    assert.deepStrictEqual(norm(tampered), { count: 3, fame: 0, up: { destroyCut: 4, dropCut: 0, startGold: 4, income: 2, slots: 2, autoStart: 1 } });
+    assert.deepStrictEqual(Object.keys(norm(tampered).up), C.FAME_TRACKS);
     assert.strictEqual(norm({ count: 1e12 }).count, 1000000);
     assert.strictEqual(norm({ fame: 1e15 }).fame, 1e9);
     assert.deepStrictEqual(norm({ count: 2, up: 'x' }).up, DEF.up);
     assert.deepStrictEqual(fresh().rebirth, DEF);
   });
   test('AC 34: spending above earnings (fame 0, every track maxed) loads as-is', () => {
-    const maxed = { count: 0, fame: 0, up: { startGold: 4, income: 4, slots: 2, autoStart: 1 } };
+    const maxed = { count: 0, fame: 0, up: { destroyCut: 4, dropCut: 4, startGold: 4, income: 4, slots: 2, autoStart: 1 } };
     assert.deepStrictEqual(norm(maxed), maxed);
   });
   test('AC 35: an old v2 save without rebirth gets the default and nothing else changes; save → load is stable, v 2', () => {
@@ -5096,6 +5123,26 @@ describe('F11 save: rebirth normalization, old saves, regressions (AC 33~35, 38,
     assert.strictEqual(loaded.v, 2);
     SV.save(st, loaded, NOW);
     assert.deepStrictEqual(SV.load(st, NOW).state, loaded);
+  });
+  test('AC 35 / 52: a 1.0.0 save (4-key up) loads with destroyCut / dropCut 0, fame unchanged, v 2; new values apply to old levels; round trip stable', () => {
+    const old = fullRebirthState();
+    old.rebirth = { count: 3, fame: 4, up: { startGold: 2, income: 1, slots: 1, autoStart: 0 } };
+    const st = memStorage({ [C.SAVE_KEY]: JSON.stringify(old) });
+    const loaded = SV.load(st, NOW).state;
+    assert.deepStrictEqual(loaded.rebirth, { count: 3, fame: 4, up: { destroyCut: 0, dropCut: 0, startGold: 2, income: 1, slots: 1, autoStart: 0 } });
+    assert.deepStrictEqual(loaded, Object.assign(deepCopy(old), { rebirth: loaded.rebirth }));
+    assert.deepStrictEqual([loaded.v, R.fameValue(loaded, 'income'), RB.rebirthPreview(loaded).startGold], [2, 6, 8300]);
+    SV.save(st, loaded, NOW);
+    assert.deepStrictEqual(SV.load(st, NOW).state, loaded);
+    assert.deepStrictEqual(norm({ up: { destroyCut: '9', dropCut: -1 } }).up, upWith({ destroyCut: 4, dropCut: 0 }));
+  });
+  test('AC 52: no retroactive fame: a loaded 1.0.0 save keeps its fame; only the next rebirth adds FAME_PER_REBIRTH', () => {
+    const old = rebirthReady();
+    old.rebirth = { count: 2, fame: 6, up: { startGold: 0, income: 0, slots: 0, autoStart: 0 } };
+    const loaded = SV.load(memStorage({ [C.SAVE_KEY]: JSON.stringify(old) }), NOW).state;
+    assert.deepStrictEqual([loaded.rebirth.count, loaded.rebirth.fame], [2, 6]);
+    rebirthOk(loaded);
+    assert.deepStrictEqual([loaded.rebirth.count, loaded.rebirth.fame], [3, 11]);
   });
   test('AC 38: default rebirth = no rebirth field: incomes, prices, unlocks, options, chances, achievement and event outputs', () => {
     [0, 4, 7, 13, 20].forEach(lv => {
@@ -5111,23 +5158,29 @@ describe('F11 save: rebirth normalization, old saves, regressions (AC 33~35, 38,
       assert.deepStrictEqual(out(S), out(bare), `+${lv}`);
     });
   });
-  test('AC 39: chances / enhanceOpts / attemptEnhance never read S.rebirth, and a maxed rebirth changes no output', () => {
+  test('AC 54 (was 39): enhanceOpts reads only destroyCut / dropCut from S.rebirth; a maxed rebirth leaves every success-side field equal', () => {
     const make = () => {
       const S = stateWith({ sword: { lv: 15, pity: 3 }, inv: { bless: 5, protect: 5 }, use: { bless: true, protect: true } });
       Object.assign(S, { gold: 1e9, mastery: [2, 0, 0, 0, 0] });
       return S;
     };
     const maxed = make();
-    maxed.rebirth = { count: 99, fame: 999, up: { startGold: 4, income: 4, slots: 2, autoStart: 1 } };
+    const reads = new Set();
+    const up = { destroyCut: 4, dropCut: 4, startGold: 4, income: 4, slots: 2, autoStart: 1 };
+    maxed.rebirth = { count: 99, fame: 999, up: new Proxy(up, { get(t, k) { reads.add(k); return t[k]; } }) };
     const plain = make();
-    const rb = maxed.rebirth;
-    let reads = 0;
-    Object.defineProperty(maxed, 'rebirth', { get() { reads++; return rb; }, enumerable: true, configurable: true });
-    assert.deepStrictEqual(R.enhanceOpts(maxed), R.enhanceOpts(plain));
-    assert.deepStrictEqual(R.currentChances(maxed), R.currentChances(plain));
-    assert.deepStrictEqual(R.chances(maxed.swords[0], R.enhanceOpts(maxed)), R.chances(plain.swords[0], R.enhanceOpts(plain)));
-    for (const roll of [0, 0.3, 0.6, 0.9999]) assert.deepStrictEqual(R.attemptEnhance(maxed, () => roll), R.attemptEnhance(plain, () => roll), String(roll));
-    assert.strictEqual(reads, 0);
+    const oMax = R.enhanceOpts(maxed);
+    assert.deepStrictEqual([...reads].sort(), ['destroyCut', 'dropCut']);
+    assert.deepStrictEqual([oMax.destroyCut, oMax.dropCut], [45, 45]);
+    assert.deepStrictEqual(Object.assign({}, oMax, { destroyCut: 0, dropCut: 0 }), R.enhanceOpts(plain));
+    const SUCC_SIDE = ['succ', 'base', 'parts', 'raw', 'bonus', 'cap', 'capped', 'mastery', 'event', 'succNoEvent', 'eventGain', 'eventLost'];
+    const succSide = c => SUCC_SIDE.map(k => c[k]);
+    assert.deepStrictEqual(succSide(R.currentChances(maxed)), succSide(R.currentChances(plain)));
+    for (let p = 0; p <= 12; p++) for (const m of [0, 2, 4]) {
+      const o = { bless: true, anvilGrade: 3, mastery: m };
+      assert.deepStrictEqual(succSide(R.chances({ lv: 15, pity: p }, Object.assign({}, o, { destroyCut: 45, dropCut: 45 }))),
+        succSide(R.chances({ lv: 15, pity: p }, o)), `p${p} m${m}`);
+    }
   });
 });
 
@@ -5136,7 +5189,7 @@ const mirrorOf = (rebirth, mark) => JSON.stringify(Object.assign({}, rebirth, { 
 
 describe('REQ-037: rebirth mirror key protects against old clients dropping the field', () => {
   const MIRROR = SV.REBIRTH_MIRROR_KEY;
-  const RB3 = { count: 3, fame: 1, up: { startGold: 2, income: 0, slots: 0, autoStart: 1 } };
+  const RB3 = { count: 3, fame: 1, up: upWith({ dropCut: 1, startGold: 2, autoStart: 1 }) };
   const withRebirth = rebirth => Object.assign(fresh(), { rebirth: deepCopy(rebirth) });
   /** 옛 클라이언트가 쓴 저장: rebirth 필드가 없다 */
   const oldClientSave = () => { const d = fresh(); delete d.rebirth; return JSON.stringify(d); };
@@ -5169,7 +5222,7 @@ describe('REQ-037: rebirth mirror key protects against old clients dropping the 
     assert.deepStrictEqual(JSON.parse(st.dump[C.SAVE_KEY]).rebirth, RB3);
   });
   test('ignore: equal or lower count in the mirror keeps the main rebirth (a purchase that lowered fame is not undone)', () => {
-    const main = { count: 3, fame: 0, up: { startGold: 2, income: 1, slots: 0, autoStart: 1 } };
+    const main = { count: 3, fame: 0, up: upWith({ startGold: 2, income: 1, autoStart: 1 }) };
     [RB3, { count: 2, fame: 9, up: RB3.up }, { count: 0, fame: 0, up: RB3.up }].forEach(mirror => {
       const st = memStorage({ [C.SAVE_KEY]: JSON.stringify(withRebirth(main)), [MIRROR]: JSON.stringify(mirror) });
       assert.deepStrictEqual(SV.load(st, NOW).state.rebirth, main, JSON.stringify(mirror));
@@ -5178,7 +5231,7 @@ describe('REQ-037: rebirth mirror key protects against old clients dropping the 
   test('tamper: the mirror is normalized like the main field; corrupt or non-object mirrors are ignored', () => {
     const tampered = { count: '5.9', fame: -1, up: { startGold: 99, junk: 1 }, extra: 1 };
     const st = memStorage({ [C.SAVE_KEY]: oldClientSave(), [MIRROR]: JSON.stringify(tampered) });
-    assert.deepStrictEqual(SV.load(st, NOW).state.rebirth, { count: 5, fame: 0, up: { startGold: 4, income: 0, slots: 0, autoStart: 0 } });
+    assert.deepStrictEqual(SV.load(st, NOW).state.rebirth, { count: 5, fame: 0, up: upWith({ startGold: 4 }) });
     ['{bad', '[3]', '7', '"x"', '', 'null'].forEach(raw => {
       const s2 = memStorage({ [C.SAVE_KEY]: oldClientSave(), [MIRROR]: raw });
       assert.deepStrictEqual(SV.load(s2, NOW).state.rebirth.count, 0, raw);
@@ -5221,11 +5274,22 @@ describe('REQ-037: rebirth mirror key protects against old clients dropping the 
     assert.strictEqual(keeper.save(fresh(), NOW, { newGame: true }), 'saved');
     assert.strictEqual(kst.dump[MIRROR], JSON.stringify(fresh().rebirth));
   });
+  test('AC 53: the mirror round trip keeps destroyCut / dropCut; adopting a 4-key (1.0.0) mirror sets them to 0', () => {
+    const six = { count: 2, fame: 0, up: upWith({ destroyCut: 3, dropCut: 2, startGold: 1 }) };
+    const st = memStorage();
+    SV.save(st, withRebirth(six), NOW);
+    assert.deepStrictEqual(JSON.parse(st.dump[MIRROR]).up, six.up);
+    st.setItem(C.SAVE_KEY, oldClientSave());
+    assert.deepStrictEqual(SV.load(st, NOW).state.rebirth, six);
+    const four = { count: 4, fame: 2, up: { startGold: 3, income: 1, slots: 1, autoStart: 1 } };
+    const s2 = memStorage({ [C.SAVE_KEY]: JSON.stringify(withRebirth(six)), [MIRROR]: JSON.stringify(four) });
+    assert.deepStrictEqual(SV.load(s2, NOW).state.rebirth, { count: 4, fame: 2, up: upWith({ startGold: 3, income: 1, slots: 1, autoStart: 1 }) });
+  });
 });
 
 describe('REQ-037 residual windows: mirror watermark (mark = post-rebirth nextSwordId) and no lowering (m2-rebirth §8.2)', () => {
   const MIRROR = SV.REBIRTH_MIRROR_KEY;
-  const RB1 = { count: 1, fame: 3, up: { startGold: 0, income: 0, slots: 0, autoStart: 0 } };
+  const RB1 = { count: 1, fame: 5, up: upWith({}) };
   /** main 저장 원문: nextSwordId와 rebirth(없으면 옛 클라이언트가 버린 저장) */
   const mainSave = (nextSwordId, rebirth) => {
     const d = fresh();
@@ -5389,6 +5453,311 @@ describe('8-B rebirth helpers: visibility, shop blocks and costs, normalized-inp
   });
 });
 
+// ============================================================ 8-C F11 명성 파괴·하락 저항 (m2-rebirth §15.3·§15.4, §15.8 AC 42~49)
+// 1.0.0 출시 커밋. 저항 0의 정체성(AC 42)은 HEAD가 아니라 이 커밋의 js/를 별도 VM에 올려 비교한다(커밋 뒤에도 자기 비교가 되지 않게)
+const RELEASE_1_0_0 = '731f0c3';
+/** 1.0.0의 constants.js·events.js·rules.js를 새 VM 문맥에 올린 SG.rules */
+function loadReleaseRules() {
+  const { execFileSync } = require('child_process');
+  const src = f => execFileSync('git', ['show', `${RELEASE_1_0_0}:js/${f}`], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+  const ctx = { console, Math, Date, JSON, Object, Array, Number, String, Set, Map, Error };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  ['constants.js', 'events.js', 'rules.js'].forEach(f => vm.runInContext(src(f), ctx, { filename: `1.0.0/${f}` }));
+  return ctx.SG.rules;
+}
+const CUT_LEVELS = [0, 1, 2, 3, 4];
+const cutAt = lv => R.fameValueAt('destroyCut', lv);
+/** 시드 LCG(호출 횟수 기록) */
+function seededRng(seed) {
+  let s = seed >>> 0;
+  const f = () => { f.calls++; s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+  f.calls = 0;
+  return f;
+}
+const withoutSplit = c => { const o = Object.assign({}, c); SPLIT_CHANCE_KEYS.forEach(k => delete o[k]); return o; };
+const splitOf = c => SPLIT_CHANCE_KEYS.map(k => c[k]);
+/** chances 옵션 격자(축복·모루 0..3·pity·확정권·게이지 가득·숙련·이벤트) */
+function forEachChanceOption(pities, masteries, fn) {
+  for (let lv = 0; lv <= C.MAX; lv++) for (const bless of [false, true]) for (let g = 0; g <= 3; g++) for (const p of pities)
+    for (const sure of [false, true]) for (const gaugeFull of [false, true]) for (const m of masteries) for (const event of [0, 5]) {
+      fn({ lv, pity: p }, { bless, anvilGrade: g, sure, gaugeFull, mastery: m, event }, `+${lv} b${bless} g${g} p${p} s${sure} gf${gaugeFull} m${m} e${event}`);
+    }
+}
+
+describe('8-C resistances: zero levels are identical to 1.0.0 (AC 42, 38)', () => {
+  const OLD = loadReleaseRules();
+  test('chances(): every option combination with no resistance → old fields JSON-equal to 1.0.0; new fields per §15.3 (certain / MAX all 0)', () => {
+    let n = 0;
+    forEachChanceOption([0, 1, 3, 6, 12], [0, 1, 4], (sw, o, tag) => {
+      const now = R.chances(sw, o);
+      assert.strictEqual(JSON.stringify(withoutSplit(now)), JSON.stringify(OLD.chances(sw, o)), tag);
+      assert.deepStrictEqual(R.chances(sw, Object.assign({}, o, { destroyCut: 0, dropCut: 0 })), now, tag);
+      let expect;
+      if (now.parts === null) expect = [0, 0, 0, 0, 0];
+      else if (sw.lv >= C.DROP_FROM) expect = [now.dest, 0, 0, 0, now.fail];
+      else expect = [now.dest, 0, 0, now.fail, 0];
+      assert.deepStrictEqual(splitOf(now), expect, tag);
+      n++;
+    });
+    assert.strictEqual(n, 20160);
+  });
+  test('10,000 seeded attemptEnhance with no resistance: every result, the final state and the rng call count equal 1.0.0', () => {
+    const play = (Rx, rng) => {
+      const S = SV.defaultState(NOW);
+      S.gold = 1e12; S.slots = 5;
+      Object.assign(S.inv, { bless: 99, protect: 99, keepdown: 99, sure: 99 });
+      R.addAnvil(S, 3);
+      S.swords[0].trait = { k: 'anvil', t: 3 };
+      const out = [];
+      for (let i = 0; i < 10000; i++) {
+        if (!Rx.activeSword(S)) Rx.setActive(S, Rx.bestSword(S).id);
+        Rx.setUse(S, 'bless', i % 3 !== 1);
+        Rx.setUse(S, 'anvil', i % 5 !== 4);
+        Rx.setUse(S, 'protect', i % 2 === 0);
+        Rx.setUse(S, 'keepdown', i % 4 !== 0);
+        Rx.setUse(S, 'sure', i % 17 === 0);
+        const r = Rx.attemptEnhance(S, rng);
+        out.push(JSON.stringify(r.chances ? Object.assign({}, r, { chances: withoutSplit(r.chances) }) : r));
+        Object.assign(S.inv, { bless: 99, protect: 99, keepdown: 99, sure: 99 });
+        S.anvils.forEach(a => { a.dura = Math.max(a.dura, 1); });
+        if (S.swords.length < S.slots && S.best >= 12) Rx.buySword(S);
+        S.swords.filter(s => s.lv >= C.MAX).forEach(s => { s.lv = 10; });
+      }
+      return { out, state: JSON.stringify(S), calls: rng.calls };
+    };
+    const a = play(OLD, seededRng(20261127));
+    const b = play(R, seededRng(20261127));
+    assert.strictEqual(b.calls, a.calls);
+    const firstDiff = b.out.findIndex((x, i) => x !== a.out[i]);
+    assert.strictEqual(firstDiff, -1, firstDiff >= 0 ? `attempt ${firstDiff}: ${b.out[firstDiff]} vs ${a.out[firstDiff]}` : '');
+    assert.strictEqual(b.state, a.state);
+    const kinds = new Set(b.out.map(x => JSON.parse(x).outcome));
+    ['success', 'destroy', 'protected', 'fail', 'kept', 'drop'].forEach(k => assert.ok(kinds.has(k), `scenario reaches ${k}`));
+  });
+  test('enhanceOpts with both levels 0 (or no rebirth field) passes destroyCut / dropCut 0', () => {
+    const S = stateWith({ sword: { lv: 15 } });
+    const bare = deepCopy(S);
+    delete bare.rebirth;
+    assert.deepStrictEqual([R.enhanceOpts(S).destroyCut, R.enhanceOpts(S).dropCut, R.enhanceOpts(bare).destroyCut, R.enhanceOpts(bare).dropCut], [0, 0, 0, 0]);
+  });
+});
+
+describe('8-C resistances: chances() split (AC 43, 44, 46, 48, 49)', () => {
+  const at = (lv, destroyCut, dropCut, extra) => R.chances({ lv, pity: 0 }, Object.assign({ destroyCut, dropCut }, extra || {}));
+  test('AC 43: destroyCut table +19 / +15 / +9 / +8 / +5; succ never changes', () => {
+    const row = lv => [15, 25, 35, 45].map(v => at(lv, v, 0).dest);
+    assert.deepStrictEqual([19, 15, 9, 8, 5].map(row), [[30, 27, 23, 20], [22, 19, 17, 14], [9, 8, 7, 6], [6, 6, 5, 4], [2, 2, 2, 2]]);
+    assert.deepStrictEqual([15, 25, 35, 45].map(v => at(19, v, 0).destSaved), [5, 8, 12, 15]);
+    [5, 8, 9, 15, 19].forEach(lv => [15, 25, 35, 45].forEach(v => assert.strictEqual(at(lv, v, v).succ, at(lv, 0, 0).succ)));
+    for (let lv = 0; lv < C.MAX; lv++) assert.strictEqual(at(lv, 0, 0).destBase, Math.min(C.DESTROY[lv], 100 - at(lv, 0, 0).succ));
+  });
+  test('AC 44: stay / drop distribution examples; +9 never drops; dropCut starts at +10', () => {
+    const pick = (c, keys) => keys.map(k => c[k]);
+    assert.deepStrictEqual(pick(at(19, 45, 0), ['succ', 'dest', 'fail', 'stay', 'drop']), [5, 20, 75, 15, 60]);
+    const c1945 = at(19, 45, 45);
+    assert.deepStrictEqual([100 - c1945.succ - c1945.destBase].concat(pick(c1945, ['dropRelief', 'stay', 'drop'])), [60, 27, 42, 33]);
+    const c15 = at(15, 25, 25);
+    assert.deepStrictEqual([100 - c15.succ - c15.destBase].concat(pick(c15, ['succ', 'dest', 'fail', 'dropRelief', 'stay', 'drop'])),
+      [55, 20, 19, 61, 13, 19, 42]);
+    const c12 = at(12, 0, 15);
+    assert.deepStrictEqual([c12.succ, c12.destBase, 100 - c12.succ - c12.destBase, c12.dropRelief, c12.drop], [35, 18, 47, 7, 40]);
+    [0, 15, 45].forEach(v => {
+      const c9 = at(9, 45, v);
+      assert.deepStrictEqual([c9.drop, c9.dropRelief, c9.stay], [0, 0, c9.fail]);
+    });
+    assert.strictEqual(C.DROP_FROM, 10);
+    assert.ok(at(10, 0, 45).dropRelief > 0);
+  });
+  test('AC 46 (rules): every lv × option × resistance (0/15/25/35/45 each) keeps the invariants and only touches the failure split', () => {
+    const SUCC_SIDE = ['succ', 'base', 'parts', 'raw', 'bonus', 'cap', 'capped', 'mastery', 'event', 'succNoEvent', 'eventGain', 'eventLost'];
+    let n = 0;
+    forEachChanceOption([0, 3, 12], [0, 4], (sw, o, tag) => {
+      const zero = R.chances(sw, o);
+      let prevDest = Infinity;
+      CUT_LEVELS.forEach(dl => CUT_LEVELS.forEach(rl => {
+        const dc = cutAt(dl);
+        const rc = cutAt(rl);
+        const c = R.chances(sw, Object.assign({}, o, { destroyCut: dc, dropCut: rc }));
+        const t = `${tag} cut ${dc}/${rc}`;
+        assert.deepStrictEqual(SUCC_SIDE.map(k => c[k]), SUCC_SIDE.map(k => zero[k]), t);
+        n++;
+        if (sw.lv >= C.MAX) { assert.deepStrictEqual([c.succ, c.dest, c.fail].concat(splitOf(c)), [0, 0, 0, 0, 0, 0, 0, 0], t); return; }
+        [c.succ, c.dest, c.fail, c.stay, c.drop, c.destSaved, c.dropRelief].forEach(x => assert.ok(Number.isInteger(x) && x >= 0, t));
+        assert.strictEqual(c.succ + c.dest + c.fail, 100, t);
+        assert.strictEqual(c.stay + c.drop, c.fail, t);
+        if (zero.parts === null) {
+          assert.deepStrictEqual([c.dest, c.fail].concat(splitOf(c)), [zero.dest, zero.fail, 0, 0, 0, 0, 0], t);
+          return;
+        }
+        const saved = Math.floor(zero.dest * dc / 100);
+        assert.deepStrictEqual([c.destBase, c.destSaved, c.dest], [zero.dest, saved, zero.dest - saved], t);
+        assert.strictEqual(c.dest > 0, C.DESTROY[sw.lv] > 0, t);
+        if (sw.lv >= C.DROP_FROM) {
+          assert.strictEqual(c.dropRelief, Math.floor((100 - c.succ - c.destBase) * rc / 100), t);
+          assert.strictEqual(c.stay, c.destSaved + c.dropRelief, t);
+          assert.ok(c.drop <= zero.drop, t);
+        } else {
+          assert.deepStrictEqual([c.dropRelief, c.stay, c.drop], [0, c.fail, 0], t);
+        }
+        if (rl === 0) { assert.ok(c.dest <= prevDest, t); prevDest = c.dest; }
+      }));
+    });
+    assert.strictEqual(n, 21 * 2 * 4 * 3 * 2 * 2 * 2 * 2 * 25);
+  });
+  test('AC 48: gauge full / sure / forceSuccess / MAX with 45/45 → dest = fail = drop = stay = 0 (all five split fields 0)', () => {
+    const zeroSplit = c => [c.dest, c.fail].concat(splitOf(c));
+    const Z = [0, 0, 0, 0, 0, 0, 0];
+    assert.deepStrictEqual(zeroSplit(at(15, 45, 45, { gaugeFull: true })), Z);
+    assert.deepStrictEqual(zeroSplit(at(8, 45, 45, { sure: true })), Z);
+    assert.deepStrictEqual(zeroSplit(at(C.MAX, 45, 45)), Z);
+    const T = loadTestModeSG();
+    assert.deepStrictEqual(zeroSplit(T.rules.chances({ lv: 12, pity: 0 }, { destroyCut: 45, dropCut: 45 })), Z);
+  });
+  test('AC 48: a forced success at +12 with keepdown on and maxed resistances consumes no keepdown; a full gauge at +15 neither', () => {
+    const T = loadTestModeSG();
+    const S = T.save.defaultState(NOW);
+    S.swords[0].lv = 12;
+    Object.assign(S, { best: 12, gold: 1e9 });
+    S.inv.keepdown = 3;
+    Object.assign(S.rebirth.up, { destroyCut: 4, dropCut: 4 });
+    assert.ok(T.rules.setUse(S, 'keepdown', true).ok);
+    const r = T.rules.attemptEnhance(S, () => 0.9999);
+    assert.deepStrictEqual([r.outcome, S.inv.keepdown], ['success', 3]);
+    const G = stateWith({ sword: { lv: 15 }, inv: { keepdown: 3 } });
+    G.gold = 1e9;
+    G.gauge[0] = C.GAUGE_N[0];
+    Object.assign(G.rebirth.up, { destroyCut: 4, dropCut: 4 });
+    const g = R.attemptEnhance(G, () => 0.9999);
+    assert.deepStrictEqual([g.outcome, G.inv.keepdown, splitOf(g.chances)], ['success', 3, [0, 0, 0, 0, 0]]);
+  });
+  test('AC 49: lucky hour +5 at +10: succ equals the no-resistance call, dest cut from min(DESTROY, 100 − succ) → 7 (saved 5)', () => {
+    const c = at(10, 45, 0, { event: 5 });
+    const plain = at(10, 0, 0, { event: 5 });
+    assert.deepStrictEqual([c.succ, plain.succ, c.destBase, c.dest, c.destSaved, c.eventGain], [50, 50, 12, 7, 5, plain.eventGain]);
+    const S = withEvent(stateWith({ sword: { lv: 10 } }), 'luck');
+    S.rebirth.up.destroyCut = 4;
+    const cur = R.currentChances(S);
+    assert.deepStrictEqual([cur.event, cur.succ, cur.dest, cur.destSaved], [5, 50, 7, 5]);
+  });
+});
+
+describe('8-C resistances: attemptEnhance roll regions (AC 45, 46, 47)', () => {
+  // rng 값을 경계 바로 안쪽에 둔다(0.58 × 100 같은 곱셈 결과에 기대지 않는다, AC 45 주의)
+  const EPS = 1e-9;
+  /** +lv 상태: 저항 레벨(dl/rl), 소모품 재고, 켤 토글 */
+  function resistState(lv, dl, rl, opts) {
+    const o = opts || {};
+    const S = stateWith({ sword: { lv, pity: o.pity || 0 }, inv: { bless: 5, protect: 50, keepdown: 5 } });
+    S.gold = 1e9;
+    Object.assign(S.rebirth.up, { destroyCut: dl, dropCut: rl });
+    (o.use || []).forEach(id => R.setUse(S, id, true));
+    return S;
+  }
+  test('AC 45: +15, 25/25, pity 0 regions [0,20) success · [20,39) destroy · [39,58) stay · [58,100) drop', () => {
+    const S0 = resistState(15, 2, 2);
+    const ch = R.currentChances(S0);
+    assert.deepStrictEqual([ch.succ, ch.succ + ch.dest, ch.succ + ch.dest + ch.stay], [20, 39, 58]);
+    const run = u => {
+      const S = deepCopy(S0);
+      const r = R.attemptEnhance(S, seq(u));
+      const sw = S.swords[0];
+      return [r.outcome, sw ? sw.lv : null, sw ? sw.pity : null, S.stats.fail, S.gauge[0]];
+    };
+    assert.deepStrictEqual(run(0.579), ['fail', 15, 1, 1, 1]);
+    assert.deepStrictEqual(run(0.5801), ['drop', 14, 1, 1, 1]);
+    assert.deepStrictEqual(run(0.39 + EPS), ['fail', 15, 1, 1, 1]);
+    assert.strictEqual(run(0.39 - EPS)[0], 'destroy');
+    assert.strictEqual(run(0.20 - EPS)[0], 'success');
+  });
+  test('AC 45 at +14 (keepdown is +10..+14 only): 25/25 → a stay roll keeps the keepdown, a drop roll consumes it as kept', () => {
+    const S0 = resistState(14, 2, 2, { use: ['keepdown'] });
+    const ch = R.currentChances(S0);
+    assert.deepStrictEqual([ch.succ, ch.succ + ch.dest, ch.succ + ch.dest + ch.stay], [25, 43, 61]);
+    const run = u => { const S = deepCopy(S0); const r = R.attemptEnhance(S, seq(u)); return [r.outcome, S.swords[0].lv, S.inv.keepdown, S.stats.fail]; };
+    assert.deepStrictEqual(run(0.57), ['fail', 14, 5, 1]);
+    assert.deepStrictEqual(run(0.61 - EPS), ['fail', 14, 5, 1]);
+    assert.deepStrictEqual(run(0.61 + EPS), ['kept', 14, 4, 1]);
+    assert.deepStrictEqual(run(0.65), ['kept', 14, 4, 1]);
+    assert.strictEqual(R.setUse(resistState(15, 2, 2), 'keepdown', true).reason, 'lvRange');
+  });
+  test('AC 46: every lv × resistance × pity × bless × protect/keepdown: rolls just inside each region edge give that region\'s outcome with one rng call', () => {
+    const REGIONS = ['success', 'destroy', 'stay', 'drop'];
+    let n = 0;
+    for (let lv = 0; lv < C.MAX; lv++) for (const dl of CUT_LEVELS) for (const rl of CUT_LEVELS) for (const pity of [0, 4]) for (const bless of [false, true])
+      for (const guard of [false, true]) {
+        const use = (bless ? ['bless'] : []).concat(guard ? ['protect', 'keepdown'] : []);
+        const S0 = resistState(lv, dl, rl, { pity, use });
+        const tag = `+${lv} ${dl}/${rl} p${pity} b${bless} g${guard}`;
+        const ch = R.currentChances(S0);
+        assert.strictEqual(JSON.stringify(ch), JSON.stringify(R.chances(R.activeSword(S0), R.enhanceOpts(S0))), tag);
+        const on = R.trayState(S0);
+        const edges = [0, ch.succ, ch.succ + ch.dest, ch.succ + ch.dest + ch.stay, 100];
+        REGIONS.forEach((region, i) => {
+          if (edges[i + 1] <= edges[i]) return;
+          // 곱셈이 정확히 경계 정수가 되는 rng는 그 경계에서 시작하는 구간에 속한다(roll < 경계 비교)
+          const exact = edges[i] / 100 * 100 === edges[i] ? [edges[i] / 100] : [];
+          exact.concat([edges[i] / 100 + EPS, edges[i + 1] / 100 - EPS]).forEach(u => {
+            const S = deepCopy(S0);
+            const before = { protect: S.inv.protect, keepdown: S.inv.keepdown, fail: S.stats.fail };
+            let calls = 0;
+            const r = R.attemptEnhance(S, () => { calls++; return u; });
+            const sw = S.swords.find(s => s.id === r.swordId);
+            const t = `${tag} ${region} u=${u}`;
+            assert.strictEqual(calls, 1, t);
+            if (region !== 'destroy') assert.strictEqual(S.inv.protect, before.protect, `${t}: protect only on destroy`);
+            if (region === 'success') assert.deepStrictEqual([r.outcome, sw.lv], ['success', lv + 1], t);
+            if (region === 'destroy') assert.strictEqual(r.outcome, on.protect.on ? 'protected' : 'destroy', t);
+            if (region === 'stay') {
+              assert.deepStrictEqual([r.outcome, sw.lv, S.inv.keepdown, S.stats.fail], ['fail', lv, before.keepdown, before.fail + 1], t);
+            }
+            if (region === 'drop') {
+              const kept = on.keepdown.on;
+              assert.deepStrictEqual([r.outcome, sw.lv, S.inv.keepdown], [kept ? 'kept' : 'drop', kept ? lv : lv - 1, before.keepdown - (kept ? 1 : 0)], t);
+            }
+            n++;
+          });
+        });
+      }
+    assert.ok(n > 20000, String(n));
+  });
+  test('AC 47: the protect toggle is blocked (noDestroy) only where DESTROY[lv] = 0, at every resistance', () => {
+    for (let lv = 0; lv < C.MAX; lv++) CUT_LEVELS.forEach(dl => {
+      const block = R.trayState(resistState(lv, dl, dl)).protect.block;
+      assert.strictEqual(block === 'noDestroy', C.DESTROY[lv] === 0, `+${lv} cut ${cutAt(dl)}`);
+    });
+  });
+  test('AC 47: seeded 10,000 tries at +19 with protect on: destroy rolls 35% → 20% ±1%p at destroyCut 45, protects used shrink in proportion; protected behaviour unchanged', () => {
+    const N = 10000;
+    const tally = dl => {
+      const S = resistState(19, dl, 0, { use: ['protect'] });
+      const sw = S.swords[0];
+      const rng = seededRng(4747);
+      const out = { protected: 0, used: 0 };
+      for (let i = 0; i < N; i++) {
+        Object.assign(sw, { lv: 19, pity: 0, prot: C.PROTECT_USES });
+        S.inv.protect = 50;
+        S.mastery = [0, 0, 0, 0, 0];
+        S.gauge = [0, 0, 0, 0, 0];
+        const before = { inv: S.inv.protect, saved: S.stats.protectSaved };
+        const r = R.attemptEnhance(S, rng);
+        if (r.outcome !== 'protected') continue;
+        out.protected++;
+        out.used += before.inv - S.inv.protect;
+        assert.deepStrictEqual([sw.lv, sw.pity, sw.prot, S.gauge[4], S.stats.protectSaved, r.protectUsed],
+          [19, 1, C.PROTECT_USES - 1, 1, before.saved + 1, R.protectNeed(19)]);
+      }
+      return out;
+    };
+    const base = tally(0);
+    const cut = tally(4);
+    assert.ok(Math.abs(base.protected / N * 100 - 35) <= 1, `base ${base.protected}`);
+    assert.ok(Math.abs(cut.protected / N * 100 - 20) <= 1, `cut ${cut.protected}`);
+    assert.ok(Math.abs(cut.used / base.used - 20 / 35) < 0.05, `used ratio ${cut.used / base.used}`);
+    assert.deepStrictEqual(tally(4), cut);
+  });
+});
+
 describe('F11 constants load guards (m2-rebirth §2)', () => {
   const MSG = 'REBIRTH / FAME_SHOP constants are inconsistent';
   const swap = (from, to) => src => { assert.ok(src.includes(from), from); return src.replace(from, to); };
@@ -5399,8 +5768,20 @@ describe('F11 constants load guards (m2-rebirth §2)', () => {
   });
   test('MASTERY_KEEP_REC < 0, FAME_PER_REBIRTH < 1, or start slots above SLOT_MAX throws', () => {
     assert.strictEqual(loadError(swap('const MASTERY_KEEP_REC = 1;', 'const MASTERY_KEEP_REC = -1;'), keep), MSG);
-    assert.strictEqual(loadError(swap('const FAME_PER_REBIRTH = 3;', 'const FAME_PER_REBIRTH = 0;'), keep), MSG);
+    assert.strictEqual(loadError(swap('const FAME_PER_REBIRTH = 5;', 'const FAME_PER_REBIRTH = 0;'), keep), MSG);
     assert.strictEqual(loadError(swap('values: [1, 2], costs: [2, 3] }', 'values: [1, 6], costs: [2, 3] }'), keep), MSG);
+  });
+  test('AC 50: destroyCut / dropCut values must be strictly increasing integers in 1..99 (else throw); the shipped table loads', () => {
+    const CUT_MSG = 'FAME_SHOP destroyCut / dropCut values must be strictly increasing integers in 1..99';
+    const DESTROY_ROW = "destroyCut: { name: '파괴 저항', values: [15, 25, 35, 45]";
+    const DROP_ROW = "dropCut:    { name: '하락 저항', values: [15, 25, 35, 45]";
+    assert.strictEqual(loadError(src => src, keep), null);
+    const bad = [['[15, 25, 35, 45]', '[15, 25, 35, 100]'], ['[15, 25, 35, 45]', '[0, 25, 35, 45]'], ['[15, 25, 35, 45]', '[15, 25, 25, 45]'],
+      ['[15, 25, 35, 45]', '[15, 35, 25, 45]'], ['[15, 25, 35, 45]', '[15, 25.5, 35, 45]'], ['[15, 25, 35, 45]', "[15, '25', 35, 45]"]];
+    [DESTROY_ROW, DROP_ROW].forEach(row => bad.forEach(([from, to]) => {
+      assert.strictEqual(loadError(swap(row, row.replace(from, to)), keep), CUT_MSG, row + ' ' + to);
+    }));
+    assert.strictEqual(loadError(swap(DESTROY_ROW, DESTROY_ROW.replace('[15, 25, 35, 45]', '[1, 2, 98, 99]')), keep), null);
   });
 });
 
